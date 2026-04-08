@@ -134,7 +134,8 @@ def extract_with_requests(url: str) -> str:
         except Exception as e: return f"[오류] 로컬 파일을 읽을 수 없습니다: {e}"
     else:
         try:
-            response = curl_requests.get(url, impersonate="chrome116", timeout=10)
+            timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "5"))
+            response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
             html = response.content.decode('utf-8', errors='replace')
         except Exception as e: return f"[오류] 네트워크 접속 문제: {e}"
     return extract_with_html_ultimate_clean(html)
@@ -151,7 +152,8 @@ def extract_with_playwright(url: str, is_warmup=False) -> str:
         except: pass
         if not is_warmup:
             wait_time = 0
-            while wait_time < 3:
+            max_wait_seconds = float(os.getenv("KOBERT_PW_MAX_WAIT_SECONDS", "1"))
+            while wait_time < max_wait_seconds:
                 current_html = page.content()
                 soup_test = BeautifulSoup(current_html, "html.parser")
                 if len(soup_test.get_text(strip=True)) > 150: break
@@ -178,7 +180,9 @@ def warmup_engine(include_pw=True):
     model = BertForSequenceClassification.from_pretrained('monologg/kobert', num_labels=2)
 
     if os.path.exists(WEIGHTS_FILE):
-        model.load_state_dict(torch.load(WEIGHTS_FILE, map_location=device))
+        model.load_state_dict(
+            torch.load(WEIGHTS_FILE, map_location=device, weights_only=False)
+        )
         model.to(device)
         model.eval()
     else:
@@ -192,12 +196,15 @@ def warmup_engine(include_pw=True):
     # Playwright 예열 여부 (조원 서버 설정에 따름)
     pw_status = "skipped"
     if include_pw:
-        playwright_manager = PlaywrightManager()
         try:
-            extract_with_playwright("about:blank", is_warmup=True)
-            pw_status = "warmed_up"
+            playwright_manager = PlaywrightManager()
+            try:
+                extract_with_playwright("about:blank", is_warmup=True)
+                pw_status = "warmed_up"
+            except Exception as e:
+                pw_status = f"error: {e}"
         except Exception as e:
-            pw_status = f"error: {e}"
+            pw_status = f"init_error: {e}"
 
     engine_initialized = True
     print("  [엔진] [OK] 초기화 및 예열 완료!")
@@ -228,16 +235,32 @@ def predict_phishing_result(target_url):
         processed_text = extract_with_requests(target_url)
 
         if len(processed_text) < 150 or processed_text.startswith("[오류]"):
-            print("  [!] 정밀 스캔으로 전환합니다.")
-            processed_text = extract_with_playwright(target_url, is_warmup=False)
+            use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "0") == "1"
+            if use_pw:
+                print("  [!] 정밀 스캔으로 전환합니다.")
+                try:
+                    processed_text = extract_with_playwright(target_url, is_warmup=False)
+                except Exception as e:
+                    processed_text = f"[오류] Playwright 스캔 실패: {e}"
+            else:
+                print("  [!] 정밀 스캔(Playwright) 스킵. USE_PLAYWRIGHT_IN_ANALYZE=0")
 
         # 🚨 [수정 1] 판별 불가 상태일 때 딱 한 줄만 반환!
         if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
             return {
-                "judgment": "unknown"
+                "judgment": "unknown",
+                "riskLevel": "UNKNOWN",
+                "risklevel": "UNKNOWN",
             }
 
-        inputs = tokenizer(processed_text, max_length=512, padding='max_length', truncation=True, return_tensors="pt")
+        max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
+        inputs = tokenizer(
+            processed_text,
+            max_length=max_len,
+            padding='max_length',
+            truncation=True,
+            return_tensors="pt"
+        )
         input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
         
         with torch.no_grad():
@@ -254,6 +277,9 @@ def predict_phishing_result(target_url):
             final_judgment = "normal"
 
     # 🚨 [수정 2] 정상 or 피싱 상태일 때도 딱 한 줄만 반환!
+    risk_level = "HIGH" if final_judgment == "unnormal" else "LOW"
     return {
-        "judgment": final_judgment
+        "judgment": final_judgment,
+        "riskLevel": risk_level,
+        "risklevel": risk_level,
     }

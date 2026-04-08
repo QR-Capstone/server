@@ -12,8 +12,8 @@ import uvicorn
 
 app = FastAPI(title="Phishing Detection API")
 
-# 기동 시 Playwright까지 예열할지 (0이면 모델만 import, 브라우저는 첫 딥스캔 또는 POST /warmup 때)
-STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "1") == "1"
+# 기동 시 Playwright까지 예열할지 (기본은 끄는 것이 훨씬 빠릅니다)
+STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
 
 
 class URLRequest(BaseModel):
@@ -38,7 +38,9 @@ async def startup_event():
     except Exception as e:
         print(f"[예열 실패] {e}")
         app.state.warmup_done = False
-        raise
+        # Playwright 의존성이 없거나 느려도 서버는 먼저 떠야 합니다.
+        # 실제 분석은 /analyze 호출 시 필요하면 그때 처리합니다.
+        app.state.warmup_info = {"error": str(e)}
 
     print("--- [시스템] 서버 준비 완료. /analyze 는 검증만 수행합니다. ---")
 
