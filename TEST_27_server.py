@@ -134,10 +134,11 @@ def extract_with_requests(url: str) -> str:
         except Exception as e: return f"[오류] 로컬 파일을 읽을 수 없습니다: {e}"
     else:
         try:
-            timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "5"))
+            timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "15"))
             response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
             html = response.content.decode('utf-8', errors='replace')
-        except Exception as e: return f"[오류] 네트워크 접속 문제: {e}"
+        except Exception as e:
+            return f"[오류] 네트워크 접속 문제: {e}"
     return extract_with_html_ultimate_clean(html)
 
 def extract_with_playwright(url: str, is_warmup=False) -> str:
@@ -148,11 +149,18 @@ def extract_with_playwright(url: str, is_warmup=False) -> str:
         if playwright_manager is None:
             playwright_manager = PlaywrightManager()
         page = playwright_manager.get_page()
-        try: page.goto(url, timeout=8000, wait_until="networkidle")
-        except: pass
+        goto_timeout_ms = int(os.getenv("KOBERT_PW_GOTO_TIMEOUT_MS", "20000"))
+        try:
+            page.goto(url, timeout=goto_timeout_ms, wait_until="domcontentloaded")
+        except Exception:
+            try:
+                # 일부 사이트는 networkidle까지 오래 걸려 domcontentloaded 기준 재시도
+                page.goto(url, timeout=goto_timeout_ms, wait_until="load")
+            except Exception:
+                pass
         if not is_warmup:
             wait_time = 0
-            max_wait_seconds = float(os.getenv("KOBERT_PW_MAX_WAIT_SECONDS", "1"))
+            max_wait_seconds = float(os.getenv("KOBERT_PW_MAX_WAIT_SECONDS", "4"))
             while wait_time < max_wait_seconds:
                 current_html = page.content()
                 soup_test = BeautifulSoup(current_html, "html.parser")
@@ -235,7 +243,7 @@ def predict_phishing_result(target_url):
         processed_text = extract_with_requests(target_url)
 
         if len(processed_text) < 150 or processed_text.startswith("[오류]"):
-            use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "0") == "1"
+            use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
             if use_pw:
                 print("  [!] 정밀 스캔으로 전환합니다.")
                 try:
