@@ -1,5 +1,7 @@
 import asyncio
+import functools
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 # 추론·응답 더 줄이려면(환경변수, 엔진 모듈 상단과 동일):
 # os.environ.setdefault("MAX_SEQ_LEN", "128")
@@ -14,6 +16,16 @@ app = FastAPI(title="Phishing Detection API")
 
 # 기동 시 Playwright까지 예열할지 (기본은 끄는 것이 훨씬 빠릅니다)
 STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
+
+# Playwright(sync)는 greenlet 컨텍스트가 스레드에 묶이므로, 엔진 호출은 항상 동일 스레드에서만 실행해야 함.
+_engine_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="phish_engine")
+
+
+async def _run_engine(fn, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    if kwargs:
+        return await loop.run_in_executor(_engine_executor, functools.partial(fn, *args, **kwargs))
+    return await loop.run_in_executor(_engine_executor, functools.partial(fn, *args))
 
 
 class URLRequest(BaseModel):
@@ -32,7 +44,7 @@ async def startup_event():
 
     print("--- [2/2] 예열 (warmup_engine: 검증과 분리) ---")
     try:
-        info = await asyncio.to_thread(eng.warmup_engine, STARTUP_WARMUP_PLAYWRIGHT)
+        info = await _run_engine(eng.warmup_engine, STARTUP_WARMUP_PLAYWRIGHT)
         app.state.warmup_info = info
         app.state.warmup_done = True
     except Exception as e:
@@ -62,7 +74,7 @@ async def warmup_manual():
         raise HTTPException(status_code=503, detail="엔진 미로드")
     include_pw = os.getenv("WARMUP_PLAYWRIGHT", "1") == "1"
     try:
-        info = await asyncio.to_thread(eng.warmup_engine, include_pw)
+        info = await _run_engine(eng.warmup_engine, include_pw)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     app.state.warmup_info = info
@@ -80,7 +92,7 @@ async def analyze_url(request: URLRequest):
 
     try:
         eng = app.state.eng
-        result = await asyncio.to_thread(eng.predict_phishing_result, target_url)
+        result = await _run_engine(eng.predict_phishing_result, target_url)
     except Exception as e:
         print(f"[오류] {e}")
         raise HTTPException(status_code=500, detail=str(e))
