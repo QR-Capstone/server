@@ -55,7 +55,7 @@ class PlaywrightManager:
         self.playwright.stop()
 
 # ==========================================
-# 🛠️ 텍스트 전처리 및 수집 함수 (기존 100% 동일)
+# 🛠️ 텍스트 전처리 및 수집 함수
 # ==========================================
 _RE_PHONE = re.compile(r"\b\d{2,3}[-\s]?\d{3,4}[-\s]?\d{4}\b")
 _RE_EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
@@ -124,24 +124,25 @@ def extract_with_html_ultimate_clean(html: str) -> str:
     final_text = re.sub(r"\s+", " ", final_text).strip()[:1000]
     return redact_pii(final_text)
 
-def extract_with_requests(url: str) -> str:
+# 🌟 [새로운 함수] 원본 HTML과 전처리 텍스트를 함께 반환합니다. (링크 추출용)
+def extract_with_requests_and_raw_html(url: str):
     html = ""
     if url.startswith("file://") or url[1:3] == ":\\":
         try:
             file_path = unquote(url.replace("file:///", "").replace("file://", ""))
             with open(file_path, "rb") as f: raw = f.read()
             html = raw.decode("utf-8", errors="ignore")
-        except Exception as e: return f"[오류] 로컬 파일을 읽을 수 없습니다: {e}"
+        except Exception as e: return f"[오류] 로컬 파일을 읽을 수 없습니다: {e}", ""
     else:
         try:
             timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "15"))
             response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
             html = response.content.decode('utf-8', errors='replace')
         except Exception as e:
-            return f"[오류] 네트워크 접속 문제: {e}"
-    return extract_with_html_ultimate_clean(html)
+            return f"[오류] 네트워크 접속 문제: {e}", ""
+    return extract_with_html_ultimate_clean(html), html
 
-def extract_with_playwright(url: str, is_warmup=False) -> str:
+def extract_with_playwright_and_raw_html(url: str, is_warmup=False):
     if not is_warmup: print("  [알림] 2단계: Playwright 정밀 스캔을 시작합니다.")
     page = None
     try:
@@ -154,7 +155,6 @@ def extract_with_playwright(url: str, is_warmup=False) -> str:
             page.goto(url, timeout=goto_timeout_ms, wait_until="domcontentloaded")
         except Exception:
             try:
-                # 일부 사이트는 networkidle까지 오래 걸려 domcontentloaded 기준 재시도
                 page.goto(url, timeout=goto_timeout_ms, wait_until="load")
             except Exception:
                 pass
@@ -167,10 +167,76 @@ def extract_with_playwright(url: str, is_warmup=False) -> str:
                 if len(soup_test.get_text(strip=True)) > 150: break
                 page.wait_for_timeout(1000); wait_time += 1
         full_html = page.content()
-        return extract_with_html_ultimate_clean(full_html)
+        return extract_with_html_ultimate_clean(full_html), full_html
     finally:
         if page: page.close()
 
+# 🌟 [업그레이드된 함수] 1-Depth 페이지에서 '로그인/가입' 등 핵심 링크를 우선 추출합니다.
+def extract_deep_links(raw_html, base_url, max_links=3):
+    soup = BeautifulSoup(raw_html, "html.parser")
+    
+    priority_links = [] # 1순위: 로그인, 가입 등 위험 키워드 링크
+    normal_links = []   # 2순위: 그 외 일반 링크
+    
+    # 🔥 추적 1순위 타겟 키워드 (소문자로 작성)
+    target_keywords = ["로그인", "login", "회원가입", "가입", "sign in", "sign up", "본인인증", "인증", "비밀번호", "내정보"]
+    
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag["href"]
+        
+        # 내부 앵커 링크나 무의미한 자바스크립트 호출 제외
+        if href.startswith("#") or "javascript:" in href.lower() or href == "/":
+            continue
+            
+        # 상대 경로 처리
+        if not href.startswith("http"):
+            if base_url.endswith("/") and href.startswith("/"):
+                full_url = base_url[:-1] + href
+            elif not base_url.endswith("/") and not href.startswith("/"):
+                full_url = base_url + "/" + href
+            else:
+                full_url = base_url + href
+        else:
+            full_url = href
+            
+        # 자기 자신(루트)으로 다시 돌아가는 링크 제외
+        if full_url == base_url:
+            continue
+            
+        # 🌟 링크 텍스트나 URL 자체에 위험 키워드가 있는지 검사
+        link_text = a_tag.get_text(strip=True).lower()
+        href_lower = href.lower()
+        
+        is_priority = False
+        for kw in target_keywords:
+            if kw in link_text or kw in href_lower:
+                is_priority = True
+                break
+                
+        # 분류해서 바구니에 담기 (중복 방지)
+        if is_priority:
+            if full_url not in priority_links:
+                priority_links.append(full_url)
+        else:
+            if full_url not in normal_links:
+                normal_links.append(full_url)
+
+    # 🌟 최종 조합: 우선순위 링크를 먼저 꽉꽉 채우고, 자리가 남으면 일반 링크로 채움
+    final_links = []
+    
+    for link in priority_links:
+        if link not in final_links:
+            final_links.append(link)
+            if len(final_links) >= max_links:
+                return final_links
+                
+    for link in normal_links:
+        if link not in final_links:
+            final_links.append(link)
+            if len(final_links) >= max_links:
+                return final_links
+                
+    return final_links
 
 # ==========================================
 # 🚀 1. 조원의 서버에서 호출하는 [예열 함수]
@@ -196,18 +262,16 @@ def warmup_engine(include_pw=True):
     else:
         raise FileNotFoundError(f"모델 가중치 파일을 찾을 수 없습니다: {WEIGHTS_FILE}")
 
-    # 가짜 텍스트로 모델 예열
     dummy_inputs = tokenizer("예열 테스트", return_tensors="pt", max_length=128, padding='max_length', truncation=True)
     with torch.no_grad():
         _ = model(dummy_inputs['input_ids'].to(device), attention_mask=dummy_inputs['attention_mask'].to(device))
 
-    # Playwright 예열 여부 (조원 서버 설정에 따름)
     pw_status = "skipped"
     if include_pw:
         try:
             playwright_manager = PlaywrightManager()
             try:
-                extract_with_playwright("about:blank", is_warmup=True)
+                extract_with_playwright_and_raw_html("about:blank", is_warmup=True)
                 pw_status = "warmed_up"
             except Exception as e:
                 pw_status = f"error: {e}"
@@ -225,7 +289,7 @@ def warmup_engine(include_pw=True):
 
 
 # ==========================================
-# 🚀 2. 조원의 서버에서 호출하는 [검증 및 결과 반환 함수]
+# 🚀 2. 🌟 심층 검증(Fail-Fast)이 적용된 메인 판단 함수
 # ==========================================
 def predict_phishing_result(target_url):
     global device, tokenizer, model, engine_initialized
@@ -239,55 +303,78 @@ def predict_phishing_result(target_url):
     f = io.StringIO()
     
     with redirect_stdout(f):
-        print(f"\n[{target_url}] 데이터 추출 시작...")
-        processed_text = extract_with_requests(target_url)
+        print(f"\n[{target_url}] 데이터 추출 시작 (1-Depth)...")
+        
+        # 1-Depth 추출 및 딥링크 탐색 준비
+        processed_text, raw_html = extract_with_requests_and_raw_html(target_url)
+        use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
 
         if len(processed_text) < 150 or processed_text.startswith("[오류]"):
-            use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
             if use_pw:
                 print("  [!] 정밀 스캔으로 전환합니다.")
                 try:
-                    processed_text = extract_with_playwright(target_url, is_warmup=False)
+                    processed_text, raw_html = extract_with_playwright_and_raw_html(target_url, is_warmup=False)
                 except Exception as e:
                     processed_text = f"[오류] Playwright 스캔 실패: {e}"
-            else:
-                print("  [!] 정밀 스캔(Playwright) 스킵. USE_PLAYWRIGHT_IN_ANALYZE=0")
+                    raw_html = ""
 
-        # 🚨 [수정 1] 판별 불가 상태일 때 딱 한 줄만 반환!
+        # 초기 URL 판단 보류 시 즉시 종료 (riskLevel 삭제)
         if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
             return {
-                "judgment": "unknown",
-                "riskLevel": "UNKNOWN",
-                "risklevel": "UNKNOWN",
+                "judgment": "unknown"
             }
+            
+        # 검사 대상 URL 목록 만들기 (메인 URL + 추출된 하위 링크 3개)
+        urls_to_check = [target_url]
+        deep_links = extract_deep_links(raw_html, target_url, max_links=3)
+        urls_to_check.extend(deep_links)
 
-        max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
-        inputs = tokenizer(
-            processed_text,
-            max_length=max_len,
-            padding='max_length',
-            truncation=True,
-            return_tensors="pt"
-        )
-        input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
-        
-        with torch.no_grad():
-            outputs = model(input_ids, attention_mask=attention_mask)
-            probs = F.softmax(outputs.logits, dim=-1)[0]
+        # 🌟 Fail-Fast 로직 시작
+        for idx, url in enumerate(urls_to_check):
+            # 두 번째 링크부터는 새로 텍스트를 추출
+            if idx > 0:
+                print(f"  [!] 2-Depth 스캔 진행 중... ({url})")
+                current_text, _ = extract_with_requests_and_raw_html(url)
+                if len(current_text) < 150 or current_text.startswith("[오류]"):
+                     if use_pw:
+                        try:
+                            current_text, _ = extract_with_playwright_and_raw_html(url, is_warmup=False)
+                        except Exception:
+                            continue # 실패하면 다음 링크로 넘어감
+                
+                if current_text.startswith("[오류]") or current_text.startswith("[판별 보류]"):
+                    continue # 검사 불가능한 링크면 패스
+            else:
+                current_text = processed_text # 1-Depth는 아까 뽑아둔 텍스트 재활용
 
-        prob_normal = probs[0].item() * 100
-        prob_phishing = probs[1].item() * 100
-        is_phishing = prob_phishing > 50
+            # 모델 분석
+            max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
+            inputs = tokenizer(
+                current_text,
+                max_length=max_len,
+                padding='max_length',
+                truncation=True,
+                return_tensors="pt"
+            )
+            input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
+            
+            with torch.no_grad():
+                outputs = model(input_ids, attention_mask=attention_mask)
+                probs = F.softmax(outputs.logits, dim=-1)[0]
 
-        if is_phishing:
-            final_judgment = "unnormal"
-        else:
-            final_judgment = "normal"
+            prob_phishing = probs[1].item() * 100
 
-    # 🚨 [수정 2] 정상 or 피싱 상태일 때도 딱 한 줄만 반환!
-    risk_level = "HIGH" if final_judgment == "unnormal" else "LOW"
+            # 🔥 [여기에 추가!] 내 화면(터미널)에서만 확인하기 위한 실시간 로그
+            print(f"    👉 [분석 완료] 피싱 확률: {prob_phishing:.2f}%") # 추후 지워도됩니다 (test용)
+            
+            # 🔥 핵심: DOM 중 하나라도 피싱 확률이 높으면 즉시 종료(Fail-Fast) (riskLevel 삭제)
+            if prob_phishing > 50:
+                 print("    🚨 [경고] 피싱 감지! 즉시 검사를 중단하고 악성으로 판단합니다.") # 추후 지워도됩니다 (test용)
+                 return {
+                    "judgment": "unnormal"
+                }
+
+    # 최대 4개(본래 URL + 하위 3개)의 페이지를 다 뒤졌는데도 피싱이 없으면 정상 (riskLevel 삭제)
     return {
-        "judgment": final_judgment,
-        "riskLevel": risk_level,
-        "risklevel": risk_level,
+        "judgment": "normal"
     }
