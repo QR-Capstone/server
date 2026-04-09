@@ -1,5 +1,9 @@
 import asyncio
+import json
 import os
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
 
 # 추론·응답 더 줄이려면(환경변수, 엔진 모듈 상단과 동일):
 # os.environ.setdefault("MAX_SEQ_LEN", "128")
@@ -14,6 +18,32 @@ app = FastAPI(title="Phishing Detection API")
 
 # 기동 시 Playwright까지 예열할지 (기본은 끄는 것이 훨씬 빠릅니다)
 STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
+
+RESULT_LOG_PATH = Path(os.getenv("RESULT_LOG_PATH", "/home/lee/log.json"))
+_log_lock = threading.Lock()
+
+
+def _append_result_log(entry: dict) -> None:
+    """결과를 JSON 배열로 누적 저장 (스레드 안전)."""
+    RESULT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _log_lock:
+        if RESULT_LOG_PATH.exists():
+            try:
+                raw = RESULT_LOG_PATH.read_text(encoding="utf-8").strip()
+                data = json.loads(raw) if raw else []
+            except (json.JSONDecodeError, OSError):
+                data = []
+        else:
+            data = []
+        if not isinstance(data, list):
+            data = [{"_legacy": data}]
+        data.append(entry)
+        tmp = RESULT_LOG_PATH.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        tmp.replace(RESULT_LOG_PATH)
 
 
 class URLRequest(BaseModel):
@@ -84,6 +114,18 @@ async def analyze_url(request: URLRequest):
     except Exception as e:
         print(f"[오류] {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        await asyncio.to_thread(
+            _append_result_log,
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "url": target_url,
+                "result": result,
+            },
+        )
+    except Exception as e:
+        print(f"[로그 저장 실패] {RESULT_LOG_PATH}: {e}")
 
     return result
 
