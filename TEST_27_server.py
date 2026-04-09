@@ -134,7 +134,7 @@ def extract_with_requests_and_raw_html(url: str):
         except Exception: return "[오류] 로컬 파일을 읽을 수 없습니다", ""
     else:
         try:
-            timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "15"))
+            timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "30"))
             response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
             html = response.content.decode('utf-8', errors='replace')
         except Exception:
@@ -148,7 +148,7 @@ def extract_with_playwright_and_raw_html(url: str, is_warmup=False):
         if playwright_manager is None:
             playwright_manager = PlaywrightManager()
         page = playwright_manager.get_page()
-        goto_timeout_ms = int(os.getenv("KOBERT_PW_GOTO_TIMEOUT_MS", "20000"))
+        goto_timeout_ms = int(os.getenv("KOBERT_PW_GOTO_TIMEOUT_MS", "40000"))
         try:
             page.goto(url, timeout=goto_timeout_ms, wait_until="domcontentloaded")
         except Exception:
