@@ -292,7 +292,6 @@ def warmup_engine(include_pw=True):
 # 🚀 2. 🌟 심층 검증(Fail-Fast)이 적용된 메인 판단 함수
 # ==========================================
 def predict_phishing_result(target_url):
-    """판별 결과와 로깅용 검증 추적 정보를 함께 반환: (result_dict, trace_dict)."""
     global device, tokenizer, model, engine_initialized
 
     if not engine_initialized:
@@ -301,17 +300,11 @@ def predict_phishing_result(target_url):
     if not (target_url.startswith("http") or ":" in target_url or target_url.startswith("/")):
         target_url = "https://" + target_url
 
-    trace = {
-        "playwright_used": False,
-        "main_kobert": False,
-        "deep_link_kobert_runs": 0,
-    }
-
     f = io.StringIO()
-
+    
     with redirect_stdout(f):
         print(f"\n[{target_url}] 데이터 추출 시작 (1-Depth)...")
-
+        
         # 1-Depth 추출 및 딥링크 탐색 준비
         processed_text, raw_html = extract_with_requests_and_raw_html(target_url)
         use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
@@ -321,21 +314,17 @@ def predict_phishing_result(target_url):
                 print("  [!] 정밀 스캔으로 전환합니다.")
                 try:
                     processed_text, raw_html = extract_with_playwright_and_raw_html(target_url, is_warmup=False)
-                    trace["playwright_used"] = True
                 except Exception as e:
                     processed_text = f"[오류] Playwright 스캔 실패: {e}"
                     raw_html = ""
 
         # 초기 URL 판단 보류 시 즉시 종료 (riskLevel 삭제)
         if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
-            return (
-                {
-                    "judgment": "unknown",
-                    "riskLevel": "UNKNOWN",
-                    "risklevel": "UNKNOWN",
-                },
-                trace,
-            )
+            return {
+                "judgment": "unknown",
+                "riskLevel": "UNKNOWN",
+                "risklevel": "UNKNOWN"    
+            }
             
         # 검사 대상 URL 목록 만들기 (메인 URL + 추출된 하위 링크 3개)
         urls_to_check = [target_url]
@@ -352,7 +341,6 @@ def predict_phishing_result(target_url):
                      if use_pw:
                         try:
                             current_text, _ = extract_with_playwright_and_raw_html(url, is_warmup=False)
-                            trace["playwright_used"] = True
                         except Exception:
                             continue # 실패하면 다음 링크로 넘어감
                 
@@ -378,32 +366,21 @@ def predict_phishing_result(target_url):
 
             prob_phishing = probs[1].item() * 100
 
-            if idx == 0:
-                trace["main_kobert"] = True
-            else:
-                trace["deep_link_kobert_runs"] += 1
-
             # 🔥 [여기에 추가!] 내 화면(터미널)에서만 확인하기 위한 실시간 로그
             print(f"    👉 [분석 완료] 피싱 확률: {prob_phishing:.2f}%") # 추후 지워도됩니다 (test용)
             
             # 🔥 핵심: DOM 중 하나라도 피싱 확률이 높으면 즉시 종료(Fail-Fast) (riskLevel 삭제)
             if prob_phishing > 50:
                  print("    🚨 [경고] 피싱 감지! 즉시 검사를 중단하고 악성으로 판단합니다.") # 추후 지워도됩니다 (test용)
-                 return (
-                     {
-                         "judgment": "unnormal",
-                         "riskLevel": "HIGH",
-                         "risklevel": "HIGH",
-                     },
-                     trace,
-                 )
+                 return {
+                    "judgment": "unnormal",
+                    "riskLevel": "HIGH",
+                    "risklevel": "HIGH"
+                }
 
     # 최대 4개(본래 URL + 하위 3개)의 페이지를 다 뒤졌는데도 피싱이 없으면 정상 (riskLevel 삭제)
-    return (
-        {
-            "judgment": "normal",
-            "riskLevel": "LOW",
-            "risklevel": "LOW",
-        },
-        trace,
-    )
+    return {
+        "judgment": "normal",
+        "riskLevel": "LOW",
+        "risklevel": "LOW"
+    }

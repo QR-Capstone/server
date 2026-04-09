@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,7 +53,7 @@ class URLRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     print("--- [1/2] 모델 로드 (import, 검증 아님) ---")
-    # 예열·판별 API는 TEST_27_server.warmup_engine / predict_phishing_result(판별 dict, 검증 trace) 계약
+    # 예열·판별 API는 TEST_27_server.warmup_engine / predict_phishing_result 와 동일 계약
     import TEST_27_server as eng
 
     app.state.eng = eng
@@ -109,31 +108,19 @@ async def analyze_url(request: URLRequest):
 
     print(f"--- [검증] URL: {target_url} ---")
 
-    started_at = datetime.now(timezone.utc).isoformat()
-    t0 = time.perf_counter()
     try:
         eng = app.state.eng
-        result, vtrace = await asyncio.to_thread(eng.predict_phishing_result, target_url)
+        result = await asyncio.to_thread(eng.predict_phishing_result, target_url)
     except Exception as e:
         print(f"[오류] {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-    duration_ms = round((time.perf_counter() - t0) * 1000, 3)
-    finished_at = datetime.now(timezone.utc).isoformat()
-    stage2_done = vtrace["playwright_used"] or vtrace["deep_link_kobert_runs"] > 0
 
     try:
         await asyncio.to_thread(
             _append_result_log,
             {
-                "ts": finished_at,
-                "started_at": started_at,
-                "finished_at": finished_at,
-                "duration_ms": duration_ms,
+                "ts": datetime.now(timezone.utc).isoformat(),
                 "url": target_url,
-                "verification_stage1": vtrace["main_kobert"],
-                "verification_stage2": stage2_done,
-                "verification_detail": vtrace,
                 "result": result,
             },
         )
