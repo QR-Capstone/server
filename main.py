@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 # 추론·응답 더 줄이려면(환경변수, 엔진 모듈 상단과 동일):
@@ -8,11 +9,25 @@ from concurrent.futures import ThreadPoolExecutor
 # os.environ.setdefault("USE_PLAYWRIGHT_IN_ANALYZE", "0")
 # os.environ.setdefault("TORCH_NUM_THREADS", "4")
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import uvicorn
 
 app = FastAPI(title="Phishing Detection API")
+
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    """요청 수신부터 응답 완료까지(전체) 걸린 시간 — 터미널 OK 옆에 보이게 출력."""
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    dur = time.perf_counter() - t0
+    response.headers["X-Process-Time"] = f"{dur:.3f}"
+    print(
+        f"--- [요청 완료] {request.method} {request.url.path} "
+        f"{response.status_code} OK ({dur:.3f}s)"
+    )
+    return response
 
 # 기동 시 Playwright까지 예열할지 (기본은 끄는 것이 훨씬 빠릅니다)
 STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
@@ -73,13 +88,15 @@ async def warmup_manual():
     if eng is None:
         raise HTTPException(status_code=503, detail="엔진 미로드")
     include_pw = os.getenv("WARMUP_PLAYWRIGHT", "1") == "1"
+    t0 = time.perf_counter()
     try:
         info = await _run_engine(eng.warmup_engine, include_pw)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     app.state.warmup_info = info
     app.state.warmup_done = True
-    return {"ok": True, "warmup": info}
+    dur = time.perf_counter() - t0
+    return {"ok": True, "warmup": info, "duration_sec": round(dur, 3)}
 
 
 @app.post("/analyze")
@@ -90,6 +107,7 @@ async def analyze_url(request: URLRequest):
 
     print(f"--- [검증] URL: {target_url} ---")
 
+    t0 = time.perf_counter()
     try:
         eng = app.state.eng
         result = await _run_engine(eng.predict_phishing_result, target_url)
@@ -97,7 +115,9 @@ async def analyze_url(request: URLRequest):
         print(f"[오류] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-    return result
+    dur = time.perf_counter() - t0
+    print(f"--- [검증 완료] {dur:.3f}s OK ---")
+    return {**result, "duration_sec": round(dur, 3)}
 
 
 if __name__ == "__main__":
