@@ -321,7 +321,9 @@ def predict_phishing_result(target_url):
         # 초기 URL 판단 보류 시 즉시 종료 (riskLevel 삭제)
         if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
             return {
-                "judgment": "unknown"
+                "judgment": "unknown",
+                "riskLevel": "UNKNOWN",
+                "risklevel": "UNKNOWN"    
             }
             
         # 검사 대상 URL 목록 만들기 (메인 URL + 추출된 하위 링크 3개)
@@ -371,10 +373,14 @@ def predict_phishing_result(target_url):
             if prob_phishing > 50:
                  print("    🚨 [경고] 피싱 감지! 즉시 검사를 중단하고 악성으로 판단합니다.") # 추후 지워도됩니다 (test용)
                  return {
-                    "judgment": "unnormal"
+                    "judgment": "unnormal",
+                    "riskLevel": "HIGH",
+                    "risklevel": "HIGH"
                 }
 
     # 최대 4개(본래 URL + 하위 3개)의 페이지를 다 뒤졌는데도 피싱이 없으면 정상 (riskLevel 삭제)
     return {
-        "judgment": "normal"
+        "judgment": "normal",
+        "riskLevel": "LOW",
+        "risklevel": "LOW"
     }
