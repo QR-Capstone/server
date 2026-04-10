@@ -240,5 +240,41 @@ async def analyze_url(request: URLRequest):
     }
 
 
+@app.post("/analyze/engine")
+async def analyze_engine_only(request: URLRequest):
+    """KoBERT(텍스트) 엔진만 실행 — 클라이언트에서 1단계 진행률용."""
+    target_url = (request.url or "").strip()
+    if not target_url:
+        raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
+    eng = getattr(app.state, "eng", None)
+    if eng is not None:
+        result = await _run_engine(eng.predict_phishing_result, target_url)
+    else:
+        result = {
+            "judgment": "unknown",
+            "riskLevel": "UNKNOWN",
+            "risklevel": "UNKNOWN",
+            "engine_disabled": True,
+            "engine_reason": getattr(app.state, "eng_status", {}).get("reason", "not_loaded"),
+        }
+    return {
+        **result,
+        "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
+    }
+
+
+@app.post("/analyze/xgboost")
+async def analyze_xgboost_only(request: URLRequest):
+    """XGBoost(타이포 + 도메인 연령)만 실행 — 클라이언트에서 2단계 진행률용."""
+    target_url = (request.url or "").strip()
+    if not target_url:
+        raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
+    xg_result = await _run_engine(_run_xgboost_inference, target_url)
+    return {
+        "xgboost": xg_result,
+        "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
+    }
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
