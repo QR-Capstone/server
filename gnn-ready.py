@@ -67,13 +67,6 @@ print("\n🔍 [출처별 데이터 분포]")
 print(total_df['source'].value_counts())
 
 
-
-
-
-
-
-
-
 import numpy as np
 
 def extract_features(df):
@@ -196,11 +189,15 @@ print(classification_report(y_test, y_pred))
 
 import joblib
 
-# 모델 저장
-joblib.dump(model, "gnn_model.pkl")
-
-# 특징 추출기(컬럼 리스트)도 나중을 위해 저장해두면 좋습니다.
-joblib.dump(X.columns.tolist(), "gnn_model_features.pkl")
+# 모델 저장 (protocol=4 + compress로 서버 Python 호환성 향상)
+try:
+    joblib.dump(model, "gnn_model.pkl", compress=3, protocol=4)
+except TypeError:
+    joblib.dump(model, "gnn_model.pkl", compress=3)
+try:
+    joblib.dump(X.columns.tolist(), "gnn_model_features.pkl", compress=1, protocol=4)
+except TypeError:
+    joblib.dump(X.columns.tolist(), "gnn_model_features.pkl")
 
 print("✅ 모델 저장 완료: gnn_model.pkl")
 

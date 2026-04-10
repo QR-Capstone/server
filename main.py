@@ -145,7 +145,10 @@ def _log_line_xgboost(xg: object) -> str:
 
 def _log_line_gnn(gnn: object) -> str:
     if gnn is None:
-        return "GNN(lexical RF): skipped (no model)"
+        st = getattr(app.state, "gnn_status", {}) or {}
+        reason = st.get("reason") or "no_model_loaded"
+        # Typical: missing file, or pickle/Python mismatch (see startup logs)
+        return f"GNN(lexical RF): skipped — {reason}"
     if isinstance(gnn, dict) and gnn.get("error"):
         return f"GNN(lexical RF): error {gnn.get('error', '')[:80]}"
     return f"GNN(lexical RF): verdict={gnn.get('verdict')} p={gnn.get('probability')}"

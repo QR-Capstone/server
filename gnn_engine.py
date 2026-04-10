@@ -91,9 +91,11 @@ def load_gnn_model(
         model = joblib.load(model_path)
     except Exception as e:
         raise RuntimeError(
-            "Failed to load GNN RF model pickle (corrupt or newer Python). "
-            "Use Python 3.11+ on the server or re-save with "
-            "`joblib.dump(model, 'gnn_model.pkl', compress=3)` from a compatible env."
+            "Failed to load gnn_model.pkl. Even on Python 3.12 this usually means "
+            "scikit-learn / joblib / numpy versions differ from the machine that created the file. "
+            "Pin the same versions as training (see requirements.txt), or re-run gnn-ready.py to "
+            "regenerate the pickle, or run reexport_gnn_model.py where the file loads and redeploy. "
+            f"Detail: {type(e).__name__}: {e}"
         ) from e
     cols: Optional[List[str]] = None
     if feature_columns_path and os.path.isfile(feature_columns_path):
