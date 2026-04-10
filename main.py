@@ -3,6 +3,7 @@ import functools
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
 
 # 추론·응답 더 줄이려면(환경변수, 엔진 모듈 상단과 동일):
 # os.environ.setdefault("MAX_SEQ_LEN", "128")
@@ -12,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import uvicorn
+from XG_core import load_bundle, predict_url
 
 app = FastAPI(title="Phishing Detection API")
 
@@ -43,6 +45,56 @@ async def _run_engine(fn, *args, **kwargs):
     return await loop.run_in_executor(_engine_executor, functools.partial(fn, *args))
 
 
+def _normalize_url_for_xgboost(url: str) -> str:
+    """XGBoost 입력 URL 정규화: 스킴이 없으면 https 추가."""
+    candidate = (url or "").strip()
+    if not candidate:
+        return candidate
+    parsed = urlsplit(candidate)
+    if parsed.scheme and parsed.netloc:
+        return candidate
+    return f"https://{candidate}"
+
+
+def _run_xgboost_inference(raw_url: str):
+    """로드된 번들로 XGBoost 추론 수행. 반환: dict 또는 None."""
+    typo_bundle = getattr(app.state, "xg_typo_bundle", None)
+    domain_bundle = getattr(app.state, "xg_domain_bundle", None)
+    if typo_bundle is None and domain_bundle is None:
+        return None
+
+    url = _normalize_url_for_xgboost(raw_url)
+    output = {"url": url}
+
+    if typo_bundle is not None:
+        typo_label, typo_prob, _ = predict_url(
+            typo_bundle,
+            url,
+            enable_domain_age=False,
+            domain_only=False,
+        )
+        output["typo_probability"] = round(float(typo_prob), 6)
+        output["typo_label"] = int(typo_label)
+
+    if domain_bundle is not None:
+        domain_label, domain_prob, _ = predict_url(
+            domain_bundle,
+            url,
+            enable_domain_age=True,
+            domain_only=True,
+        )
+        output["domain_probability"] = round(float(domain_prob), 6)
+        output["domain_label"] = int(domain_label)
+
+    typo_prob = float(output.get("typo_probability", 0.0))
+    domain_prob = float(output.get("domain_probability", 0.0))
+    final_prob = max(typo_prob, domain_prob)
+    output["final_probability"] = round(final_prob, 6)
+    output["label"] = int(1 if final_prob >= 0.5 else 0)
+    output["verdict"] = "malicious" if output["label"] == 1 else "benign"
+    return output
+
+
 class URLRequest(BaseModel):
     url: str
 
@@ -51,23 +103,70 @@ class URLRequest(BaseModel):
 async def startup_event():
     print("--- [1/2] 모델 로드 (import, 검증 아님) ---")
     # 예열·판별 API는 TEST_27_server.warmup_engine / predict_phishing_result 와 동일 계약
-    import TEST_27_server as eng
+    app.state.eng = None
+    app.state.eng_status = {"enabled": False, "reason": "not_loaded"}
+    try:
+        import TEST_27_server as eng
+        app.state.eng = eng
+        app.state.eng_status = {"enabled": True}
+    except Exception as e:
+        app.state.eng_status = {"enabled": False, "reason": str(e)}
+        print(f"[경고] 코발트 엔진 로드 실패: {e}")
 
-    app.state.eng = eng
     app.state.warmup_done = False
     app.state.warmup_info = None
+    app.state.xg_typo_bundle = None
+    app.state.xg_domain_bundle = None
+    app.state.xg_status = {"enabled": False, "reason": "not_loaded"}
+
+    # XGBoost 번들은 선택 로딩(없어도 서버 동작)
+    xg_typo_path = os.getenv("XG_MODEL_TYPO", "url_xgb_paired_first.joblib")
+    xg_domain_path = os.getenv("XG_MODEL_DOMAIN", "url_xgb_domain_age.joblib")
+    xg_errors = []
+    try:
+        if os.path.isfile(xg_typo_path):
+            app.state.xg_typo_bundle = load_bundle(xg_typo_path)
+        else:
+            xg_errors.append(f"missing_typo_model:{xg_typo_path}")
+    except Exception as e:
+        xg_errors.append(f"typo_load_error:{e}")
+
+    try:
+        if os.path.isfile(xg_domain_path):
+            app.state.xg_domain_bundle = load_bundle(xg_domain_path)
+        else:
+            xg_errors.append(f"missing_domain_model:{xg_domain_path}")
+    except Exception as e:
+        xg_errors.append(f"domain_load_error:{e}")
+
+    if app.state.xg_typo_bundle is not None or app.state.xg_domain_bundle is not None:
+        app.state.xg_status = {
+            "enabled": True,
+            "typo_loaded": app.state.xg_typo_bundle is not None,
+            "domain_loaded": app.state.xg_domain_bundle is not None,
+            "warnings": xg_errors,
+        }
+    else:
+        app.state.xg_status = {
+            "enabled": False,
+            "warnings": xg_errors,
+        }
 
     print("--- [2/2] 예열 (warmup_engine: 검증과 분리) ---")
-    try:
-        info = await _run_engine(eng.warmup_engine, STARTUP_WARMUP_PLAYWRIGHT)
-        app.state.warmup_info = info
-        app.state.warmup_done = True
-    except Exception as e:
-        print(f"[예열 실패] {e}")
+    if app.state.eng is not None:
+        try:
+            info = await _run_engine(app.state.eng.warmup_engine, STARTUP_WARMUP_PLAYWRIGHT)
+            app.state.warmup_info = info
+            app.state.warmup_done = True
+        except Exception as e:
+            print(f"[예열 실패] {e}")
+            app.state.warmup_done = False
+            # Playwright 의존성이 없거나 느려도 서버는 먼저 떠야 합니다.
+            # 실제 분석은 /analyze 호출 시 필요하면 그때 처리합니다.
+            app.state.warmup_info = {"error": str(e)}
+    else:
         app.state.warmup_done = False
-        # Playwright 의존성이 없거나 느려도 서버는 먼저 떠야 합니다.
-        # 실제 분석은 /analyze 호출 시 필요하면 그때 처리합니다.
-        app.state.warmup_info = {"error": str(e)}
+        app.state.warmup_info = {"skipped": "engine_not_loaded"}
 
     print("--- [시스템] 서버 준비 완료. /analyze 는 검증만 수행합니다. ---")
 
@@ -78,6 +177,8 @@ async def ready():
     return {
         "ready": getattr(app.state, "warmup_done", False),
         "warmup": getattr(app.state, "warmup_info", None),
+        "engine": getattr(app.state, "eng_status", {"enabled": False}),
+        "xgboost": getattr(app.state, "xg_status", {"enabled": False}),
     }
 
 
@@ -86,7 +187,10 @@ async def warmup_manual():
     """기동 시 Playwright 생략했으면 나중에 여기서만 예열."""
     eng = getattr(app.state, "eng", None)
     if eng is None:
-        raise HTTPException(status_code=503, detail="엔진 미로드")
+        raise HTTPException(
+            status_code=503,
+            detail=f"엔진 미로드: {getattr(app.state, 'eng_status', {}).get('reason', 'unknown')}",
+        )
     include_pw = os.getenv("WARMUP_PLAYWRIGHT", "1") == "1"
     t0 = time.perf_counter()
     try:
@@ -109,15 +213,31 @@ async def analyze_url(request: URLRequest):
 
     t0 = time.perf_counter()
     try:
-        eng = app.state.eng
-        result = await _run_engine(eng.predict_phishing_result, target_url)
+        eng = getattr(app.state, "eng", None)
+        if eng is not None:
+            result = await _run_engine(eng.predict_phishing_result, target_url)
+        else:
+            result = {
+                "judgment": "unknown",
+                "riskLevel": "UNKNOWN",
+                "risklevel": "UNKNOWN",
+                "engine_disabled": True,
+                "engine_reason": getattr(app.state, "eng_status", {}).get("reason", "not_loaded"),
+            }
+        xg_result = await _run_engine(_run_xgboost_inference, target_url)
     except Exception as e:
         print(f"[오류] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     dur = time.perf_counter() - t0
     print(f"--- [검증 완료] {dur:.3f}s OK ---")
-    return {**result, "duration_sec": round(dur, 3)}
+    return {
+        **result,
+        "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
+        "xgboost": xg_result,
+        "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
+        "duration_sec": round(dur, 3),
+    }
 
 
 if __name__ == "__main__":
