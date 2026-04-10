@@ -42,8 +42,8 @@ class PlaywrightManager:
     def get_page(self):
         page = self.context.new_page()
         def intercept_route(route):
-            if route.request.resource_type in ["image", "media"]:
-                route.abort()
+            if route.request.resource_type in ["image", "media", "font"]:
+                route.abort() 
             else:
                 route.continue_()
         page.route("**/*", intercept_route)
@@ -130,15 +130,23 @@ def extract_with_requests_and_raw_html(url: str):
         try:
             file_path = unquote(url.replace("file:///", "").replace("file://", ""))
             with open(file_path, "rb") as f: raw = f.read()
-            html = raw.decode("utf-8", errors="ignore")
+            try: html = raw.decode("utf-8")
+            except UnicodeDecodeError: html = raw.decode("euc-kr", errors="ignore")
         except Exception: return "[오류] 로컬 파일을 읽을 수 없습니다", ""
     else:
         try:
-            timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "15"))
+            timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "5"))
             response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
-            html = response.content.decode('utf-8', errors='replace')
+            
+            raw_bytes = response.content
+            try: html = raw_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                try: html = raw_bytes.decode('euc-kr')
+                except UnicodeDecodeError: html = raw_bytes.decode('utf-8', errors='replace')
+                    
         except Exception:
-            return "[오류] 네트워크 접속 문제", ""
+            return "[오류] 네트워크 접속 문제 (Timeout)", ""
+            
     return extract_with_html_ultimate_clean(html), html
 
 def extract_with_playwright_and_raw_html(url: str, is_warmup=False):
@@ -148,15 +156,17 @@ def extract_with_playwright_and_raw_html(url: str, is_warmup=False):
         if playwright_manager is None:
             playwright_manager = PlaywrightManager()
         page = playwright_manager.get_page()
-        goto_timeout_ms = int(os.getenv("KOBERT_PW_GOTO_TIMEOUT_MS", "20000"))
+        
+        goto_timeout_ms = int(os.getenv("KOBERT_PW_GOTO_TIMEOUT_MS", "8000"))
         try:
             page.goto(url, timeout=goto_timeout_ms, wait_until="domcontentloaded")
         except Exception:
             try: page.goto(url, timeout=goto_timeout_ms, wait_until="load")
             except Exception: pass
+            
         if not is_warmup:
             wait_time = 0
-            max_wait_seconds = float(os.getenv("KOBERT_PW_MAX_WAIT_SECONDS", "4"))
+            max_wait_seconds = float(os.getenv("KOBERT_PW_MAX_WAIT_SECONDS", "3"))
             while wait_time < max_wait_seconds:
                 current_html = page.content()
                 soup_test = BeautifulSoup(current_html, "html.parser")
@@ -242,10 +252,9 @@ def warmup_engine(include_pw=True):
 def predict_phishing_result(target_url):
     global device, tokenizer, model, engine_initialized
 
-    # 예열 방어 로직
     if not engine_initialized:
         try: warmup_engine(include_pw=True)
-        except Exception as e: return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "error": f"엔진 예열 실패: {e}"}
+        except Exception as e: return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "error": f"엔진 예열 실패: {e}", "detectedUrl": target_url}
 
     if not (target_url.startswith("http") or ":" in target_url or target_url.startswith("/")): 
         target_url = "https://" + target_url
@@ -264,7 +273,7 @@ def predict_phishing_result(target_url):
             except Exception: pass
 
     if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
-        return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN"}
+        return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "detectedUrl": target_url}
 
     inputs = tokenizer(processed_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
@@ -276,7 +285,7 @@ def predict_phishing_result(target_url):
     prob_phishing = probs[1].item() * 100
     
     if prob_phishing > 50:
-        return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH"}
+        return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
 
     # ----------------------------------------------------
     # 🌟 [2단계] 서브 링크 병렬 수집
@@ -288,24 +297,31 @@ def predict_phishing_result(target_url):
         def fetch_url_task(url):
             text, _ = extract_with_requests_and_raw_html(url)
             return url, text
+        
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             futures = {executor.submit(fetch_url_task, url): url for url in deep_links}
-            for future in concurrent.futures.as_completed(futures):
-                try: fetched_data.append(future.result())
-                except Exception: pass
+            try:
+                for future in concurrent.futures.as_completed(futures, timeout=6.0):
+                    try: fetched_data.append(future.result())
+                    except Exception: pass
+            except concurrent.futures.TimeoutError:
+                pass # 타임아웃 로그도 조용히 넘깁니다.
 
     # ----------------------------------------------------
-    # 🌟 [3단계] 텍스트 필터링 및 AI 일괄(Batch) 병렬 검사
+    # 🌟 [3단계] AI 일괄(Batch) 병렬 검사 (모든 텍스트 정밀 스캔)
     # ----------------------------------------------------
-    target_keywords = ["login", "로그인", "sign", "가입", "auth", "인증", "account", "비밀번호"]
     valid_urls = []
     valid_texts = []
 
-    for idx, (url, current_text) in enumerate(fetched_data, 1):
-        is_suspicious_url = any(kw in url.lower() for kw in target_keywords)
+    whitelist_domains = ["naver.com", "youtube.com", "daum.net", "kakao.com"]
 
-        if len(current_text) < 50 or current_text.startswith("[오류]") or current_text.startswith("[판별 보류]"):
-            if is_suspicious_url and use_pw:
+    for idx, (url, current_text) in enumerate(fetched_data, 1):
+        
+        if any(safe_domain in url.lower() for safe_domain in whitelist_domains):
+            continue 
+
+        if len(current_text) < 150 or current_text.startswith("[오류]") or current_text.startswith("[판별 보류]"):
+            if use_pw:
                 try: current_text, _ = extract_with_playwright_and_raw_html(url, is_warmup=False)
                 except Exception: continue
             else:
@@ -316,7 +332,6 @@ def predict_phishing_result(target_url):
         valid_urls.append(url)
         valid_texts.append(current_text)
 
-    # 유효한 텍스트가 있을 경우 Batch 연산
     if valid_texts:
         inputs = tokenizer(valid_texts, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
         input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
@@ -327,7 +342,8 @@ def predict_phishing_result(target_url):
             
         for i, url in enumerate(valid_urls):
             prob_phishing = probs[i][1].item() * 100
+            
             if prob_phishing > 50:
-                return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH"}
+                return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": url}
 
-    return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW"}
+    return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", "detectedUrl": target_url}
