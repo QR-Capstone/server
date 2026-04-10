@@ -13,8 +13,13 @@ from contextlib import redirect_stdout
 from playwright.sync_api import sync_playwright
 import concurrent.futures
 
+# 🔥 [비동기 및 쓰레딩 라이브러리]
+import asyncio
+from playwright.async_api import async_playwright
+import threading
+
 # ==========================================
-# 🌟 [설정] 모델 파일 경로 설정
+# 🌟 [설정] 글로벌 변수 및 엔진 상태
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_FILE = os.path.join(BASE_DIR, 'kobert_phishing_model_weights.pt')
@@ -22,22 +27,23 @@ WEIGHTS_FILE = os.path.join(BASE_DIR, 'kobert_phishing_model_weights.pt')
 device = None
 tokenizer = None
 model = None
-playwright_manager = None
+playwright_manager = None  # 1-Depth용 동기 브라우저 풀
+async_pw_manager = None    # 3-Depth용 비동기 병렬 브라우저 풀
 engine_initialized = False
 
 # ==========================================
-# 🔥 Playwright 관리 클래스 (Singleton)
+# 🔥 1. Playwright 관리 클래스 (1-Depth 전용 Sync 싱글톤)
 # ==========================================
 class PlaywrightManager:
     def __init__(self):
-        print("  [시스템] Playwright 엔진 백그라운드 기동 중...")
+        print("  [시스템] 1-Depth용 동기식 브라우저 기동 중...")
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch(
             headless=True,
             args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]
         )
         self.context = self.browser.new_context()
-        print("  [시스템] [OK] 브라우저 엔진 준비 완료.")
+        print("  [시스템] [OK] 1-Depth 동기식 브라우저 준비 완료.")
 
     def get_page(self):
         page = self.context.new_page()
@@ -53,6 +59,78 @@ class PlaywrightManager:
         self.context.close()
         self.browser.close()
         self.playwright.stop()
+
+# ==========================================
+# 🔥 2. [NEW] 영구 대기형 비동기 병렬 브라우저 풀 (3-Depth 전용)
+# ==========================================
+class AsyncPlaywrightPool:
+    """서버가 켜질 때 크롬 본체를 1번만 켜고 영구적으로 대기하며, 요청 시 탭만 열고 닫는 풀링 클래스"""
+    def __init__(self):
+        print("  [시스템] 3-Depth용 비동기 병렬 브라우저 기동 중...")
+        self.loop = asyncio.new_event_loop()
+        self.thread = threading.Thread(target=self._start_loop, daemon=True)
+        self.thread.start()
+        
+        self.playwright = None
+        self.browser = None
+        
+        future = asyncio.run_coroutine_threadsafe(self._init_browser(), self.loop)
+        future.result() 
+
+    def _start_loop(self):
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
+
+    async def _init_browser(self):
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(
+            headless=True,
+            args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]
+        )
+        print("  [시스템] [OK] 3-Depth 비동기 병렬 브라우저 풀 준비 완료.")
+
+    async def _fetch_single(self, url, timeout_ms=3000, wait_sec=1.5):
+        context = await self.browser.new_context()
+        page = await context.new_page()
+        
+        async def intercept_route(route):
+            if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+                await route.abort()
+            else:
+                await route.continue_()
+        await page.route("**/*", intercept_route)
+
+        try:
+            try:
+                await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+            except Exception:
+                try: await page.goto(url, timeout=timeout_ms, wait_until="load")
+                except Exception: pass
+
+            wait_time = 0
+            while wait_time < wait_sec:
+                current_html = await page.content()
+                soup_test = BeautifulSoup(current_html, "html.parser")
+                if len(soup_test.get_text(strip=True)) > 150: break
+                await page.wait_for_timeout(500)
+                wait_time += 0.5
+
+            full_html = await page.content()
+            clean_text = extract_with_html_ultimate_clean(full_html)
+            return url, clean_text
+        except Exception as e:
+            return url, f"[오류] {e}"
+        finally:
+            await context.close()
+
+    async def _scrape_all(self, urls):
+        tasks = [self._fetch_single(url) for url in urls]
+        return await asyncio.gather(*tasks)
+
+    def scrape_parallel(self, urls):
+        future = asyncio.run_coroutine_threadsafe(self._scrape_all(urls), self.loop)
+        return future.result()
+
 
 # ==========================================
 # 🛠️ 텍스트 전처리 및 수집 함수
@@ -137,16 +215,13 @@ def extract_with_requests_and_raw_html(url: str):
         try:
             timeout = int(os.getenv("KOBERT_HTTP_TIMEOUT", "5"))
             response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
-            
             raw_bytes = response.content
             try: html = raw_bytes.decode('utf-8')
             except UnicodeDecodeError:
                 try: html = raw_bytes.decode('euc-kr')
                 except UnicodeDecodeError: html = raw_bytes.decode('utf-8', errors='replace')
-                    
         except Exception:
             return "[오류] 네트워크 접속 문제 (Timeout)", ""
-            
     return extract_with_html_ultimate_clean(html), html
 
 def extract_with_playwright_and_raw_html(url: str, is_warmup=False):
@@ -177,7 +252,7 @@ def extract_with_playwright_and_raw_html(url: str, is_warmup=False):
     finally:
         if page: page.close()
 
-def extract_deep_links(raw_html, base_url, max_links=3):
+def extract_deep_links(raw_html, base_url, max_links=2): 
     soup = BeautifulSoup(raw_html, "html.parser")
     priority_links, normal_links = [], []
     target_keywords = ["로그인", "login", "회원가입", "가입", "sign in", "sign up", "본인인증", "인증", "비밀번호", "내정보"]
@@ -214,11 +289,14 @@ def extract_deep_links(raw_html, base_url, max_links=3):
             if len(final_links) >= max_links: return final_links
     return final_links
 
+# ==========================================
+# 🚀 본 서버 연동용 메인 판단 함수
+# ==========================================
 def warmup_engine(include_pw=True):
-    global device, tokenizer, model, playwright_manager, engine_initialized
+    global device, tokenizer, model, playwright_manager, async_pw_manager, engine_initialized
     if engine_initialized: return {"status": "already_initialized"}
     
-    print("  [엔진] 모델 로딩을 시작합니다...")
+    print("\n  [엔진] AI 모델(KoBERT) 가중치 로딩 중...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = BertTokenizer.from_pretrained('monologg/kobert')
     model = BertForSequenceClassification.from_pretrained('monologg/kobert', num_labels=2)
@@ -232,29 +310,27 @@ def warmup_engine(include_pw=True):
     dummy_inputs = tokenizer("예열 테스트", return_tensors="pt", max_length=128, padding='max_length', truncation=True)
     with torch.no_grad(): _ = model(dummy_inputs['input_ids'].to(device), attention_mask=dummy_inputs['attention_mask'].to(device))
 
-    pw_status = "skipped"
     if include_pw:
         try:
             playwright_manager = PlaywrightManager()
-            try:
-                extract_with_playwright_and_raw_html("about:blank", is_warmup=True)
-                pw_status = "warmed_up"
-            except Exception as e: pw_status = f"error: {e}"
-        except Exception as e: pw_status = f"init_error: {e}"
+            extract_with_playwright_and_raw_html("about:blank", is_warmup=True)
+            
+            async_pw_manager = AsyncPlaywrightPool()
+            async_pw_manager.scrape_parallel(["about:blank"]) 
+        except Exception: pass
 
     engine_initialized = True
-    print("  [엔진] [OK] 초기화 및 예열 완료! (서버 대기 중...)")
-    return {"model_loaded": True, "device": str(device), "playwright_status": pw_status}
+    print("  [엔진] [OK] 모든 엔진 초기화 및 예열 완료!\n")
+    return {"model_loaded": True, "device": str(device)}
 
-# ==========================================
-# 🚀 2. 🌟 본 서버 연동용 메인 판단 함수 (Clean Output)
-# ==========================================
+
 def predict_phishing_result(target_url):
-    global device, tokenizer, model, engine_initialized
+    global device, tokenizer, model, engine_initialized, async_pw_manager
 
     if not engine_initialized:
         try: warmup_engine(include_pw=True)
-        except Exception as e: return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "error": f"엔진 예열 실패: {e}", "detectedUrl": target_url}
+        except Exception as e: 
+            return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "error": f"엔진 예열 실패: {e}", "detectedUrl": target_url}
 
     if not (target_url.startswith("http") or ":" in target_url or target_url.startswith("/")): 
         target_url = "https://" + target_url
@@ -288,9 +364,9 @@ def predict_phishing_result(target_url):
         return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
 
     # ----------------------------------------------------
-    # 🌟 [2단계] 서브 링크 병렬 수집
+    # 🌟 [2단계] 서브 링크 수집 (max_links = 2)
     # ----------------------------------------------------
-    deep_links = extract_deep_links(raw_html, target_url, max_links=3)
+    deep_links = extract_deep_links(raw_html, target_url, max_links=2)
     fetched_data = []
 
     if deep_links:
@@ -298,40 +374,53 @@ def predict_phishing_result(target_url):
             text, _ = extract_with_requests_and_raw_html(url)
             return url, text
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = {executor.submit(fetch_url_task, url): url for url in deep_links}
             try:
                 for future in concurrent.futures.as_completed(futures, timeout=6.0):
                     try: fetched_data.append(future.result())
                     except Exception: pass
             except concurrent.futures.TimeoutError:
-                pass # 타임아웃 로그도 조용히 넘깁니다.
+                pass
 
     # ----------------------------------------------------
-    # 🌟 [3단계] AI 일괄(Batch) 병렬 검사 (모든 텍스트 정밀 스캔)
+    # 🌟 [3단계] AI 일괄 병렬 검사
     # ----------------------------------------------------
     valid_urls = []
     valid_texts = []
+    urls_to_pw_scan = [] 
 
     whitelist_domains = ["naver.com", "youtube.com", "daum.net", "kakao.com"]
 
     for idx, (url, current_text) in enumerate(fetched_data, 1):
-        
         if any(safe_domain in url.lower() for safe_domain in whitelist_domains):
             continue 
 
         if len(current_text) < 150 or current_text.startswith("[오류]") or current_text.startswith("[판별 보류]"):
             if use_pw:
-                try: current_text, _ = extract_with_playwright_and_raw_html(url, is_warmup=False)
-                except Exception: continue
-            else:
-                continue
+                urls_to_pw_scan.append(url) 
+            continue
 
-        if len(current_text) < 30 or current_text.startswith("[오류]"): continue
+        if len(current_text) >= 30 and not current_text.startswith("[오류]"):
+            valid_urls.append(url)
+            valid_texts.append(current_text)
 
-        valid_urls.append(url)
-        valid_texts.append(current_text)
+    # 🔥 비동기 병렬 처리 구역
+    if urls_to_pw_scan:
+        try:
+            if not async_pw_manager:
+                async_pw_manager = AsyncPlaywrightPool()
+            
+            pw_results = async_pw_manager.scrape_parallel(urls_to_pw_scan)
+            
+            for p_url, p_text in pw_results:
+                if len(p_text) >= 30 and not p_text.startswith("[오류]"):
+                    valid_urls.append(p_url)
+                    valid_texts.append(p_text)
+        except Exception:
+            pass
 
+    # AI 최종 추론 (Batch)
     if valid_texts:
         inputs = tokenizer(valid_texts, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
         input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
