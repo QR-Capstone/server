@@ -189,15 +189,21 @@ print(classification_report(y_test, y_pred))
 
 import joblib
 
-# 모델 저장 (protocol=4 + compress로 서버 Python 호환성 향상)
+# 모델 저장: protocol=4, compress=0 권장(3.12 서버에서 3.13 pickle opcode 이슈 완화)
 try:
-    joblib.dump(model, "gnn_model.pkl", compress=3, protocol=4)
+    joblib.dump(model, "gnn_model.pkl", compress=0, protocol=4)
 except TypeError:
-    joblib.dump(model, "gnn_model.pkl", compress=3)
+    try:
+        joblib.dump(model, "gnn_model.pkl", protocol=4)
+    except TypeError:
+        joblib.dump(model, "gnn_model.pkl")
 try:
-    joblib.dump(X.columns.tolist(), "gnn_model_features.pkl", compress=1, protocol=4)
+    joblib.dump(X.columns.tolist(), "gnn_model_features.pkl", compress=0, protocol=4)
 except TypeError:
-    joblib.dump(X.columns.tolist(), "gnn_model_features.pkl")
+    try:
+        joblib.dump(X.columns.tolist(), "gnn_model_features.pkl", protocol=4)
+    except TypeError:
+        joblib.dump(X.columns.tolist(), "gnn_model_features.pkl")
 
 print("✅ 모델 저장 완료: gnn_model.pkl")
 

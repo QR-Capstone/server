@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Re-export gnn_model.pkl (and optional feature list) with compress=3 and pickle protocol 4.
+Re-export gnn_model.pkl for a target Python (e.g. 3.12 server).
 
-Run this on the SAME machine / Python where the current pickle loads successfully
-(e.g. your training laptop). Copy the output files to the server.
+Default: compress=0, protocol=4 — avoids zlib layers and 3.13-only pickle opcodes
+when the destination is Python 3.12.
 
-If unpickling still fails on the server, align Python versions (3.11+ recommended)
-and sklearn/joblib versions with `pip install -r requirements.txt`.
+Run where the INPUT file loads (e.g. training Python 3.13). Deploy OUTPUT to server 3.12.
 """
 from __future__ import annotations
 
@@ -15,13 +14,16 @@ import os
 import sys
 
 
-def _dump(obj, path: str) -> None:
+def _dump(obj, path: str, compress: int) -> None:
     import joblib
 
     try:
-        joblib.dump(obj, path, compress=3, protocol=4)
+        joblib.dump(obj, path, compress=compress, protocol=4)
     except TypeError:
-        joblib.dump(obj, path, compress=3)
+        try:
+            joblib.dump(obj, path, compress=compress)
+        except TypeError:
+            joblib.dump(obj, path)
 
 
 def main() -> int:
@@ -46,6 +48,12 @@ def main() -> int:
         default=None,
         help="Output features path (default: overwrite --features-in)",
     )
+    p.add_argument(
+        "--compress",
+        type=int,
+        default=0,
+        help="joblib compress level (0=none, safer for 3.12; default 0)",
+    )
     args = p.parse_args()
     model_out = args.model_out or args.model_in
     feat_out = args.features_out or args.features_in
@@ -56,15 +64,17 @@ def main() -> int:
         print(f"error: not found: {args.model_in}", file=sys.stderr)
         return 1
 
-    print(f"Loading {args.model_in} ...")
+    print(f"Python {sys.version.split()[0]} — loading {args.model_in} ...")
     model = joblib.load(args.model_in)
-    print(f"Writing {model_out} (compress=3, protocol=4) ...")
-    _dump(model, model_out)
+    print(
+        f"Writing {model_out} (compress={args.compress}, protocol=4) ..."
+    )
+    _dump(model, model_out, args.compress)
 
     if os.path.isfile(args.features_in):
         cols = joblib.load(args.features_in)
         print(f"Writing {feat_out} ...")
-        _dump(cols, feat_out)
+        _dump(cols, feat_out, args.compress)
     else:
         print(f"(skip) {args.features_in} not found")
 

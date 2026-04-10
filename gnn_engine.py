@@ -81,6 +81,29 @@ def _feature_vector_row(url: str, column_order: List[str]) -> pd.DataFrame:
     return pd.DataFrame([row])
 
 
+def _explain_gnn_load_error(exc: Exception) -> str:
+    """KeyError(239) often = pickle from Python 3.13+ read on 3.12 (unknown opcode)."""
+    name = type(exc).__name__
+    msg = str(exc)
+    opcode_mismatch = isinstance(exc, KeyError) and (
+        (exc.args and isinstance(exc.args[0], int)) or "239" in msg
+    )
+    if opcode_mismatch:
+        return (
+            "Failed to load gnn_model.pkl: pickle opcode mismatch "
+            "(e.g. KeyError 239: file produced with Python 3.13+ unpickled on 3.12). "
+            "Fix: regenerate gnn_model.pkl on Python 3.12.3, or run the API on Python 3.13+, "
+            "or run reexport_gnn_model.py where the file loads and save with Python 3.12. "
+            "Also keep scikit-learn/joblib aligned with training. "
+            f"Detail: {name}: {msg}"
+        )
+    return (
+        "Failed to load gnn_model.pkl. Align scikit-learn/joblib/numpy with training "
+        "or regenerate via gnn-ready.py / reexport_gnn_model.py. "
+        f"Detail: {name}: {msg}"
+    )
+
+
 def load_gnn_model(
     model_path: str,
     feature_columns_path: Optional[str] = None,
@@ -90,13 +113,7 @@ def load_gnn_model(
     try:
         model = joblib.load(model_path)
     except Exception as e:
-        raise RuntimeError(
-            "Failed to load gnn_model.pkl. Even on Python 3.12 this usually means "
-            "scikit-learn / joblib / numpy versions differ from the machine that created the file. "
-            "Pin the same versions as training (see requirements.txt), or re-run gnn-ready.py to "
-            "regenerate the pickle, or run reexport_gnn_model.py where the file loads and redeploy. "
-            f"Detail: {type(e).__name__}: {e}"
-        ) from e
+        raise RuntimeError(_explain_gnn_load_error(e)) from e
     cols: Optional[List[str]] = None
     if feature_columns_path and os.path.isfile(feature_columns_path):
         loaded = joblib.load(feature_columns_path)
