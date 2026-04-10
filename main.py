@@ -36,6 +36,8 @@ STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
 
 # Playwright(sync)는 greenlet 컨텍스트가 스레드에 묶이므로, 엔진 호출은 항상 동일 스레드에서만 실행해야 함.
 _engine_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="phish_engine")
+# KoBERT와 겹쳐 돌리기 위해 XGBoost는 별도 풀(동시에 서로 다른 스레드에서 실행).
+_xgboost_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="xgboost_infer")
 
 
 async def _run_engine(fn, *args, **kwargs):
@@ -43,6 +45,13 @@ async def _run_engine(fn, *args, **kwargs):
     if kwargs:
         return await loop.run_in_executor(_engine_executor, functools.partial(fn, *args, **kwargs))
     return await loop.run_in_executor(_engine_executor, functools.partial(fn, *args))
+
+
+async def _run_xgboost(fn, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    if kwargs:
+        return await loop.run_in_executor(_xgboost_executor, functools.partial(fn, *args, **kwargs))
+    return await loop.run_in_executor(_xgboost_executor, functools.partial(fn, *args))
 
 
 def _normalize_url_for_xgboost(url: str) -> str:
@@ -213,18 +222,23 @@ async def analyze_url(request: URLRequest):
 
     t0 = time.perf_counter()
     try:
-        eng = getattr(app.state, "eng", None)
-        if eng is not None:
-            result = await _run_engine(eng.predict_phishing_result, target_url)
-        else:
-            result = {
+
+        async def _kobert_branch():
+            eng = getattr(app.state, "eng", None)
+            if eng is not None:
+                return await _run_engine(eng.predict_phishing_result, target_url)
+            return {
                 "judgment": "unknown",
                 "riskLevel": "UNKNOWN",
                 "risklevel": "UNKNOWN",
                 "engine_disabled": True,
                 "engine_reason": getattr(app.state, "eng_status", {}).get("reason", "not_loaded"),
             }
-        xg_result = await _run_engine(_run_xgboost_inference, target_url)
+
+        result, xg_result = await asyncio.gather(
+            _kobert_branch(),
+            _run_xgboost(_run_xgboost_inference, target_url),
+        )
     except Exception as e:
         print(f"[오류] {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -269,7 +283,7 @@ async def analyze_xgboost_only(request: URLRequest):
     target_url = (request.url or "").strip()
     if not target_url:
         raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
-    xg_result = await _run_engine(_run_xgboost_inference, target_url)
+    xg_result = await _run_xgboost(_run_xgboost_inference, target_url)
     return {
         "xgboost": xg_result,
         "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
