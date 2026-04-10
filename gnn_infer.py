@@ -1,7 +1,7 @@
 """
-GNN(서비스 명칭): gnn-ready.py로 학습한 URL 어휘 특징 + RandomForest(opqr_model.pkl) 추론.
-PyG 그래프 신경망 체크포인트가 아니라 동일 스크립트의 RF 모델을 로드한다.
-Python 3.10+ 권장(3.9에서 pickle 로드 실패할 수 있음).
+GNN (service name): lexical URL features + RandomForest (opqr_model.pkl) from gnn-ready.py.
+Loads the RF bundle, not a PyG checkpoint.
+Python 3.10+ recommended (pickle from newer Python may fail on 3.9).
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import joblib
 import pandas as pd
 
-# gnn-ready.py 의 dict 기반 특징 (순서 고정 — 학습 시 DataFrame 컬럼 순서와 일치해야 함)
+# Feature dict order must match training (gnn-ready DataFrame columns).
 FEATURE_ORDER: List[str] = [
     "url_len",
     "dot_count",
@@ -27,7 +27,7 @@ SUSPICIOUS_WORDS = ("login", "verify", "bank", "update", "free", "account")
 
 
 def extract_lexical_features(url: str) -> Dict[str, float]:
-    """단일 URL에서 gnn-ready.py 와 동일한 특징 dict."""
+    """Same feature dict as gnn-ready.py for one URL."""
     u = (url or "").strip()
     features: Dict[str, float] = {}
     features["url_len"] = float(len(u))
@@ -54,17 +54,16 @@ def load_opqr_model(
     model_path: str,
     feature_columns_path: Optional[str] = None,
 ) -> Tuple[Any, List[str]]:
-    """모델과 예측에 사용할 컬럼 순서를 반환."""
+    """Load model and return column order for prediction."""
     if not os.path.isfile(model_path):
         raise FileNotFoundError(model_path)
     try:
         model = joblib.load(model_path)
     except Exception as e:
         raise RuntimeError(
-            "opqr_model.pkl 로드 실패. 파일이 손상됐거나, "
-            "더 새 Python(예: 3.11+)으로 저장된 pickle이라 구버전 Python에서 열 수 없을 수 있습니다. "
-            "서버를 Python 3.11+로 맞추거나, 학습 환경에서 "
-            "`joblib.dump(model, 'opqr_model.pkl', compress=3)`(또는 protocol=4)로 다시 저장해 보세요."
+            "Failed to load opqr_model.pkl (corrupt file or pickle from a newer Python). "
+            "Use Python 3.11+ on the server or re-save with "
+            "`joblib.dump(model, 'opqr_model.pkl', compress=3)` from a compatible env."
         ) from e
     cols: Optional[List[str]] = None
     if feature_columns_path and os.path.isfile(feature_columns_path):
@@ -84,7 +83,7 @@ def predict_opqr(
     column_order: List[str],
     raw_url: str,
 ) -> Dict[str, Any]:
-    """피싱 확률·라벨·판정. 실패 시 예외를 호출자에게 전달."""
+    """Return phishing probability, label, verdict; raises on failure."""
     u = (raw_url or "").strip()
     if not u:
         raise ValueError("empty url")

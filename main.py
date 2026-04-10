@@ -5,7 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
-# 추론·응답 더 줄이려면(환경변수, 엔진 모듈 상단과 동일):
+# Tuning (same env vars as engine module): MAX_SEQ_LEN, USE_PLAYWRIGHT_IN_ANALYZE, etc.
 # os.environ.setdefault("MAX_SEQ_LEN", "128")
 # os.environ.setdefault("USE_PLAYWRIGHT_IN_ANALYZE", "0")
 # os.environ.setdefault("TORCH_NUM_THREADS", "4")
@@ -21,25 +21,25 @@ app = FastAPI(title="Phishing Detection API")
 
 @app.middleware("http")
 async def request_timing_middleware(request: Request, call_next):
-    """요청 수신부터 응답 완료까지(전체) 걸린 시간 — 터미널 OK 옆에 보이게 출력."""
+    """Wall time for the full request (logged next to HTTP OK)."""
     t0 = time.perf_counter()
     response = await call_next(request)
     dur = time.perf_counter() - t0
     response.headers["X-Process-Time"] = f"{dur:.3f}"
     print(
-        f"--- [요청 완료] {request.method} {request.url.path} "
+        f"--- [request done] {request.method} {request.url.path} "
         f"{response.status_code} OK ({dur:.3f}s)"
     )
     return response
 
-# 기동 시 Playwright까지 예열할지 (기본은 끄는 것이 훨씬 빠릅니다)
+# Warm up Playwright on startup (default off = faster boot)
 STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
 
-# Playwright(sync)는 greenlet 컨텍스트가 스레드에 묶이므로, 엔진 호출은 항상 동일 스레드에서만 실행해야 함.
+# Playwright sync API is bound to one thread; engine runs on a single worker.
 _engine_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="phish_engine")
-# KoBERT와 겹쳐 돌리기 위해 XGBoost는 별도 풀(동시에 서로 다른 스레드에서 실행).
+# XGBoost on its own thread pool (runs in parallel with KoBERT).
 _xgboost_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="xgboost_infer")
-# OPQR(RandomForest, gnn-ready 학습) 추론용 풀
+# GNN lexical RF (opqr_model.pkl)
 _gnn_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="opqr_gnn")
 
 
@@ -65,7 +65,7 @@ async def _run_gnn(fn, *args, **kwargs):
 
 
 def _normalize_url_for_xgboost(url: str) -> str:
-    """XGBoost 입력 URL 정규화: 스킴이 없으면 https 추가."""
+    """Normalize URL for XGBoost; prepend https if no scheme."""
     candidate = (url or "").strip()
     if not candidate:
         return candidate
@@ -76,7 +76,7 @@ def _normalize_url_for_xgboost(url: str) -> str:
 
 
 def _run_xgboost_inference(raw_url: str):
-    """로드된 번들로 XGBoost 추론 수행. 반환: dict 또는 None."""
+    """Run XGBoost bundles; returns dict or None if no models."""
     typo_bundle = getattr(app.state, "xg_typo_bundle", None)
     domain_bundle = getattr(app.state, "xg_domain_bundle", None)
     if typo_bundle is None and domain_bundle is None:
@@ -115,7 +115,7 @@ def _run_xgboost_inference(raw_url: str):
 
 
 def _run_gnn_inference(raw_url: str):
-    """gnn-ready 학습 RF(opqr_model.pkl) 추론. 모델 없으면 None."""
+    """GNN lexical RF (opqr_model.pkl); None if model not loaded."""
     model = getattr(app.state, "gnn_model", None)
     cols = getattr(app.state, "gnn_columns", None)
     if model is None or not cols:
@@ -130,13 +130,13 @@ def _log_line_kobert(result: dict) -> str:
     j = result.get("judgment", "?")
     rl = result.get("riskLevel", result.get("risklevel", "?"))
     if result.get("engine_disabled"):
-        return f"KoBERT: 비활성 ({result.get('engine_reason', '')})"
+        return f"KoBERT: disabled ({result.get('engine_reason', '')})"
     return f"KoBERT: judgment={j} riskLevel={rl}"
 
 
 def _log_line_xgboost(xg: object) -> str:
     if xg is None:
-        return "XGBoost: 스킵(모델 없음)"
+        return "XGBoost: skipped (no model)"
     return (
         f"XGBoost: verdict={xg.get('verdict')} "
         f"final_p={xg.get('final_probability')}"
@@ -145,9 +145,9 @@ def _log_line_xgboost(xg: object) -> str:
 
 def _log_line_gnn(gnn: object) -> str:
     if gnn is None:
-        return "GNN(lexical RF): 스킵(모델 없음)"
+        return "GNN(lexical RF): skipped (no model)"
     if isinstance(gnn, dict) and gnn.get("error"):
-        return f"GNN(lexical RF): 오류 {gnn.get('error', '')[:80]}"
+        return f"GNN(lexical RF): error {gnn.get('error', '')[:80]}"
     return f"GNN(lexical RF): verdict={gnn.get('verdict')} p={gnn.get('probability')}"
 
 
@@ -157,8 +157,8 @@ class URLRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    print("--- [1/2] 모델 로드 (import, 검증 아님) ---")
-    # 예열·판별 API는 koBERT.warmup_engine / predict_phishing_result 와 동일 계약
+    print("--- [1/2] Loading models (import only) ---")
+    # Same contract as koBERT.warmup_engine / predict_phishing_result
     app.state.eng = None
     app.state.eng_status = {"enabled": False, "reason": "not_loaded"}
     try:
@@ -167,7 +167,7 @@ async def startup_event():
         app.state.eng_status = {"enabled": True}
     except Exception as e:
         app.state.eng_status = {"enabled": False, "reason": str(e)}
-        print(f"[경고] 코발트 엔진 로드 실패: {e}")
+        print(f"[warn] KoBERT engine load failed: {e}")
 
     app.state.warmup_done = False
     app.state.warmup_info = None
@@ -178,7 +178,7 @@ async def startup_event():
     app.state.gnn_columns = None
     app.state.gnn_status = {"enabled": False, "reason": "not_loaded"}
 
-    # OPQR / gnn-ready RandomForest (선택)
+    # Optional: GNN lexical RF (opqr_model.pkl)
     opqr_path = os.getenv("OPQR_MODEL_PATH", "opqr_model.pkl")
     opqr_cols_path = os.getenv("OPQR_FEATURES_PATH", "model_features.pkl")
     try:
@@ -199,7 +199,7 @@ async def startup_event():
     except Exception as e:
         app.state.gnn_status = {"enabled": False, "reason": str(e)}
 
-    # GNN(opqr_model.pkl) 로드 후 1회 스모크 추론 — 런타임에서 predict 경로 확인
+    # Smoke predict after GNN load
     if app.state.gnn_model is not None and app.state.gnn_columns is not None:
         try:
             sm = predict_opqr(
@@ -208,13 +208,13 @@ async def startup_event():
                 "https://example.com",
             )
             print(
-                f"  [GNN] 스모크 추론 OK — verdict={sm.get('verdict')} "
+                f"  [GNN] smoke OK — verdict={sm.get('verdict')} "
                 f"p={sm.get('probability')}"
             )
         except Exception as e:
-            print(f"  [GNN] 스모크 추론 실패(요청 시에도 동일할 수 있음): {e}")
+            print(f"  [GNN] smoke failed (requests may fail too): {e}")
 
-    # XGBoost 번들은 선택 로딩(없어도 서버 동작)
+    # Optional XGBoost bundles
     xg_typo_path = os.getenv("XG_MODEL_TYPO", "url_xgb_paired_first.joblib")
     xg_domain_path = os.getenv("XG_MODEL_DOMAIN", "url_xgb_domain_age.joblib")
     xg_errors = []
@@ -247,28 +247,27 @@ async def startup_event():
             "warnings": xg_errors,
         }
 
-    print("--- [2/2] 예열 (warmup_engine: 검증과 분리) ---")
+    print("--- [2/2] Warmup (warmup_engine) ---")
     if app.state.eng is not None:
         try:
             info = await _run_engine(app.state.eng.warmup_engine, STARTUP_WARMUP_PLAYWRIGHT)
             app.state.warmup_info = info
             app.state.warmup_done = True
         except Exception as e:
-            print(f"[예열 실패] {e}")
+            print(f"[warmup failed] {e}")
             app.state.warmup_done = False
-            # Playwright 의존성이 없거나 느려도 서버는 먼저 떠야 합니다.
-            # 실제 분석은 /analyze 호출 시 필요하면 그때 처리합니다.
+            # Server still starts; /analyze may retry Playwright as needed.
             app.state.warmup_info = {"error": str(e)}
     else:
         app.state.warmup_done = False
         app.state.warmup_info = {"skipped": "engine_not_loaded"}
 
-    print("--- [시스템] 서버 준비 완료. /analyze 는 검증만 수행합니다. ---")
+    print("--- [system] Ready. /analyze runs full checks. ---")
 
 
 @app.get("/ready")
 async def ready():
-    """예열 완료 여부 (로드밸런서/헬스체크용)."""
+    """Readiness for load balancer / health checks."""
     return {
         "ready": getattr(app.state, "warmup_done", False),
         "warmup": getattr(app.state, "warmup_info", None),
@@ -280,12 +279,12 @@ async def ready():
 
 @app.post("/warmup")
 async def warmup_manual():
-    """기동 시 Playwright 생략했으면 나중에 여기서만 예열."""
+    """Manual warmup if Playwright was skipped at boot."""
     eng = getattr(app.state, "eng", None)
     if eng is None:
         raise HTTPException(
             status_code=503,
-            detail=f"엔진 미로드: {getattr(app.state, 'eng_status', {}).get('reason', 'unknown')}",
+            detail=f"Engine not loaded: {getattr(app.state, 'eng_status', {}).get('reason', 'unknown')}",
         )
     include_pw = os.getenv("WARMUP_PLAYWRIGHT", "1") == "1"
     t0 = time.perf_counter()
@@ -301,17 +300,17 @@ async def warmup_manual():
 
 @app.post("/analyze")
 async def analyze_url(request: URLRequest):
-    """koBERT(koBERT.py) · XGBoost · GNN(lexical RF) 세 분기를 asyncio.gather 로 병렬 실행."""
+    """Parallel koBERT, XGBoost, GNN via asyncio.gather."""
     target_url = (request.url or "").strip()
     if not target_url:
-        raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
+        raise HTTPException(status_code=400, detail="URL is empty.")
 
-    print(f"--- [검증] URL: {target_url} ---")
+    print(f"--- [analyze] URL: {target_url} ---")
 
     t_wall0 = time.perf_counter()
     try:
 
-        # 세 분기 koBERT · XGBoost · GNN 은 asyncio.gather 로 동시에 실행 (순차 아님)
+        # Three branches in parallel (not sequential)
         async def _kobert_timed():
             t0 = time.perf_counter()
             eng = getattr(app.state, "eng", None)
@@ -343,16 +342,16 @@ async def analyze_url(request: URLRequest):
             _gnn_timed(),
         )
     except Exception as e:
-        print(f"[오류] {e}")
+        print(f"[error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     dur_wall = time.perf_counter() - t_wall0
     print(
-        f"--- [검증 요약] URL: {target_url}  (koBERT / xgboost / gnn 병렬)\n"
+        f"--- [analyze summary] URL: {target_url}  (koBERT | xgboost | gnn parallel)\n"
         f"    {_log_line_kobert(kobert_result)}  ({t_kobert:.3f}s)\n"
         f"    {_log_line_xgboost(xg_result)}  ({t_xg:.3f}s)\n"
         f"    {_log_line_gnn(gnn_result)}  ({t_gnn:.3f}s)\n"
-        f"    병렬 전체(벽시계): {dur_wall:.3f}s"
+        f"    wall time (parallel): {dur_wall:.3f}s"
     )
     return {
         "url": target_url,
@@ -374,10 +373,10 @@ async def analyze_url(request: URLRequest):
 
 @app.post("/analyze/engine")
 async def analyze_engine_only(request: URLRequest):
-    """KoBERT(텍스트) 엔진만 실행 — 클라이언트에서 1단계 진행률용."""
+    """KoBERT only (e.g. step 1 in UI)."""
     target_url = (request.url or "").strip()
     if not target_url:
-        raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
+        raise HTTPException(status_code=400, detail="URL is empty.")
     eng = getattr(app.state, "eng", None)
     if eng is not None:
         result = await _run_engine(eng.predict_phishing_result, target_url)
@@ -397,10 +396,10 @@ async def analyze_engine_only(request: URLRequest):
 
 @app.post("/analyze/xgboost")
 async def analyze_xgboost_only(request: URLRequest):
-    """XGBoost(타이포 + 도메인 연령)만 실행 — GNN(`/analyze/gnn`)과는 별도 엔드포인트."""
+    """XGBoost only; use /analyze/gnn for GNN separately."""
     target_url = (request.url or "").strip()
     if not target_url:
-        raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
+        raise HTTPException(status_code=400, detail="URL is empty.")
     xg_result = await _run_xgboost(_run_xgboost_inference, target_url)
     return {
         "xgboost": xg_result,
@@ -410,10 +409,10 @@ async def analyze_xgboost_only(request: URLRequest):
 
 @app.post("/analyze/gnn")
 async def analyze_gnn_only(request: URLRequest):
-    """OPQR RandomForest(gnn-ready 학습)만 실행."""
+    """GNN lexical RF only."""
     target_url = (request.url or "").strip()
     if not target_url:
-        raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
+        raise HTTPException(status_code=400, detail="URL is empty.")
     gnn_result = await _run_gnn(_run_gnn_inference, target_url)
     return {
         "gnn": gnn_result,
