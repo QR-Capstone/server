@@ -158,11 +158,11 @@ class URLRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     print("--- [1/2] 모델 로드 (import, 검증 아님) ---")
-    # 예열·판별 API는 TEST_27_server.warmup_engine / predict_phishing_result 와 동일 계약
+    # 예열·판별 API는 koBERT.warmup_engine / predict_phishing_result 와 동일 계약
     app.state.eng = None
     app.state.eng_status = {"enabled": False, "reason": "not_loaded"}
     try:
-        import TEST_27_server as eng
+        import koBERT as eng
         app.state.eng = eng
         app.state.eng_status = {"enabled": True}
     except Exception as e:

@@ -7,7 +7,7 @@ fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 pydantic>=2.0.0
 
-# --- KoBERT 엔진 (TEST_27_server.py 등) ---
+# --- KoBERT 엔진 (koBERT.py) ---
 torch>=2.0.0
 transformers>=4.30.0
 sentencepiece>=0.1.99
