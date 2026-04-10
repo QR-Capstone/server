@@ -1,0 +1,47 @@
+import joblib
+import pandas as pd
+import requests
+import os
+
+def analyze_url_realtime():
+    if not os.path.exists("opqr_model.pkl"):
+        print("❌ 모델 파일이 없습니다. 예열 단계를 먼저 실행하세요.")
+        return
+
+    model = joblib.load("opqr_model.pkl")
+    url = input("\n🔍 분석할 URL을 입력하세요: ").strip()
+
+    # 1. 예외 목록 (오탐 방지 필터)
+    # 유명 도메인이 포함되어 있다면 모델 점수가 높아도 안전하다고 판단 보조
+    trusted_domains = ['nexon.com', 'naver.com', 'google.com', 'daum.net', 'kakao.com']
+    is_trusted = any(domain in url.lower() for domain in trusted_domains)
+
+    # 2. 모델 예측
+    feat = extract_features(url) # 예열 단계의 함수와 동일함
+    feat_df = pd.DataFrame([feat])
+    prob = model.predict_proba(feat_df)[0][1]
+
+    # 3. 결과 보정 (유명 도메인인데 모델이 악성으로 본 경우 점수 하향)
+    if is_trusted and prob > 0.5:
+        prob = prob * 0.1  # 신뢰 도메인이면 위험 확률을 10% 수준으로 강제 강하
+
+    # 4. 리다이렉트 추적
+    print("🔗 리다이렉트 경로 추적...")
+    try:
+        res = requests.get(url, allow_redirects=True, timeout=5)
+        final_url = res.url
+    except:
+        final_url = url
+
+    # 5. 최종 리포트
+    result_label = "🚨 위험 (MALICIOUS)" if prob > 0.7 else "✅ 안전 (SAFE)"
+    
+    print("\n" + "="*45)
+    print(f"대상 URL: {url}")
+    print(f"최종 목적지: {final_url}")
+    print(f"판단 결과: {result_label}")
+    print(f"위험 확률: {prob*100:.2f}%")
+    print("="*45)
+
+# 실행
+analyze_url_realtime()
