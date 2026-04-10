@@ -166,7 +166,7 @@ def extract_with_playwright_and_raw_html(url: str, is_warmup=False):
             
         if not is_warmup:
             wait_time = 0
-            max_wait_seconds = float(os.getenv("KOBERT_PW_MAX_WAIT_SECONDS", "3"))
+            max_wait_seconds = float(os.getenv("KOBERT_PW_MAX_WAIT_SECONDS", "1.5"))
             while wait_time < max_wait_seconds:
                 current_html = page.content()
                 soup_test = BeautifulSoup(current_html, "html.parser")
