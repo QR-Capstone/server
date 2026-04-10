@@ -48,7 +48,7 @@ def collect_with_source(target=500):
     
     black_df.to_csv("Blacklist/blacklist_with_source.csv", index=False)
     white_df.to_csv("Whitelist/whitelist_with_source.csv", index=False)
-    df.to_csv("opqr_total_dataset.csv", index=False)
+    df.to_csv("gnn_total_dataset.csv", index=False)
     
     return df
 
@@ -197,12 +197,12 @@ print(classification_report(y_test, y_pred))
 import joblib
 
 # 모델 저장
-joblib.dump(model, "opqr_model.pkl")
+joblib.dump(model, "gnn_model.pkl")
 
 # 특징 추출기(컬럼 리스트)도 나중을 위해 저장해두면 좋습니다.
-joblib.dump(X.columns.tolist(), "model_features.pkl")
+joblib.dump(X.columns.tolist(), "gnn_model_features.pkl")
 
-print("✅ 모델 저장 완료: opqr_model.pkl")
+print("✅ 모델 저장 완료: gnn_model.pkl")
 
 
 

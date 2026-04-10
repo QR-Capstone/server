@@ -26,7 +26,7 @@ scipy>=1.10.0
 scikit-learn>=1.6.0
 xgboost>=2.0.0
 
-# --- OPQR / RF (gnn_infer.py, opqr_model.pkl) ---
+# --- GNN lexical RF (gnn_engine.py, gnn_model.pkl) ---
 # pandas·scikit-learn·joblib 위와 공유
 
 # --- 스크립트·실험 (gnn-ready.py: RF 학습·시각화 / PyG 예제) ---

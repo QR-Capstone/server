@@ -1,6 +1,6 @@
 def predict_url(url):
     # 1. Load model
-    loaded_model = joblib.load("opqr_model.pkl")
+    loaded_model = joblib.load("gnn_model.pkl")
     
     # 2. Extract features from URL
     feat = extract_features(url)
@@ -84,7 +84,7 @@ def integrated_analysis(url):
 import joblib
 import os
 
-file_name = "opqr_model.pkl"
+file_name = "gnn_model.pkl"
 
 if os.path.exists(file_name):
     rf_model = joblib.load(file_name)
@@ -107,7 +107,7 @@ import pandas as pd
 
 app = FastAPI()
 
-model = joblib.load("opqr_model.pkl")
+model = joblib.load("gnn_model.pkl")
 
 def extract_features(url):
     # Length, dots, special chars, etc.
@@ -174,7 +174,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 try:
-    model = joblib.load("opqr_model.pkl")
+    model = joblib.load("gnn_model.pkl")
 except Exception:
     print("Could not load model file.")
 

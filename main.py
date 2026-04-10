@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import uvicorn
 from XG_core import load_bundle, predict_url
-from gnn_infer import load_opqr_model, predict_opqr
+from gnn_engine import GNN_Engine, predict_gnn
 
 app = FastAPI(title="Phishing Detection API")
 
@@ -39,8 +39,8 @@ STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
 _engine_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="phish_engine")
 # XGBoost on its own thread pool (runs in parallel with KoBERT).
 _xgboost_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="xgboost_infer")
-# GNN lexical RF (opqr_model.pkl)
-_gnn_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="opqr_gnn")
+# GNN lexical RF (gnn_model.pkl)
+_gnn_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gnn_lexical")
 
 
 async def _run_engine(fn, *args, **kwargs):
@@ -115,13 +115,13 @@ def _run_xgboost_inference(raw_url: str):
 
 
 def _run_gnn_inference(raw_url: str):
-    """GNN lexical RF (opqr_model.pkl); None if model not loaded."""
+    """GNN lexical RF (gnn_model.pkl); None if model not loaded."""
     model = getattr(app.state, "gnn_model", None)
     cols = getattr(app.state, "gnn_columns", None)
     if model is None or not cols:
         return None
     try:
-        return predict_opqr(model, cols, raw_url)
+        return predict_gnn(model, cols, raw_url)
     except Exception as e:
         return {"error": str(e), "verdict": "unknown", "enabled": True}
 
@@ -177,32 +177,35 @@ async def startup_event():
     app.state.gnn_model = None
     app.state.gnn_columns = None
     app.state.gnn_status = {"enabled": False, "reason": "not_loaded"}
+    app.state.gnn_engine = None
 
-    # Optional: GNN lexical RF (opqr_model.pkl)
-    opqr_path = os.getenv("OPQR_MODEL_PATH", "opqr_model.pkl")
-    opqr_cols_path = os.getenv("OPQR_FEATURES_PATH", "model_features.pkl")
+    # Optional: GNN lexical RF (gnn_engine: gnn_model.pkl + gnn_model_features.pkl)
     try:
-        if os.path.isfile(opqr_path):
-            m, cols = load_opqr_model(opqr_path, opqr_cols_path)
-            app.state.gnn_model = m
-            app.state.gnn_columns = cols
+        eng_gnn = GNN_Engine()
+        app.state.gnn_engine = eng_gnn
+        if eng_gnn.ok:
+            app.state.gnn_model = eng_gnn.model
+            app.state.gnn_columns = eng_gnn.columns
             app.state.gnn_status = {
                 "enabled": True,
-                "model_path": opqr_path,
-                "feature_columns_path": opqr_cols_path if os.path.isfile(opqr_cols_path) else None,
+                "model_path": eng_gnn.model_path,
+                "feature_columns_path": eng_gnn.feature_columns_path
+                if os.path.isfile(eng_gnn.feature_columns_path)
+                else None,
             }
         else:
-            app.state.gnn_status = {
-                "enabled": False,
-                "reason": f"missing_model:{opqr_path}",
-            }
+            reason = eng_gnn._load_error or "model_not_loaded"
+            if reason.startswith("missing_model:"):
+                app.state.gnn_status = {"enabled": False, "reason": reason}
+            else:
+                app.state.gnn_status = {"enabled": False, "reason": reason}
     except Exception as e:
         app.state.gnn_status = {"enabled": False, "reason": str(e)}
 
     # Smoke predict after GNN load
     if app.state.gnn_model is not None and app.state.gnn_columns is not None:
         try:
-            sm = predict_opqr(
+            sm = predict_gnn(
                 app.state.gnn_model,
                 app.state.gnn_columns,
                 "https://example.com",
@@ -263,17 +266,51 @@ async def startup_event():
         app.state.warmup_info = {"skipped": "engine_not_loaded"}
 
     print("--- [system] Ready. /analyze runs full checks. ---")
+    eng = getattr(app.state, "eng", None)
+    if eng is None:
+        r = getattr(app.state, "eng_status", {}).get("reason", "")
+        print(
+            "  [hint] KoBERT engine did not load (import failed). "
+            "/ready will show ready=false until fixed. "
+            "Install deps with the SAME Python that runs uvicorn, e.g.: "
+            "python -m pip install -r requirements.txt"
+        )
+        if r:
+            print(f"  [hint] Import error was: {r}")
+
+
+@app.get("/health")
+async def health():
+    """Liveness: process is up (use for K8s livenessProbe). Does not check ML deps."""
+    return {"status": "ok"}
 
 
 @app.get("/ready")
 async def ready():
-    """Readiness for load balancer / health checks."""
+    """Readiness: KoBERT warmup finished. False if import failed or warmup errored."""
+    eng_ok = getattr(app.state, "eng", None) is not None
+    warmup_done = bool(getattr(app.state, "warmup_done", False))
+    eng_status = getattr(app.state, "eng_status", {"enabled": False})
+    issues = []
+    if not eng_ok:
+        issues.append(
+            f"koBERT import failed: {eng_status.get('reason', 'unknown')}. "
+            "Use the same interpreter for pip and uvicorn (python -m pip install -r requirements.txt)."
+        )
+    elif not warmup_done:
+        wi = getattr(app.state, "warmup_info", None)
+        issues.append(f"warmup incomplete: {wi}")
+
     return {
-        "ready": getattr(app.state, "warmup_done", False),
+        "http_ok": True,
+        "ready": warmup_done and eng_ok,
+        "kobert_import_ok": eng_ok,
+        "warmup_done": warmup_done,
         "warmup": getattr(app.state, "warmup_info", None),
-        "engine": getattr(app.state, "eng_status", {"enabled": False}),
+        "engine": eng_status,
         "xgboost": getattr(app.state, "xg_status", {"enabled": False}),
         "gnn": getattr(app.state, "gnn_status", {"enabled": False}),
+        "issues": issues,
     }
 
 
