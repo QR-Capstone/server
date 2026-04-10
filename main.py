@@ -301,6 +301,7 @@ async def warmup_manual():
 
 @app.post("/analyze")
 async def analyze_url(request: URLRequest):
+    """koBERT(koBERT.py) · XGBoost · GNN(lexical RF) 세 분기를 asyncio.gather 로 병렬 실행."""
     target_url = (request.url or "").strip()
     if not target_url:
         raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
@@ -310,6 +311,7 @@ async def analyze_url(request: URLRequest):
     t_wall0 = time.perf_counter()
     try:
 
+        # 세 분기 koBERT · XGBoost · GNN 은 asyncio.gather 로 동시에 실행 (순차 아님)
         async def _kobert_timed():
             t0 = time.perf_counter()
             eng = getattr(app.state, "eng", None)
@@ -335,7 +337,7 @@ async def analyze_url(request: URLRequest):
             r = await _run_gnn(_run_gnn_inference, target_url)
             return r, time.perf_counter() - t0
 
-        (result, t_kobert), (xg_result, t_xg), (gnn_result, t_gnn) = await asyncio.gather(
+        (kobert_result, t_kobert), (xg_result, t_xg), (gnn_result, t_gnn) = await asyncio.gather(
             _kobert_timed(),
             _xg_timed(),
             _gnn_timed(),
@@ -346,22 +348,23 @@ async def analyze_url(request: URLRequest):
 
     dur_wall = time.perf_counter() - t_wall0
     print(
-        f"--- [검증 요약] URL: {target_url}\n"
-        f"    {_log_line_kobert(result)}  ({t_kobert:.3f}s)\n"
+        f"--- [검증 요약] URL: {target_url}  (koBERT / xgboost / gnn 병렬)\n"
+        f"    {_log_line_kobert(kobert_result)}  ({t_kobert:.3f}s)\n"
         f"    {_log_line_xgboost(xg_result)}  ({t_xg:.3f}s)\n"
         f"    {_log_line_gnn(gnn_result)}  ({t_gnn:.3f}s)\n"
         f"    병렬 전체(벽시계): {dur_wall:.3f}s"
     )
     return {
-        **result,
-        "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
+        "url": target_url,
+        "koBERT": kobert_result,
         "xgboost": xg_result,
-        "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
         "gnn": gnn_result,
+        "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
+        "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
         "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),
         "duration_sec": round(dur_wall, 3),
         "timing": {
-            "kobert_sec": round(t_kobert, 6),
+            "koBERT_sec": round(t_kobert, 6),
             "xgboost_sec": round(t_xg, 6),
             "gnn_sec": round(t_gnn, 6),
             "total_wall_sec": round(dur_wall, 6),
@@ -394,7 +397,7 @@ async def analyze_engine_only(request: URLRequest):
 
 @app.post("/analyze/xgboost")
 async def analyze_xgboost_only(request: URLRequest):
-    """XGBoost(타이포 + 도메인 연령)만 실행 — 클라이언트에서 2단계 진행률용."""
+    """XGBoost(타이포 + 도메인 연령)만 실행 — GNN(`/analyze/gnn`)과는 별도 엔드포인트."""
     target_url = (request.url or "").strip()
     if not target_url:
         raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
