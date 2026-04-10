@@ -48,7 +48,7 @@ def collect_with_source(target=500):
     
     black_df.to_csv("Blacklist/blacklist_with_source.csv", index=False)
     white_df.to_csv("Whitelist/whitelist_with_source.csv", index=False)
-    df.to_csv("opqr_total_dataset.csv", index=False)
+    df.to_csv("gnn_total_dataset.csv", index=False)
     
     return df
 
@@ -65,13 +65,6 @@ print("="*45)
 # 출처별 개수 확인
 print("\n🔍 [출처별 데이터 분포]")
 print(total_df['source'].value_counts())
-
-
-
-
-
-
-
 
 
 import numpy as np
@@ -196,13 +189,23 @@ print(classification_report(y_test, y_pred))
 
 import joblib
 
-# 모델 저장
-joblib.dump(model, "opqr_model.pkl")
+# 모델 저장: protocol=4, compress=0 권장(3.12 서버에서 3.13 pickle opcode 이슈 완화)
+try:
+    joblib.dump(model, "gnn_model.pkl", compress=0, protocol=4)
+except TypeError:
+    try:
+        joblib.dump(model, "gnn_model.pkl", protocol=4)
+    except TypeError:
+        joblib.dump(model, "gnn_model.pkl")
+try:
+    joblib.dump(X.columns.tolist(), "gnn_model_features.pkl", compress=0, protocol=4)
+except TypeError:
+    try:
+        joblib.dump(X.columns.tolist(), "gnn_model_features.pkl", protocol=4)
+    except TypeError:
+        joblib.dump(X.columns.tolist(), "gnn_model_features.pkl")
 
-# 특징 추출기(컬럼 리스트)도 나중을 위해 저장해두면 좋습니다.
-joblib.dump(X.columns.tolist(), "model_features.pkl")
-
-print("✅ 모델 저장 완료: opqr_model.pkl")
+print("✅ 모델 저장 완료: gnn_model.pkl")
 
 
 
