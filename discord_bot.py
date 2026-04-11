@@ -7,7 +7,7 @@
 사전 준비
 ---------
 1. Discord Developer Portal에서 Application 생성 → Bot → Token 복사
-2. Bot 권한: Send Messages, Embed Links, Read Message History
+2. Bot 권한: Send Messages, Embed Links, Read Message History, Attach Files (analyze_debug.json 첨부)
    (메시지로 URL 받으려면 MESSAGE CONTENT INTENT 켜기 — Privileged Gateway Intent)
 3. OAuth2 URL Generator: `bot` + `applications.commands` 스코프, 위 권한 체크 후 초대 링크로 서버에 초대
 4. 이 머신에서 API 실행: `python main.py` (기본 http://127.0.0.1:8000)
@@ -24,6 +24,7 @@
   PHISH_API_BASE     API 베이스 URL (기본 http://127.0.0.1:8000)
   DISCORD_GUILD_ID   숫자면 슬래시 명령을 해당 길드에만 즉시 동기화(개발용)
   DISCORD_ANALYZE_TIMEOUT_SEC  기본 180
+  DISCORD_DEBUG_ATTACH_JSON  기본 1 — 검증 성공 시 전체 API JSON 을 analyze_debug.json 첨부
 
 배포(!최신화) — 봇이 돌아가는 머신에서만 동작 (채널에 접근 가능한 누구나 실행 가능, 소규모 팀 가정)
 ---------------------------------------------------------------------------
@@ -39,6 +40,15 @@ from __future__ import annotations
 
 import asyncio
 import os
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+import io
+import json
 import re
 import subprocess
 import sys
@@ -54,6 +64,7 @@ from discord.ext import commands
 PHISH_API_BASE = os.getenv("PHISH_API_BASE", "http://127.0.0.1:8000").rstrip("/")
 ANALYZE_PATH = "/analyze"
 TIMEOUT_SEC = float(os.getenv("DISCORD_ANALYZE_TIMEOUT_SEC", "180"))
+DEBUG_ATTACH_JSON = os.getenv("DISCORD_DEBUG_ATTACH_JSON", "1").strip() not in ("0", "false", "no")
 TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 
 PREFIXES = ("!검증", "!check", "!url", "!scan", "!피싱")
@@ -221,10 +232,34 @@ def _fmt_block(data: Dict[str, Any]) -> str:
     if xg is None:
         lines.append("**XGBoost**: 스킵 (모델 없음)")
     else:
+        def _verdict_lbl(lbl: Any) -> str:
+            if lbl == 1:
+                return "malicious"
+            if lbl == 0:
+                return "benign"
+            return str(lbl)
+
+        sub: list[str] = []
+        if "typo_label" in xg or "typo_probability" in xg:
+            sub.append(
+                f"타이포: `{_verdict_lbl(xg.get('typo_label'))}`  "
+                f"p={xg.get('typo_probability')}"
+            )
+        if "domain_label" in xg or "domain_probability" in xg:
+            sub.append(
+                f"도메인: `{_verdict_lbl(xg.get('domain_label'))}`  "
+                f"p={xg.get('domain_probability')}"
+            )
         fp = xg.get("final_probability")
-        lines.append(
-            f"**XGBoost**: `{xg.get('verdict')}`  final_p={fp}"
-        )
+        if sub:
+            lines.append("**XGBoost**\n" + "\n".join(f"- {s}" for s in sub))
+            lines.append(
+                f"- 최종: `{xg.get('verdict')}`  final_p={fp}  (max typo·domain)"
+            )
+        else:
+            lines.append(
+                f"**XGBoost**: `{xg.get('verdict')}`  final_p={fp}"
+            )
 
     gnn = data.get("gnn")
     if gnn is None:
@@ -241,6 +276,21 @@ def _fmt_block(data: Dict[str, Any]) -> str:
     if t is not None:
         lines.append(f"_소요: {t}s_")
     return "\n".join(lines)
+
+
+def _json_snippet(obj: Any, limit: int = 980) -> str:
+    try:
+        s = json.dumps(obj, ensure_ascii=False, indent=2, default=str)
+    except TypeError:
+        s = repr(obj)
+    s = _chop(s.strip(), limit)
+    return f"```json\n{s}\n```"
+
+
+def analyze_debug_attachment(body: Dict[str, Any]) -> discord.File:
+    """전체 /analyze 응답 — 디버깅용 다운로드."""
+    raw = json.dumps(body, ensure_ascii=False, indent=2, default=str)
+    return discord.File(io.BytesIO(raw.encode("utf-8")), filename="analyze_debug.json")
 
 
 async def call_analyze(client: httpx.AsyncClient, url: str) -> Dict[str, Any]:
@@ -261,11 +311,27 @@ def build_embed(target_url: str, body: Dict[str, Any], error: Optional[str] = No
             color=discord.Color.red(),
         )
     emb = discord.Embed(
-        title="피싱 검증 결과",
-        description=_fmt_block(body)[:4000],
+        title="피싱 검증 결과 (debug)",
+        description=_fmt_block(body)[:3500],
         color=discord.Color.orange(),
     )
     emb.add_field(name="URL", value=f"`{target_url[:1000]}`", inline=False)
+    emb.add_field(
+        name="API",
+        value=f"`{PHISH_API_BASE}{ANALYZE_PATH}`",
+        inline=False,
+    )
+    tim = body.get("timing")
+    if tim:
+        emb.add_field(
+            name="timing (sec)",
+            value=_json_snippet(tim, 900),
+            inline=False,
+        )
+    emb.set_footer(
+        text="상세(engine/xgboost/gnn status·raw) → analyze_debug.json 첨부 "
+        "(DISCORD_DEBUG_ATTACH_JSON=0 이면 첨부 없음)"
+    )
     return emb
 
 
@@ -311,7 +377,12 @@ async def slash_phish(interaction: discord.Interaction, url: str) -> None:
     try:
         body = await call_analyze(bot.http_analyze, target)
         emb = build_embed(body.get("url", target), body)
-        await interaction.followup.send(embed=emb)
+        if DEBUG_ATTACH_JSON:
+            await interaction.followup.send(
+                embed=emb, file=analyze_debug_attachment(body)
+            )
+        else:
+            await interaction.followup.send(embed=emb)
     except httpx.ConnectError as e:
         await interaction.followup.send(
             f"API에 연결할 수 없습니다. `{PHISH_API_BASE}` 에서 `python main.py` 가 떠 있는지 확인하세요.\n`{e}`"
@@ -355,7 +426,14 @@ async def on_message(message: discord.Message) -> None:
         try:
             body = await call_analyze(bot.http_analyze, target)
             emb = build_embed(body.get("url", target), body)
-            await message.reply(embed=emb, mention_author=False)
+            if DEBUG_ATTACH_JSON:
+                await message.reply(
+                    embed=emb,
+                    file=analyze_debug_attachment(body),
+                    mention_author=False,
+                )
+            else:
+                await message.reply(embed=emb, mention_author=False)
         except httpx.ConnectError as e:
             await message.reply(
                 f"API 연결 실패 (`{PHISH_API_BASE}`). 서버에서 `python main.py` 실행 여부를 확인하세요.\n`{e}`",

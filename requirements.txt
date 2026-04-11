@@ -8,6 +8,7 @@ pydantic>=2.0.0
 # --- Discord 봇 (discord_bot.py, 선택) ---
 discord.py>=2.3.0
 httpx>=0.25.0
+python-dotenv>=1.0.0
 
 # --- KoBERT 엔진 (TEST_27_server) ---
 torch>=2.0.0
