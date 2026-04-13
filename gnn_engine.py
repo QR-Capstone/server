@@ -2,6 +2,9 @@
 Lexical URL features + RandomForest (GNN lexical service name; RF checkpoint).
 Not a PyG model — same pipeline as gnn-ready.py; column order from gnn_model_features.pkl.
 Python 3.10+ recommended (pickle may fail on older runtimes).
+
+If gnn_model.pkl fails on 3.12 with KeyError 239 (saved on 3.13+), run regenerate_gnn_model.py
+on the deployment Python to rebuild pickles from gnn_total_dataset.csv.
 """
 from __future__ import annotations
 
