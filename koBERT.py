@@ -304,6 +304,10 @@ def predict_phishing_result(target_url):
     # 🌟 [1단계] 루트 URL 검사
     # ----------------------------------------------------
     processed_text, raw_html = extract_with_requests_and_raw_html(target_url)
+
+    # 🔥 [추가] Cloudflare 피싱 차단 페이지 즉결 처형 로직!
+    if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
+        return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
     
     if len(processed_text) < 150 or processed_text.startswith("[오류]"):
         if use_pw:
