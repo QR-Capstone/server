@@ -90,6 +90,7 @@ def _run_xgboost_inference(raw_url: str):
             typo_bundle,
             url,
             enable_domain_age=False,
+            enable_ssl=bool(typo_bundle.meta.get("enable_ssl", False)),
             domain_only=False,
         )
         output["typo_probability"] = round(float(typo_prob), 6)
@@ -100,6 +101,7 @@ def _run_xgboost_inference(raw_url: str):
             domain_bundle,
             url,
             enable_domain_age=True,
+            enable_ssl=bool(domain_bundle.meta.get("enable_ssl", False)),
             domain_only=True,
         )
         output["domain_probability"] = round(float(domain_prob), 6)

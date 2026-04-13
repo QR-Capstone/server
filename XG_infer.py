@@ -9,7 +9,13 @@ from typing import List, Optional
 from XG_core import _validate_single_input_url, load_bundle, predict_url
 
 def predict_url_domain(bundle, url: str):
-    return predict_url(bundle, url, enable_domain_age=True, domain_only=True)
+    return predict_url(
+        bundle,
+        url,
+        enable_domain_age=True,
+        enable_ssl=bool(bundle.meta.get("enable_ssl", False)),
+        domain_only=True,
+    )
 
 
 def _cmd_predict_url(args: argparse.Namespace) -> int:
@@ -27,7 +33,13 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
 
     bundle_typo = load_bundle(args.model_typo)
     bundle_domain = load_bundle(args.model_domain)
-    _, prob_typo, _ = predict_url(bundle_typo, url, enable_domain_age=False, domain_only=False)
+    _, prob_typo, _ = predict_url(
+        bundle_typo,
+        url,
+        enable_domain_age=False,
+        enable_ssl=bool(bundle_typo.meta.get("enable_ssl", False)),
+        domain_only=False,
+    )
     _, prob_domain, _ = predict_url_domain(bundle_domain, url)
     final_probability = max(prob_typo, prob_domain)
     verdict_label = 1 if final_probability >= args.threshold else 0

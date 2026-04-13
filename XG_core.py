@@ -9,6 +9,8 @@ import math
 import os
 import random
 import re
+import socket
+import ssl
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -523,11 +525,87 @@ def get_domain_age_features_for_mode(url: str, enable_domain_age: bool) -> Dict[
         }
     return extract_domain_age_features(url)
 
-def extract_domain_only_features(url: str, enable_domain_age: bool) -> Dict[str, float]:
-    return get_domain_age_features_for_mode(url, enable_domain_age)
+# ============================================================
+# 5. SSL certificate features (SSL 유효기간)
+# ============================================================
+
+_SSL_LOOKUP_TIMEOUT_SECONDS = 3.0
+_SSL_CERT_MAX_DAYS = 36500.0
+_SSL_FALLBACK = {
+    "ssl_valid_days": 0.0,
+    "ssl_remaining_days": 0.0,
+    "ssl_age_days": 0.0,
+    "ssl_missing": 1.0,
+}
+_SSL_CACHE: Dict[str, Dict[str, float]] = {}
+
+def _parse_ssl_cert_datetime(value: str) -> Optional[datetime]:
+    text = (value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%b %d %H:%M:%S %Y %Z", "%Y%m%d%H%M%SZ"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+def _clamp_ssl_days(value: float) -> float:
+    return float(min(max(0.0, value), _SSL_CERT_MAX_DAYS))
+
+def extract_ssl_features(url: str) -> Dict[str, float]:
+    host = _extract_host_for_domain_age(url)
+    if not host:
+        return dict(_SSL_FALLBACK)
+
+    cached = _SSL_CACHE.get(host)
+    if cached is not None:
+        return dict(cached)
+
+    context = ssl.create_default_context()
+    try:
+        with socket.create_connection((host, 443), timeout=_SSL_LOOKUP_TIMEOUT_SECONDS) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as tls_sock:
+                cert = tls_sock.getpeercert()
+    except (socket.timeout, socket.gaierror, socket.error, ssl.SSLError, ValueError, OSError):
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK)
+
+    not_before = _parse_ssl_cert_datetime(str(cert.get("notBefore", "")))
+    not_after = _parse_ssl_cert_datetime(str(cert.get("notAfter", "")))
+    if not_before is None or not_after is None:
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK)
+
+    now = datetime.now(timezone.utc)
+    ssl_valid_days = _clamp_ssl_days((not_after - not_before).total_seconds() / 86400.0)
+    ssl_remaining_days = _clamp_ssl_days((not_after - now).total_seconds() / 86400.0)
+    ssl_age_days = _clamp_ssl_days((now - not_before).total_seconds() / 86400.0)
+    features = {
+        "ssl_valid_days": float(ssl_valid_days),
+        "ssl_remaining_days": float(ssl_remaining_days),
+        "ssl_age_days": float(ssl_age_days),
+        "ssl_missing": 0.0,
+    }
+    _SSL_CACHE[host] = dict(features)
+    return dict(features)
+
+def get_ssl_features_for_mode(url: str, enable_ssl: bool) -> Dict[str, float]:
+    if not enable_ssl:
+        return dict(_SSL_FALLBACK)
+    return extract_ssl_features(url)
+
+def extract_domain_only_features(
+    url: str,
+    enable_domain_age: bool,
+    enable_ssl: bool = False,
+) -> Dict[str, float]:
+    features = get_domain_age_features_for_mode(url, enable_domain_age)
+    features.update(get_ssl_features_for_mode(url, enable_ssl))
+    return features
 
 # ============================================================
-# 5. Error analysis (오탐/미탐 분석)
+# 6. Error analysis (오탐/미탐 분석)
 # ============================================================
 
 _ANALYSIS_INFRA_HINTS = (
@@ -906,7 +984,7 @@ def _print_error_analysis_summary(summary: Dict[str, List[Dict[str, object]]]) -
         print(f"  -> {item['detail_en']} / {item['detail_ko']}")
 
 # ============================================================
-# 6. Synthetic typo generation (합성 타이포 URL 생성)
+# 7. Synthetic typo generation (합성 타이포 URL 생성)
 # ============================================================
 
 _LETTER_TO_HOMOGLYPH: Dict[str, List[str]] = {
@@ -1029,7 +1107,7 @@ def _synthetic_typosquat_url(url: str, substitutions: int = 1, rng: Optional[ran
     return f"{scheme}://{new_host}{path}{query}{fragment}"
 
 # ============================================================
-# 7. Feature schema / labels (feature 정의 및 라벨)
+# 8. Feature schema / labels (feature 정의 및 라벨)
 # ============================================================
 
 FEATURE_NAMES: List[str] = [
@@ -1067,6 +1145,10 @@ FEATURE_NAMES: List[str] = [
     "domain_age_days",
     "domain_age_log_days",
     "domain_age_missing",
+    "ssl_valid_days",
+    "ssl_remaining_days",
+    "ssl_age_days",
+    "ssl_missing",
 ]
 
 _FEATURE_LABELS_KO: Dict[str, str] = {
@@ -1096,6 +1178,10 @@ _FEATURE_LABELS_KO: Dict[str, str] = {
     "domain_age_days": "도메인 등록 후 경과 일수",
     "domain_age_log_days": "도메인 나이 로그 변환값",
     "domain_age_missing": "도메인 나이 조회 실패 여부",
+    "ssl_valid_days": "SSL 인증서 전체 유효 일수",
+    "ssl_remaining_days": "SSL 인증서 남은 유효 일수",
+    "ssl_age_days": "SSL 인증서 발급 후 경과 일수",
+    "ssl_missing": "SSL 인증서 조회 실패 여부",
 }
 
 _METRIC_LABELS_KO: Dict[str, str] = {
@@ -1140,12 +1226,13 @@ def _print_metric_summary(metrics: Dict[str, object]) -> None:
             print(f"  {_annotate_metric_name(key)}: {metrics[key]}")
 
 # ============================================================
-# 8. Feature pipeline (최종 feature 벡터 조립)
+# 9. Feature pipeline (최종 feature 벡터 조립)
 # ============================================================
 
 def extract_features(
     url: str,
     enable_domain_age: bool = False,
+    enable_ssl: bool = False,
     domain_only: bool = False,
 ) -> np.ndarray:
     """
@@ -1155,7 +1242,7 @@ def extract_features(
     """
     u = (url or "").strip()
     if domain_only:
-        features = extract_domain_only_features(u, enable_domain_age)
+        features = extract_domain_only_features(u, enable_domain_age, enable_ssl=enable_ssl)
         return _feature_dict_to_array(features)
 
     # urlsplit requires scheme to parse netloc well. If missing, prepend.
@@ -1168,6 +1255,7 @@ def extract_features(
     safe_second_level_hint_flag = has_safe_second_level_hint(host)
     length_feats = extract_length_features(url)
     domain_age_feats = get_domain_age_features_for_mode(url, enable_domain_age)
+    ssl_feats = get_ssl_features_for_mode(url, enable_ssl)
 
     host_len = len(host)
 
@@ -1247,6 +1335,10 @@ def extract_features(
             float(domain_age_feats["domain_age_days"]),
             float(domain_age_feats["domain_age_log_days"]),
             float(domain_age_feats["domain_age_missing"]),
+            float(ssl_feats["ssl_valid_days"]),
+            float(ssl_feats["ssl_remaining_days"]),
+            float(ssl_feats["ssl_age_days"]),
+            float(ssl_feats["ssl_missing"]),
         ],
         dtype=np.float32,
     )
@@ -1255,6 +1347,7 @@ def extract_features(
 def featurize_urls(
     urls: Iterable[str],
     enable_domain_age: bool = False,
+    enable_ssl: bool = False,
     domain_only: bool = False,
 ) -> np.ndarray:
     urls_list = list(urls)
@@ -1263,6 +1356,7 @@ def featurize_urls(
             extract_features(
                 u,
                 enable_domain_age=enable_domain_age,
+                enable_ssl=enable_ssl,
                 domain_only=domain_only,
             )
             for u in urls_list
@@ -1271,7 +1365,7 @@ def featurize_urls(
     return X
 
 # ============================================================
-# 9. Data split logic (데이터 분할 로직)
+# 10. Data split logic (데이터 분할 로직)
 # ============================================================
 
 def _group_train_val_test_split(
@@ -1317,7 +1411,7 @@ def _group_train_val_test_split(
     return out
 
 # ============================================================
-# 10. Model bundle / train / eval / predict (모델 저장/학습/평가/추론)
+# 11. Model bundle / train / eval / predict (모델 저장/학습/평가/추론)
 # ============================================================
 
 @dataclass
@@ -1531,14 +1625,17 @@ def predict_url(
     bundle: ModelBundle,
     url: str,
     enable_domain_age: Optional[bool] = None,
+    enable_ssl: Optional[bool] = None,
     domain_only: Optional[bool] = None,
 ) -> Tuple[int, float, Dict[str, float]]:
     if enable_domain_age is None:
         enable_domain_age = bool(bundle.meta.get("enable_domain_age", False))
+    if enable_ssl is None:
+        enable_ssl = bool(bundle.meta.get("enable_ssl", False))
     if domain_only is None:
         domain_only = bool(bundle.meta.get("domain_only", False))
-    X = featurize_urls([url], enable_domain_age=enable_domain_age, domain_only=domain_only)
-    feats = extract_features(url, enable_domain_age=enable_domain_age, domain_only=domain_only)
+    X = featurize_urls([url], enable_domain_age=enable_domain_age, enable_ssl=enable_ssl, domain_only=domain_only)
+    feats = extract_features(url, enable_domain_age=enable_domain_age, enable_ssl=enable_ssl, domain_only=domain_only)
     base_n = len(bundle.feature_names)
     if X.shape[1] > base_n:
         X = X[:, :base_n]
@@ -1560,7 +1657,7 @@ def _validate_single_input_url(url: str) -> str:
     return value
 
 # ============================================================
-# 11. Dataset I/O (데이터셋 입출력)
+# 12. Dataset I/O (데이터셋 입출력)
 # ============================================================
 
 def _read_urls_from_file(path: str) -> List[str]:
