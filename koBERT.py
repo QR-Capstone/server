@@ -290,22 +290,33 @@ def predict_phishing_result(target_url):
         target_url = "https://" + target_url
 
     safe_tlds = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+
+    safe_official_domains = [
+        "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com",
+        "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr"
+    ]
+
+
     try:
         domain = urlparse(target_url).netloc.lower()
-        if any(domain.endswith(tld) for tld in safe_tlds):
+        if any(domain.endswith(tld) for tld in safe_tlds) or \
+           any(domain == d or domain.endswith("." + d) for d in safe_official_domains):
             return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", "detectedUrl": target_url}
     except Exception:
         pass
 
     use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
     max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
+    
+    # 🔥 [공통 설정] 점수 보정을 위한 휴리스틱 키워드 사전
+    high_risk_keywords = ["통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방"]
+    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호", "입력을 요구"]
 
     # ----------------------------------------------------
     # 🌟 [1단계] 루트 URL 검사
     # ----------------------------------------------------
     processed_text, raw_html = extract_with_requests_and_raw_html(target_url)
 
-    # 🔥 [추가] Cloudflare 피싱 차단 페이지 즉결 처형 로직!
     if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
         return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
     
@@ -325,6 +336,15 @@ def predict_phishing_result(target_url):
         probs = F.softmax(outputs.logits, dim=-1)[0]
     
     prob_phishing = probs[1].item() * 100
+    
+    # 🔥 [점수 보정 1] 여백 채우기 (1-Depth 루트 URL)
+    boost_weight_1 = 0.0
+    if any(kw in processed_text for kw in high_risk_keywords): boost_weight_1 += 0.40
+    if any(kw in processed_text for kw in action_keywords): boost_weight_1 += 0.15
+    boost_weight_1 = min(boost_weight_1, 0.50) # 가중치 최대 50% 제한
+    
+    if boost_weight_1 > 0:
+        prob_phishing += (100 - prob_phishing) * boost_weight_1 # 100% 안 넘게 남은 여백만큼만 더하기
     
     if prob_phishing > 50:
         return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
@@ -357,7 +377,6 @@ def predict_phishing_result(target_url):
     urls_to_pw_scan = [] 
 
     whitelist_domains = ["naver.com", "youtube.com", "daum.net", "kakao.com"]
-    risk_keywords = ["비밀번호", "로그인", "login", "계좌", "주민", "카드", "인증", "입력을 요청", "입력을 요구"]
 
     for idx, (url, current_text) in enumerate(fetched_data, 1):
         if any(safe_domain in url.lower() for safe_domain in whitelist_domains):
@@ -368,13 +387,13 @@ def predict_phishing_result(target_url):
                 urls_to_pw_scan.append(url) 
             continue
 
-        has_risk = any(kw in current_text.lower() for kw in risk_keywords)
+        has_risk = any(kw in current_text for kw in high_risk_keywords + action_keywords)
         if not current_text.startswith("[오류]"):
             if len(current_text) >= 80 or has_risk:
                 valid_urls.append(url)
                 valid_texts.append(current_text)
 
-    # 🔥 비동기 병렬 처리 구역
+    # 비동기 병렬 처리 구역
     if urls_to_pw_scan:
         try:
             if not async_pw_manager:
@@ -383,7 +402,7 @@ def predict_phishing_result(target_url):
             pw_results = async_pw_manager.scrape_parallel(urls_to_pw_scan)
             
             for p_url, p_text, _ in pw_results:
-                has_risk = any(kw in p_text.lower() for kw in risk_keywords)
+                has_risk = any(kw in p_text for kw in high_risk_keywords + action_keywords)
                 if not p_text.startswith("[오류]"):
                     if len(p_text) >= 80 or has_risk:
                         valid_urls.append(p_url)
@@ -401,7 +420,17 @@ def predict_phishing_result(target_url):
             probs = F.softmax(outputs.logits, dim=-1)
             
         for i, url in enumerate(valid_urls):
+            current_text = valid_texts[i]
             prob_phishing = probs[i][1].item() * 100
+            
+            # 🔥 [점수 보정 2] 여백 채우기 (3-Depth 서브 링크)
+            boost_weight_2 = 0.0
+            if any(kw in current_text for kw in high_risk_keywords): boost_weight_2 += 0.40
+            if any(kw in current_text for kw in action_keywords): boost_weight_2 += 0.15
+            boost_weight_2 = min(boost_weight_2, 0.50)
+            
+            if boost_weight_2 > 0:
+                prob_phishing += (100 - prob_phishing) * boost_weight_2
             
             if prob_phishing > 50:
                 return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": url}
