@@ -116,7 +116,7 @@ def redact_pii(text: str) -> str:
     text = re.sub(r"\b\d{9,}\b", "[장문숫자]", text)
     return text
 
-def extract_with_html_ultimate_clean(html: str) -> str:
+def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     soup = BeautifulSoup(html, "html.parser")
     for noise in soup(["script", "style", "noscript", "iframe"]):
         noise.decompose()
@@ -162,6 +162,7 @@ def extract_with_html_ultimate_clean(html: str) -> str:
 
     context_sentences = []
     if title: context_sentences.append(f"이 웹페이지의 제목은 '{title}'입니다.")
+    if popup_text:context_sentences.append(f"접속 시 화면에 다음과 같은 경고 팝업이 발생했습니다. {popup_text}")
     if main_text: context_sentences.append(f"화면에 표시된 주요 안내 사항은 다음과 같습니다. {main_text}")
     if inputs_str and buttons_str:
         if any(k in inputs_str for k in ["계좌", "주민", "카드"]): context_sentences.append(f"이 페이지는 보안이 필요한 '{inputs_str}' 입력을 요구하며, '{buttons_str}' 버튼이 존재합니다.")
