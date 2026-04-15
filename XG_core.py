@@ -19,6 +19,15 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import numpy as np
+try:
+    import requests
+except Exception:  # pragma: no cover
+    requests = None  # type: ignore
+
+try:
+    from bs4 import BeautifulSoup
+except Exception:  # pragma: no cover
+    BeautifulSoup = None  # type: ignore
 
 try:
     from xgboost import XGBClassifier
@@ -605,7 +614,161 @@ def extract_domain_only_features(
     return features
 
 # ============================================================
-# 6. Error analysis (오탐/미탐 분석)
+# 6. DOM features (DOM 구조 특징)
+# ============================================================
+
+_DOM_FETCH_TIMEOUT_SECONDS = 5.0
+_DOM_FETCH_FALLBACK = {
+    "dom_max_depth": 0.0,
+    "dead_link_ratio": 0.0,
+    "hidden_tags_count": 0.0,
+    "suspicious_form_action": 0.0,
+    "dom_fetch_failed": 1.0,
+}
+_DOM_MODEL_FEATURE_NAMES: List[str] = [
+    "dom_max_depth",
+    "dead_link_ratio",
+    "hidden_tags_count",
+    "suspicious_form_action",
+]
+_DOM_FEATURE_CACHE: Dict[str, Dict[str, float]] = {}
+
+def _normalize_url_for_dom_fetch(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    candidate = raw if "://" in raw else f"http://{raw}"
+    try:
+        parsed = urlsplit(candidate)
+    except Exception:
+        return ""
+    return candidate if parsed.hostname else ""
+
+def _fetch_html_for_dom(url: str) -> Tuple[str, bool]:
+    target_url = _normalize_url_for_dom_fetch(url)
+    if not target_url or requests is None:
+        return "", True
+    try:
+        response = requests.get(  # type: ignore[union-attr]
+            target_url,
+            timeout=_DOM_FETCH_TIMEOUT_SECONDS,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+    except Exception:
+        return "", True
+    if not response.ok:
+        return "", True
+    return response.text or "", False
+
+def _parse_dom_soup(html: str) -> Optional[Any]:
+    if BeautifulSoup is None:
+        return None
+    try:
+        return BeautifulSoup(html or "", "html.parser")
+    except Exception:
+        return None
+
+def _get_dom_tree_depth(tag: Any, current_depth: int = 1) -> int:
+    children = [child for child in getattr(tag, "children", []) if getattr(child, "name", None)]
+    if not children:
+        return current_depth
+    return max(_get_dom_tree_depth(child, current_depth + 1) for child in children)
+
+def _is_hidden_dom_tag(tag: Any) -> bool:
+    if getattr(tag, "has_attr", lambda _: False)("hidden"):
+        return True
+    style = _safe_lower(str(tag.get("style", ""))).replace(" ", "")
+    if "display:none" in style or "visibility:hidden" in style:
+        return True
+    class_values = tag.get("class") or []
+    if isinstance(class_values, str):
+        class_tokens = [_safe_lower(class_values)]
+    else:
+        class_tokens = [_safe_lower(str(token)) for token in class_values]
+    return any(token in {"blind", "hidden", "sr-only"} for token in class_tokens)
+
+def _has_suspicious_form_action(current_url: str, action: str) -> bool:
+    action_text = (action or "").strip()
+    if not action_text:
+        return False
+    try:
+        parsed = urlsplit(action_text)
+    except Exception:
+        return False
+    if _safe_lower(parsed.scheme) not in {"http", "https"}:
+        return False
+    current_registered_domain = _get_registered_domain_for_rdap(current_url)
+    action_registered_domain = _get_registered_domain_for_rdap(action_text)
+    if not current_registered_domain or not action_registered_domain:
+        return False
+    return current_registered_domain != action_registered_domain
+
+def _extract_dom_features_from_html(html: str, current_url: str) -> Dict[str, float]:
+    soup = _parse_dom_soup(html)
+    if soup is None:
+        return dict(_DOM_FETCH_FALLBACK)
+
+    root_tags = [child for child in soup.children if getattr(child, "name", None)]
+    dom_max_depth = float(max((_get_dom_tree_depth(tag, 1) for tag in root_tags), default=0))
+
+    links = soup.find_all("a")
+    dead_links = 0
+    for link in links:
+        href = _safe_lower(str(link.get("href", "")).strip())
+        if href in {"", "#", "javascript:void(0);"} or href.startswith("javascript:"):
+            dead_links += 1
+    dead_link_ratio = float(dead_links) / float(len(links)) * 100.0 if links else 0.0
+
+    hidden_tags_count = float(sum(1 for tag in soup.find_all(True) if _is_hidden_dom_tag(tag)))
+
+    suspicious_form_action = 0.0
+    for form in soup.find_all("form"):
+        if _has_suspicious_form_action(current_url, str(form.get("action", ""))):
+            suspicious_form_action = 1.0
+            break
+
+    return {
+        "dom_max_depth": dom_max_depth,
+        "dead_link_ratio": dead_link_ratio,
+        "hidden_tags_count": hidden_tags_count,
+        "suspicious_form_action": suspicious_form_action,
+        "dom_fetch_failed": 0.0,
+    }
+
+def extract_dom_features(url: str) -> Dict[str, float]:
+    target_url = _normalize_url_for_dom_fetch(url)
+    if not target_url:
+        return dict(_DOM_FETCH_FALLBACK)
+
+    cached = _DOM_FEATURE_CACHE.get(target_url)
+    if cached is not None:
+        return dict(cached)
+
+    html, fetch_failed = _fetch_html_for_dom(target_url)
+    if fetch_failed:
+        _DOM_FEATURE_CACHE[target_url] = dict(_DOM_FETCH_FALLBACK)
+        return dict(_DOM_FETCH_FALLBACK)
+
+    features = _extract_dom_features_from_html(html, target_url)
+    _DOM_FEATURE_CACHE[target_url] = dict(features)
+    return dict(features)
+
+def _dom_feature_dict_to_array(
+    feature_values: Dict[str, float],
+    feature_names: Optional[List[str]] = None,
+) -> np.ndarray:
+    names = feature_names or _DOM_MODEL_FEATURE_NAMES
+    return np.array(
+        [float(feature_values.get(name, 0.0)) for name in names],
+        dtype=np.float32,
+    )
+
+def extract_dom_feature_array(url: str, feature_names: Optional[List[str]] = None) -> np.ndarray:
+    dom_features = extract_dom_features(url)
+    return _dom_feature_dict_to_array(dom_features, feature_names=feature_names)
+
+# ============================================================
+# 7. Error analysis (오탐/미탐 분석)
 # ============================================================
 
 _ANALYSIS_INFRA_HINTS = (
@@ -984,7 +1147,7 @@ def _print_error_analysis_summary(summary: Dict[str, List[Dict[str, object]]]) -
         print(f"  -> {item['detail_en']} / {item['detail_ko']}")
 
 # ============================================================
-# 7. Synthetic typo generation (합성 타이포 URL 생성)
+# 8. Synthetic typo generation (합성 타이포 URL 생성)
 # ============================================================
 
 _LETTER_TO_HOMOGLYPH: Dict[str, List[str]] = {
@@ -1107,7 +1270,7 @@ def _synthetic_typosquat_url(url: str, substitutions: int = 1, rng: Optional[ran
     return f"{scheme}://{new_host}{path}{query}{fragment}"
 
 # ============================================================
-# 8. Feature schema / labels (feature 정의 및 라벨)
+# 9. Feature schema / labels (feature 정의 및 라벨)
 # ============================================================
 
 FEATURE_NAMES: List[str] = [
@@ -1219,6 +1382,13 @@ def _feature_dict_to_array(feature_values: Dict[str, float]) -> np.ndarray:
         dtype=np.float32,
     )
 
+def _domain_only_feature_dict_to_array(feature_values: Dict[str, float]) -> np.ndarray:
+    padded_features = {name: 0.0 for name in FEATURE_NAMES}
+    for name, value in feature_values.items():
+        if name in padded_features:
+            padded_features[name] = float(value)
+    return _feature_dict_to_array(padded_features)
+
 def _print_metric_summary(metrics: Dict[str, object]) -> None:
     print("[Metrics with Korean explanations]")
     for key in ("accuracy", "roc_auc", "precision", "recall", "f1", "threshold", "confusion_matrix"):
@@ -1226,7 +1396,7 @@ def _print_metric_summary(metrics: Dict[str, object]) -> None:
             print(f"  {_annotate_metric_name(key)}: {metrics[key]}")
 
 # ============================================================
-# 9. Feature pipeline (최종 feature 벡터 조립)
+# 10. Feature pipeline (최종 feature 벡터 조립)
 # ============================================================
 
 def extract_features(
@@ -1243,7 +1413,7 @@ def extract_features(
     u = (url or "").strip()
     if domain_only:
         features = extract_domain_only_features(u, enable_domain_age, enable_ssl=enable_ssl)
-        return _feature_dict_to_array(features)
+        return _domain_only_feature_dict_to_array(features)
 
     # urlsplit requires scheme to parse netloc well. If missing, prepend.
     parsed = urlsplit(u if "://" in u else "http://" + u)
@@ -1365,7 +1535,7 @@ def featurize_urls(
     return X
 
 # ============================================================
-# 10. Data split logic (데이터 분할 로직)
+# 11. Data split logic (데이터 분할 로직)
 # ============================================================
 
 def _group_train_val_test_split(
@@ -1411,7 +1581,7 @@ def _group_train_val_test_split(
     return out
 
 # ============================================================
-# 11. Model bundle / train / eval / predict (모델 저장/학습/평가/추론)
+# 12. Model bundle / train / eval / predict (모델 저장/학습/평가/추론)
 # ============================================================
 
 @dataclass
@@ -1634,8 +1804,18 @@ def predict_url(
         enable_ssl = bool(bundle.meta.get("enable_ssl", False))
     if domain_only is None:
         domain_only = bool(bundle.meta.get("domain_only", False))
-    X = featurize_urls([url], enable_domain_age=enable_domain_age, enable_ssl=enable_ssl, domain_only=domain_only)
-    feats = extract_features(url, enable_domain_age=enable_domain_age, enable_ssl=enable_ssl, domain_only=domain_only)
+    X = featurize_urls(
+        [url],
+        enable_domain_age=enable_domain_age,
+        enable_ssl=enable_ssl,
+        domain_only=domain_only,
+    )
+    feats = extract_features(
+        url,
+        enable_domain_age=enable_domain_age,
+        enable_ssl=enable_ssl,
+        domain_only=domain_only,
+    )
     base_n = len(bundle.feature_names)
     if X.shape[1] > base_n:
         X = X[:, :base_n]
@@ -1644,6 +1824,24 @@ def predict_url(
     label = 1 if proba >= 0.5 else 0
     feat_map = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
     return label, proba, feat_map
+
+def predict_url_dom(
+    bundle: ModelBundle,
+    url: str,
+) -> Tuple[int, float, Dict[str, float]]:
+    dom_features = extract_dom_features(url)
+    dom_feature_array = _dom_feature_dict_to_array(dom_features, feature_names=bundle.feature_names)
+    X = dom_feature_array.reshape(1, -1)
+    proba = float(predict_proba(bundle.model, X)[0])
+    label = 1 if proba >= 0.5 else 0
+    dom_feature_map = {
+        "dom_max_depth": float(dom_features.get("dom_max_depth", 0.0)),
+        "dead_link_ratio": float(dom_features.get("dead_link_ratio", 0.0)),
+        "hidden_tags_count": float(dom_features.get("hidden_tags_count", 0.0)),
+        "suspicious_form_action": float(dom_features.get("suspicious_form_action", 0.0)),
+        "dom_fetch_failed": float(dom_features.get("dom_fetch_failed", 0.0)),
+    }
+    return label, proba, dom_feature_map
 
 def _validate_single_input_url(url: str) -> str:
     value = (url or "").strip()
@@ -1657,7 +1855,7 @@ def _validate_single_input_url(url: str) -> str:
     return value
 
 # ============================================================
-# 12. Dataset I/O (데이터셋 입출력)
+# 13. Dataset I/O (데이터셋 입출력)
 # ============================================================
 
 def _read_urls_from_file(path: str) -> List[str]:

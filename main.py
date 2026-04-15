@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import uvicorn
-from XG_core import load_bundle, predict_url
+from XG_core import load_bundle, predict_url, predict_url_dom
 from gnn_engine import GNN_Engine, predict_gnn
 
 app = FastAPI(title="Phishing Detection API")
@@ -76,10 +76,11 @@ def _normalize_url_for_xgboost(url: str) -> str:
 
 
 def _run_xgboost_inference(raw_url: str):
-    """Run XGBoost bundles; returns dict or None if no models."""
+    """Run XGBoost bundles (typo, domain-age, DOM); returns dict or None if no models."""
     typo_bundle = getattr(app.state, "xg_typo_bundle", None)
     domain_bundle = getattr(app.state, "xg_domain_bundle", None)
-    if typo_bundle is None and domain_bundle is None:
+    dom_bundle = getattr(app.state, "xg_dom_bundle", None)
+    if typo_bundle is None and domain_bundle is None and dom_bundle is None:
         return None
 
     url = _normalize_url_for_xgboost(raw_url)
@@ -107,9 +108,18 @@ def _run_xgboost_inference(raw_url: str):
         output["domain_probability"] = round(float(domain_prob), 6)
         output["domain_label"] = int(domain_label)
 
+    if dom_bundle is not None:
+        dom_label, dom_prob, dom_feature_map = predict_url_dom(dom_bundle, url)
+        output["dom_probability"] = round(float(dom_prob), 6)
+        output["dom_label"] = int(dom_label)
+        output["dom_features"] = {
+            k: round(float(v), 6) for k, v in dom_feature_map.items()
+        }
+
     typo_prob = float(output.get("typo_probability", 0.0))
     domain_prob = float(output.get("domain_probability", 0.0))
-    final_prob = max(typo_prob, domain_prob)
+    dom_prob = float(output.get("dom_probability", 0.0))
+    final_prob = max(typo_prob, domain_prob, dom_prob)
     output["final_probability"] = round(final_prob, 6)
     output["label"] = int(1 if final_prob >= 0.5 else 0)
     output["verdict"] = "malicious" if output["label"] == 1 else "benign"
@@ -139,10 +149,10 @@ def _log_line_kobert(result: dict) -> str:
 def _log_line_xgboost(xg: object) -> str:
     if xg is None:
         return "XGBoost: skipped (no model)"
-    return (
-        f"XGBoost: verdict={xg.get('verdict')} "
-        f"final_p={xg.get('final_probability')}"
-    )
+    parts = [f"verdict={xg.get('verdict')}", f"final_p={xg.get('final_probability')}"]
+    if xg.get("dom_probability") is not None:
+        parts.append(f"dom_p={xg.get('dom_probability')}")
+    return "XGBoost: " + " ".join(parts)
 
 
 def _log_line_gnn(gnn: object) -> str:
@@ -178,6 +188,7 @@ async def startup_event():
     app.state.warmup_info = None
     app.state.xg_typo_bundle = None
     app.state.xg_domain_bundle = None
+    app.state.xg_dom_bundle = None
     app.state.xg_status = {"enabled": False, "reason": "not_loaded"}
     app.state.gnn_model = None
     app.state.gnn_columns = None
@@ -222,9 +233,10 @@ async def startup_event():
         except Exception as e:
             print(f"  [GNN] smoke failed (requests may fail too): {e}")
 
-    # Optional XGBoost bundles
+    # Optional XGBoost bundles (typo, domain-age, DOM — same as XG_infer.py)
     xg_typo_path = os.getenv("XG_MODEL_TYPO", "url_xgb_paired_first.joblib")
     xg_domain_path = os.getenv("XG_MODEL_DOMAIN", "url_xgb_domain_age.joblib")
+    xg_dom_path = os.getenv("XG_MODEL_DOM", "url_xgb_dom.joblib")
     xg_errors = []
     try:
         if os.path.isfile(xg_typo_path):
@@ -242,11 +254,24 @@ async def startup_event():
     except Exception as e:
         xg_errors.append(f"domain_load_error:{e}")
 
-    if app.state.xg_typo_bundle is not None or app.state.xg_domain_bundle is not None:
+    try:
+        if os.path.isfile(xg_dom_path):
+            app.state.xg_dom_bundle = load_bundle(xg_dom_path)
+        else:
+            xg_errors.append(f"missing_dom_model:{xg_dom_path}")
+    except Exception as e:
+        xg_errors.append(f"dom_load_error:{e}")
+
+    if (
+        app.state.xg_typo_bundle is not None
+        or app.state.xg_domain_bundle is not None
+        or app.state.xg_dom_bundle is not None
+    ):
         app.state.xg_status = {
             "enabled": True,
             "typo_loaded": app.state.xg_typo_bundle is not None,
             "domain_loaded": app.state.xg_domain_bundle is not None,
+            "dom_loaded": app.state.xg_dom_bundle is not None,
             "warnings": xg_errors,
         }
     else:
