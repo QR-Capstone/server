@@ -250,11 +250,16 @@ def _fmt_block(data: Dict[str, Any]) -> str:
                 f"도메인: `{_verdict_lbl(xg.get('domain_label'))}`  "
                 f"p={xg.get('domain_probability')}"
             )
+        if "dom_label" in xg or "dom_probability" in xg:
+            sub.append(
+                f"DOM: `{_verdict_lbl(xg.get('dom_label'))}`  "
+                f"p={xg.get('dom_probability')}"
+            )
         fp = xg.get("final_probability")
         if sub:
             lines.append("**XGBoost**\n" + "\n".join(f"- {s}" for s in sub))
             lines.append(
-                f"- 최종: `{xg.get('verdict')}`  final_p={fp}  (max typo·domain)"
+                f"- 최종: `{xg.get('verdict')}`  final_p={fp}  (max typo·domain·DOM)"
             )
         else:
             lines.append(
