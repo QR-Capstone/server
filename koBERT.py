@@ -294,7 +294,7 @@ def predict_phishing_result(target_url):
 
     safe_official_domains = [
         "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com",
-        "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr"
+        "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", "ticket.melon.com"
     ]
 
 
