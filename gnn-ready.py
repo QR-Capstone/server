@@ -8,9 +8,9 @@ os.makedirs("Whitelist", exist_ok=True)
 
 def collect_with_source(target=500):
     all_data = []
-    
+
     print("🚀 [블랙리스트] 출처별 수집 시작...")
-    
+
     # --- 소스 1: OpenPhish ---
     try:
         res = requests.get("https://openphish.com/feed.txt", timeout=5)
@@ -41,15 +41,15 @@ def collect_with_source(target=500):
 
     # 데이터프레임 생성
     df = pd.DataFrame(all_data)
-    
+
     # 2. 파일 분리 저장
     black_df = df[df['label'] == 1]
     white_df = df[df['label'] == 0]
-    
+
     black_df.to_csv("Blacklist/blacklist_with_source.csv", index=False)
     white_df.to_csv("Whitelist/whitelist_with_source.csv", index=False)
     df.to_csv("gnn_total_dataset.csv", index=False)
-    
+
     return df
 
 # 실행
@@ -71,25 +71,25 @@ import numpy as np
 
 def extract_features(df):
     print("🧠 특징 추출 시작...")
-    
+
     # 1. URL 길이
     df['url_len'] = df['url'].apply(len)
-    
+
     # 2. 특수문자 개수 추출
     df['count_dot'] = df['url'].apply(lambda x: x.count('.'))
     df['count_hyphen'] = df['url'].apply(lambda x: x.count('-'))
     df['count_at'] = df['url'].apply(lambda x: x.count('@'))
     df['count_slash'] = df['url'].apply(lambda x: x.count('/'))
-    
+
     # 3. 숫자가 포함된 비율
     def digit_count(url):
         digits = [i for i in url if i.isdigit()]
         return len(digits) / len(url)
     df['digit_ratio'] = df['url'].apply(digit_count)
-    
+
     # 4. HTTPS 사용 여부 (1: 사용, 0: 미사용)
     df['is_https'] = df['url'].apply(lambda x: 1 if "https" in x else 0)
-    
+
     print("✅ 특징 추출 완료!")
     return df
 
@@ -100,35 +100,28 @@ fe_df = extract_features(total_df)
 print(fe_df.head())
 
 
-
-
-
-
-
-
-
 import re
 
 def extract_features(url):
     features = {}
-    
+
     # 1. 길이 관련 특징
     features['url_len'] = len(url)
     features['dot_count'] = url.count('.')
     features['hyphen_count'] = url.count('-')
     features['slash_count'] = url.count('/')
-    
+
     # 2. 보안 및 신뢰성 관련
     features['is_https'] = 1 if url.startswith('https') else 0
-    
+
     # 3. 비정상적인 패턴 (숫자 비율)
     digits = re.findall(r'\d', url)
     features['digit_ratio'] = len(digits) / len(url) if len(url) > 0 else 0
-    
+
     # 4. 피싱 의심 키워드 포함 여부 (예시)
     suspicious_words = ['login', 'verify', 'bank', 'update', 'free', 'account']
     features['keyword_match'] = 1 if any(word in url.lower() for word in suspicious_words) else 0
-    
+
     return features
 
 # 전체 데이터프레임에 적용
@@ -141,13 +134,6 @@ print("✅ 특징 추출 완료!")
 print(X.head())
 
 
-
-
-
-
-
-
-
 from sklearn.model_selection import train_test_split
 
 # 학습용 80%, 테스트용 20%로 분리
@@ -155,13 +141,6 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 
 print(f"학습 데이터 개수: {len(X_train)}")
 print(f"테스트 데이터 개수: {len(X_test)}")
-
-
-
-
-
-
-
 
 
 from sklearn.ensemble import RandomForestClassifier
@@ -178,13 +157,6 @@ print("\n" + "="*20 + " 모델 평가 결과 " + "="*20)
 print(f"정확도(Accuracy): {accuracy_score(y_test, y_pred):.4f}")
 print("\n[상세 보고서]")
 print(classification_report(y_test, y_pred))
-
-
-
-
-
-
-
 
 
 import joblib
@@ -208,13 +180,6 @@ except TypeError:
 print("✅ 모델 저장 완료: gnn_model.pkl")
 
 
-
-
-
-
-
-
-
 import torch
 from torch_geometric.data import Data
 
@@ -231,13 +196,6 @@ edge_index = torch.tensor([[0, 1],
 y = torch.tensor([0, 1, 1], dtype=torch.long)
 
 data = Data(x=x, edge_index=edge_index, y=y)
-
-
-
-
-
-
-
 
 
 import torch
@@ -261,16 +219,32 @@ print(f"📊 학습 데이터: {data.train_mask.sum()}개")
 print(f"📊 테스트 데이터: {data.test_mask.sum()}개")
 
 
+import torch.nn.functional as F
+from torch_geometric.nn import GCNConv
 
+# GNN 모델 정의 (이게 없어서 에러가 났던 겁니다)
+class GCN(torch.nn.Module):
+    def __init__(self, num_node_features, num_classes):
+        super(GCN, self).__init__()
+        self.conv1 = GCNConv(num_node_features, 16)
+        self.conv2 = GCNConv(16, num_classes)
 
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = self.conv1(x, edge_index)
+        x = F.relu(x)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
 
-
-
+# gnn_model 객체 생성 및 장치 할당
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+gnn_model = GCN(num_node_features=3, num_classes=2).to(device)
 
 
 def test():
-    model.eval()
-    logits, accs = model(data.to(device)), []
+    gnn_model.eval()
+    logits = gnn_model(data.to(device)) # ← 이렇게 바꿔야 합니다! (gnn_model 사용)
+    accs = []
     for mask in [data.train_mask, data.test_mask]:
         pred = logits[mask].max(1)[1]
         acc = pred.eq(data.y[mask]).sum().item() / mask.sum().item()
@@ -281,13 +255,6 @@ train_acc, test_acc = test()
 print(f'최종 학습 정확도: {train_acc:.4f}, 테스트 정확도: {test_acc:.4f}')
 
 
-
-
-
-
-
-
-
 from sklearn.metrics import confusion_matrix, classification_report
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -296,10 +263,12 @@ def evaluate_models(y_true, y_pred_single, y_pred_ensemble):
     # 단일 모델 vs 통합 모델 오탐 비교
     cm_single = confusion_matrix(y_true, y_pred_single)
     cm_ensemble = confusion_matrix(y_true, y_pred_ensemble)
-    
+
     print("✅ 단일 모델 오탐(FP):", cm_single[0][1])
     print("🚀 통합 모델 오탐(FP):", cm_ensemble[0][1])
-    
-    # 오탐이 얼마나 줄었는지 확인하는 게 목표!
+
+    # 오탐이 얼마나 줄었는지 확인 (들여쓰기 주의!)
     if cm_ensemble[0][1] < cm_single[0][1]:
         print(f"결과: 오탐이 {cm_single[0][1] - cm_ensemble[0][1]}건 감소했습니다!")
+    else:
+        print("결과: 오탐이 감소하지 않았거나 동일합니다.")
