@@ -58,8 +58,13 @@ class AsyncPlaywrightPool:
         )
         print("  [시스템] [OK] 마스터 브라우저 풀 준비 완료. (1, 2-Depth 공용)")
 
+    # 🔥 원래의 고속 스캔 속도(6000ms)로 원상 복구!
     async def _fetch_single(self, url, timeout_ms=6000, wait_sec=3.5):
-        context = await self.browser.new_context()
+        # 안티봇 회피를 위해 평범한 윈도우 크롬 사용자인 척 위장은 유지
+        context = await self.browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={'width': 1920, 'height': 1080}
+        )
         page = await context.new_page()
         
         async def intercept_route(route):
@@ -130,8 +135,17 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
         attr_context = f"{input_tag.get('name','')}_{input_tag.get('id','')}_{input_tag.get('placeholder','')}".lower()
         found_sensitive = False
         for eng_key, kor_val in sensitive_map.items():
-            if eng_key in attr_context:
-                raw_inputs.append(kor_val); found_sensitive = True; break
+            # 🔥 [수정] account 단어의 오탐(User Account) 방지 로직 추가
+            if eng_key == "account":
+                # bank, finance 등의 단어가 함께 있거나, 한국어 placeholder에 '계좌'가 있을 때만 '계좌번호'로 인정
+                if any(k in attr_context for k in ["bank", "finance", "pay", "계좌", "환불"]):
+                    raw_inputs.append(kor_val)
+                    found_sensitive = True
+                    break
+            elif eng_key in attr_context:
+                raw_inputs.append(kor_val)
+                found_sensitive = True
+                break
         if not found_sensitive: raw_inputs.append(type_map.get(i_type, i_type))
     inputs_str = ", ".join(list(dict.fromkeys(raw_inputs)))
     raw_buttons = []
@@ -185,7 +199,8 @@ def extract_with_requests_and_raw_html(url: str):
         except Exception: return "[오류] 로컬 파일을 읽을 수 없습니다", ""
     else:
         try:
-            timeout = float(os.getenv("KOBERT_HTTP_TIMEOUT", "1.2"))
+            # 🔥 속도 저하를 막기 위해 원래의 칼차단 1.2초로 복구!
+            timeout = float(os.getenv("KOBERT_HTTP_TIMEOUT", "1.2")) 
             response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
             raw_bytes = response.content
             try: html = raw_bytes.decode('utf-8')
@@ -281,11 +296,21 @@ def warmup_engine(include_pw=True):
 
 def predict_phishing_result(target_url):
     global device, tokenizer, model, engine_initialized, async_pw_manager
-
+    
     if not engine_initialized:
+        print("\n  [시스템] 엔진 초기 구동을 시작합니다. (첫 1회만 소요)")
+        w_start = time.time()
         try: warmup_engine(include_pw=True)
         except Exception as e: 
+            print(f"  ❌ [오류] 엔진 예열 실패: {e}")
             return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "error": f"엔진 예열 실패: {e}", "detectedUrl": target_url}
+        print(f"  [시스템] 엔진 예열 완료! (소요 시간: {time.time() - w_start:.2f}초)\n")
+
+    start_time = time.time()
+
+    print("="*60)
+    print(f"🎯 [분석 시작] 타겟 URL: {target_url}")
+    print("="*60)
 
     if not (target_url.startswith("http") or ":" in target_url or target_url.startswith("/")): 
         target_url = "https://" + target_url
@@ -294,14 +319,16 @@ def predict_phishing_result(target_url):
 
     safe_official_domains = [
         "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com",
-        "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", "ticket.melon.com"
+        "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr"
     ]
-
 
     try:
         domain = urlparse(target_url).netloc.lower()
+        # 루트 도메인이 정확히 일치하거나, 서브도메인(예: banking.nonghyup.com)인 경우 통과
         if any(domain.endswith(tld) for tld in safe_tlds) or \
            any(domain == d or domain.endswith("." + d) for d in safe_official_domains):
+            print(f"  🛡️ [공식 기관 화이트리스트 패스] {domain} -> 검사 생략 (0초 컷 정상 처리)")
+            print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
             return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", "detectedUrl": target_url}
     except Exception:
         pass
@@ -310,24 +337,30 @@ def predict_phishing_result(target_url):
     max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
     
     # 🔥 [공통 설정] 점수 보정을 위한 휴리스틱 키워드 사전
-    high_risk_keywords = ["통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방"]
-    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호", "입력을 요구"]
+    high_risk_keywords = ["통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "네이버pay 사용이 불가능", "결제시스템 불안정화"]
+    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호", "입력을 요청", "입력을 요구"]
 
     # ----------------------------------------------------
     # 🌟 [1단계] 루트 URL 검사
     # ----------------------------------------------------
+    print("\n▶ [1-Depth 메인 페이지 분석]")
     processed_text, raw_html = extract_with_requests_and_raw_html(target_url)
 
     if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
+        print("  🚨 [즉결 심판] Cloudflare에서 이미 차단된 피싱 사이트입니다! (AI 검사 생략)")
         return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
     
     if len(processed_text) < 150 or processed_text.startswith("[오류]"):
+        print("  ⚠️ [알림] 텍스트 부족/오류 감지! 메인 페이지 정밀 스캔(Playwright) 기동...")
         if use_pw:
             try: processed_text, raw_html = extract_with_playwright_and_raw_html(target_url, is_warmup=False)
             except Exception: pass
 
     if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
+        print("  ❌ [오류] 사이트 접속 불가 (Timeout 등)")
         return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "detectedUrl": target_url}
+
+    print(f"  📝 [추출 텍스트]: {processed_text[:1000]}... (총 {len(processed_text)}자)")
 
     inputs = tokenizer(processed_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
@@ -337,18 +370,24 @@ def predict_phishing_result(target_url):
         probs = F.softmax(outputs.logits, dim=-1)[0]
     
     prob_phishing = probs[1].item() * 100
+    base_prob_1 = prob_phishing
     
     # 🔥 [점수 보정 1] 여백 채우기 (1-Depth 루트 URL)
     boost_weight_1 = 0.0
-    if any(kw in processed_text for kw in high_risk_keywords): boost_weight_1 += 0.40
+    if any(kw in processed_text for kw in high_risk_keywords): boost_weight_1 += 0.50
     if any(kw in processed_text for kw in action_keywords): boost_weight_1 += 0.15
-    boost_weight_1 = min(boost_weight_1, 0.50) # 가중치 최대 50% 제한
+    boost_weight_1 = min(boost_weight_1, 0.75) # 가중치 최대 75% 제한
     
     if boost_weight_1 > 0:
-        prob_phishing += (100 - prob_phishing) * boost_weight_1 # 100% 안 넘게 남은 여백만큼만 더하기
+        prob_phishing += (100 - prob_phishing) * boost_weight_1
+        print(f"  📈 [점수 보정] 위험/요구 키워드 탐지! KoBERT({base_prob_1:.1f}%) ➡️ 보정 후({prob_phishing:.1f}%)")
     
     if prob_phishing > 50:
+        print(f"  🚨 [1-Depth 결과] 악성 감지! (최종 확률 {prob_phishing:.2f}%) -> 즉시 종료")
+        print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
         return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
+    else:
+        print(f"  ✅ [1-Depth 결과] 정상 판별 (최종 확률 {prob_phishing:.2f}%)")
 
     # ----------------------------------------------------
     # 🌟 [2단계] 서브 링크 수집 (max_links = 2)
@@ -357,6 +396,7 @@ def predict_phishing_result(target_url):
     fetched_data = []
 
     if deep_links:
+        print(f"\n▶ [2-Depth 하위 링크 탐색 ({len(deep_links)}개 발견)]")
         def fetch_url_task(url):
             text, _ = extract_with_requests_and_raw_html(url)
             return url, text
@@ -368,7 +408,7 @@ def predict_phishing_result(target_url):
                     try: fetched_data.append(future.result())
                     except Exception: pass
             except concurrent.futures.TimeoutError:
-                pass
+                print("  ⚠️ [경고] 2-Depth 일반 수집 타임아웃 발생")
 
     # ----------------------------------------------------
     # 🌟 [3단계] AI 일괄 병렬 검사
@@ -377,26 +417,33 @@ def predict_phishing_result(target_url):
     valid_texts = []
     urls_to_pw_scan = [] 
 
-    whitelist_domains = ["naver.com", "youtube.com", "daum.net", "kakao.com"]
+    whitelist_domains = ["naver.com", "youtube.com", "daum.net"]
 
     for idx, (url, current_text) in enumerate(fetched_data, 1):
         if any(safe_domain in url.lower() for safe_domain in whitelist_domains):
+            print(f"  🛡️ [화이트리스트 패스] {url}")
             continue 
 
         if len(current_text) < 150 or current_text.startswith("[오류]") or current_text.startswith("[판별 보류]"):
             if use_pw:
+                print(f"  ⏳ [대기열 추가] 자바스크립트 사이트 의심 ({url})")
                 urls_to_pw_scan.append(url) 
             continue
 
         has_risk = any(kw in current_text for kw in high_risk_keywords + action_keywords)
         if not current_text.startswith("[오류]"):
             if len(current_text) >= 80 or has_risk:
+                print(f"  📄 [일반 텍스트 확보] {url}")
                 valid_urls.append(url)
                 valid_texts.append(current_text)
+            else:
+                print(f"  🗑️ [스캔 폐기] 짧은 에러/안내 페이지 스킵: {url}")
 
     # 비동기 병렬 처리 구역
     if urls_to_pw_scan:
+        print(f"\n🚀 [비동기 병렬 스캔 시작] 대기열 {len(urls_to_pw_scan)}개의 탭을 동시에 엽니다!")
         try:
+            pw_start = time.time()
             if not async_pw_manager:
                 async_pw_manager = AsyncPlaywrightPool()
             
@@ -408,11 +455,15 @@ def predict_phishing_result(target_url):
                     if len(p_text) >= 80 or has_risk:
                         valid_urls.append(p_url)
                         valid_texts.append(p_text)
-        except Exception:
-            pass
+                    else:
+                        print(f"  🗑️ [스캔 폐기] 짧은 에러/안내 페이지 스킵: {p_url}")
+            print(f"  ⚡ [병렬 스캔 완료] 소요 시간: {time.time() - pw_start:.2f}초")
+        except Exception as e:
+            print(f"  ❌ [병렬 스캔 에러] {e}")
 
     # AI 최종 추론 (Batch)
     if valid_texts:
+        print(f"\n🧠 [AI 2-Depth 정밀 분석] 확보된 텍스트 {len(valid_texts)}개 일괄 검사 중...")
         inputs = tokenizer(valid_texts, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
         input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
         
@@ -422,7 +473,8 @@ def predict_phishing_result(target_url):
             
         for i, url in enumerate(valid_urls):
             current_text = valid_texts[i]
-            prob_phishing = probs[i][1].item() * 100
+            base_prob_2 = probs[i][1].item() * 100
+            prob_phishing_2 = base_prob_2
             
             # 🔥 [점수 보정 2] 여백 채우기 (3-Depth 서브 링크)
             boost_weight_2 = 0.0
@@ -431,9 +483,15 @@ def predict_phishing_result(target_url):
             boost_weight_2 = min(boost_weight_2, 0.50)
             
             if boost_weight_2 > 0:
-                prob_phishing += (100 - prob_phishing) * boost_weight_2
+                prob_phishing_2 += (100 - prob_phishing_2) * boost_weight_2
+                print(f"  📈 [점수 보정] 위험/요구 키워드 탐지! KoBERT({base_prob_2:.1f}%) ➡️ 보정 후({prob_phishing_2:.1f}%)")
             
-            if prob_phishing > 50:
+            if prob_phishing_2 > 50:
+                print(f"  🚨 [2-Depth 결과] 악성 감지! URL: {url} (최종 확률 {prob_phishing_2:.2f}%)")
+                print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
                 return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": url}
+            else:
+                print(f"  ✅ [2-Depth 결과] 정상 (최종 확률 {prob_phishing_2:.2f}%) - {url}")
 
+    print(f"\n✅ 모든 스캔 완료. 특이사항 없음! (총 소요 시간: {time.time() - start_time:.2f}초)")
     return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", "detectedUrl": target_url}
