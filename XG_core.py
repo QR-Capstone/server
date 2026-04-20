@@ -363,6 +363,119 @@ def _domain_letter_digit_alternations(host: str) -> int:
             count += 1
     return count
 
+_SUSPICIOUS_BRAND_KEYWORDS: Tuple[str, ...] = (
+    "login",
+    "secure",
+    "auth",
+    "verify",
+    "verification",
+    "update",
+    "account",
+    "support",
+    "check",
+    "center",
+    "warning",
+    "confirm",
+)
+
+BRAND_TARGET_TOKENS: List[str] = [
+    "account", "user", "member", "customer", "client",
+]
+
+BRAND_ACTION_TOKENS: List[str] = [
+    "login", "verify", "auth", "secure", "update",
+    "support", "help", "center", "confirm", "service",
+]
+
+def _get_brand_tokens_in_host(host: str) -> List[str]:
+    host = (host or "").lower()
+    if not host:
+        return []
+    matched_brands: List[str] = []
+    seen = set()
+    for brand in BRAND_DICTIONARY:
+        if not brand or brand in seen:
+            continue
+        if brand in host:
+            matched_brands.append(brand)
+            seen.add(brand)
+    return matched_brands
+
+def _brand_token_in_subdomain(host: str) -> float:
+    subdomains = _get_subdomain_labels(host)
+    if not subdomains:
+        return 0.0
+    for label in subdomains:
+        for brand in _get_brand_tokens_in_host(label):
+            if brand and brand in label:
+                return 1.0
+    return 0.0
+
+def _brand_plus_keyword_pattern(host: str) -> float:
+    host = (host or "").lower()
+    brand_tokens = _get_brand_tokens_in_host(host)
+    if not host or not brand_tokens:
+        return 0.0
+
+    compact_host = re.sub(r"[-._]", "", host)
+    for brand in brand_tokens:
+        compact_brand = re.sub(r"[-._]", "", brand)
+        if not compact_brand:
+            continue
+        for keyword in _SUSPICIOUS_BRAND_KEYWORDS:
+            compact_keyword = re.sub(r"[-._]", "", keyword)
+            if not compact_keyword:
+                continue
+            if compact_brand + compact_keyword in compact_host:
+                return 1.0
+            if compact_keyword + compact_brand in compact_host:
+                return 1.0
+            if brand in host and keyword in host:
+                return 1.0
+    return 0.0
+
+def _brand_hyphen_compound(host: str) -> float:
+    host = (host or "").lower()
+    if "-" not in host:
+        return 0.0
+    for label in _split_host_labels(host):
+        if "-" not in label:
+            continue
+        if _get_brand_tokens_in_host(label):
+            return 1.0
+    return 0.0
+
+def _brand_target_action_pattern(host: str) -> float:
+    host = (host or "").lower()
+    if not host:
+        return 0.0
+
+    compact_host = re.sub(r"[-._]", "", host)
+    brand_tokens = _get_brand_tokens_in_host(compact_host)
+    if not compact_host or not brand_tokens:
+        return 0.0
+
+    compact_targets = [
+        re.sub(r"[-._]", "", token)
+        for token in BRAND_TARGET_TOKENS
+        if token
+    ]
+    compact_actions = [
+        re.sub(r"[-._]", "", token)
+        for token in BRAND_ACTION_TOKENS
+        if token
+    ]
+
+    for brand in brand_tokens:
+        compact_brand = re.sub(r"[-._]", "", brand)
+        if not compact_brand or compact_brand not in compact_host:
+            continue
+        has_target = any(token and token in compact_host for token in compact_targets)
+        has_action = any(token and token in compact_host for token in compact_actions)
+        if has_target or has_action:
+            return 1.0
+    return 0.0
+
 # ============================================================
 # 3. URL length / lexical features (URL 길이 및 구조 특징)
 # ============================================================
@@ -372,6 +485,9 @@ def extract_length_features(url: str) -> Dict[str, float]:
     u = (url or "").strip()
     parsed = urlsplit(u if "://" in u else "http://" + u)
     host = _safe_lower(parsed.hostname or "")
+    # www 정규화 추가 (extract_features와 host_length 기준 통일)
+    if host.startswith("www."):
+        host = host[4:]
     return {
         "url_length": float(len(u)) / 100.0,
         "host_length": float(len(host)) / 50.0,
@@ -503,6 +619,10 @@ def _compute_domain_age_days(created_at: datetime, now: Optional[datetime] = Non
 
 def extract_domain_age_features(url: str) -> Dict[str, float]:
     registered_domain = _get_registered_domain_for_rdap(url)
+    print(f"[DOMAIN DEBUG] url={url}")
+    print(f"[DOMAIN DEBUG] registered_domain={registered_domain}")
+    print(f"[DOMAIN DEBUG] rdap_cache_hit={registered_domain in _DOMAIN_AGE_CACHE}")
+
     if not registered_domain:
         return dict(_DOMAIN_AGE_FALLBACK)
 
@@ -511,12 +631,16 @@ def extract_domain_age_features(url: str) -> Dict[str, float]:
         return dict(cached)
 
     payload = _fetch_rdap_payload(registered_domain)
+    print(f"[DOMAIN DEBUG] rdap_payload_exists={payload is not None}")
+
     created_at = _extract_rdap_creation_date(payload)
     if created_at is None:
+        print("[DOMAIN DEBUG] RDAP FAILED -> fallback")
         _DOMAIN_AGE_CACHE[registered_domain] = dict(_DOMAIN_AGE_FALLBACK)
         return dict(_DOMAIN_AGE_FALLBACK)
 
     domain_age_days = _compute_domain_age_days(created_at)
+    print(f"[DOMAIN DEBUG] domain_age_days={domain_age_days}")
     features = {
         "domain_age_days": float(domain_age_days),
         "domain_age_log_days": float(math.log1p(domain_age_days)),
@@ -564,6 +688,9 @@ def _clamp_ssl_days(value: float) -> float:
 
 def extract_ssl_features(url: str) -> Dict[str, float]:
     host = _extract_host_for_domain_age(url)
+    print(f"[DOMAIN DEBUG] ssl_host={host}")
+    print(f"[DOMAIN DEBUG] ssl_cache_hit={host in _SSL_CACHE}")
+
     if not host:
         return dict(_SSL_FALLBACK)
 
@@ -577,12 +704,14 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
             with context.wrap_socket(sock, server_hostname=host) as tls_sock:
                 cert = tls_sock.getpeercert()
     except (socket.timeout, socket.gaierror, socket.error, ssl.SSLError, ValueError, OSError):
+        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
         _SSL_CACHE[host] = dict(_SSL_FALLBACK)
         return dict(_SSL_FALLBACK)
 
     not_before = _parse_ssl_cert_datetime(str(cert.get("notBefore", "")))
     not_after = _parse_ssl_cert_datetime(str(cert.get("notAfter", "")))
     if not_before is None or not_after is None:
+        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
         _SSL_CACHE[host] = dict(_SSL_FALLBACK)
         return dict(_SSL_FALLBACK)
 
@@ -590,6 +719,9 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
     ssl_valid_days = _clamp_ssl_days((not_after - not_before).total_seconds() / 86400.0)
     ssl_remaining_days = _clamp_ssl_days((not_after - now).total_seconds() / 86400.0)
     ssl_age_days = _clamp_ssl_days((now - not_before).total_seconds() / 86400.0)
+    print(f"[DOMAIN DEBUG] ssl_valid_days={ssl_valid_days}")
+    print(f"[DOMAIN DEBUG] ssl_remaining_days={ssl_remaining_days}")
+    print(f"[DOMAIN DEBUG] ssl_age_days={ssl_age_days}")
     features = {
         "ssl_valid_days": float(ssl_valid_days),
         "ssl_remaining_days": float(ssl_remaining_days),
@@ -604,13 +736,75 @@ def get_ssl_features_for_mode(url: str, enable_ssl: bool) -> Dict[str, float]:
         return dict(_SSL_FALLBACK)
     return extract_ssl_features(url)
 
+def _bucketize_domain_age_features(domain_age_days: float, domain_age_missing: float) -> Dict[str, float]:
+    if domain_age_missing >= 1.0:
+        return {
+            "domain_is_very_new": 0.0,
+            "domain_is_new": 0.0,
+            "domain_is_established": 0.0,
+            "domain_is_old": 0.0,
+        }
+
+    return {
+        "domain_is_very_new": 1.0 if domain_age_days <= 30.0 else 0.0,
+        "domain_is_new": 1.0 if 30.0 < domain_age_days <= 180.0 else 0.0,
+        "domain_is_established": 1.0 if 180.0 < domain_age_days <= 365.0 else 0.0,
+        "domain_is_old": 1.0 if domain_age_days > 365.0 else 0.0,
+    }
+
+def _bucketize_ssl_features(
+    ssl_valid_days: float,
+    ssl_remaining_days: float,
+    ssl_age_days: float,
+    ssl_missing: float,
+) -> Dict[str, float]:
+    if ssl_missing >= 1.0:
+        return {
+            "ssl_is_short_lived": 0.0,
+            "ssl_is_normal_lived": 0.0,
+            "ssl_is_long_lived": 0.0,
+            "ssl_expires_very_soon": 0.0,
+            "ssl_expires_soon": 0.0,
+            "ssl_expires_far": 0.0,
+            "ssl_is_very_new": 0.0,
+            "ssl_is_recent": 0.0,
+            "ssl_is_mature": 0.0,
+        }
+
+    return {
+        "ssl_is_short_lived": 1.0 if ssl_valid_days <= 90.0 else 0.0,
+        "ssl_is_normal_lived": 1.0 if 90.0 < ssl_valid_days <= 398.0 else 0.0,
+        "ssl_is_long_lived": 1.0 if ssl_valid_days > 398.0 else 0.0,
+        "ssl_expires_very_soon": 1.0 if ssl_remaining_days <= 7.0 else 0.0,
+        "ssl_expires_soon": 1.0 if 7.0 < ssl_remaining_days <= 30.0 else 0.0,
+        "ssl_expires_far": 1.0 if ssl_remaining_days > 30.0 else 0.0,
+        "ssl_is_very_new": 1.0 if ssl_age_days <= 7.0 else 0.0,
+        "ssl_is_recent": 1.0 if 7.0 < ssl_age_days <= 30.0 else 0.0,
+        "ssl_is_mature": 1.0 if ssl_age_days > 30.0 else 0.0,
+    }
+
 def extract_domain_only_features(
     url: str,
     enable_domain_age: bool,
     enable_ssl: bool = False,
 ) -> Dict[str, float]:
     features = get_domain_age_features_for_mode(url, enable_domain_age)
-    features.update(get_ssl_features_for_mode(url, enable_ssl))
+    features.update(
+        _bucketize_domain_age_features(
+            float(features.get("domain_age_days", 0.0)),
+            float(features.get("domain_age_missing", 1.0)),
+        )
+    )
+    ssl_features = get_ssl_features_for_mode(url, enable_ssl)
+    features.update(ssl_features)
+    features.update(
+        _bucketize_ssl_features(
+            float(ssl_features.get("ssl_valid_days", 0.0)),
+            float(ssl_features.get("ssl_remaining_days", 0.0)),
+            float(ssl_features.get("ssl_age_days", 0.0)),
+            float(ssl_features.get("ssl_missing", 1.0)),
+        )
+    )
     return features
 
 # ============================================================
@@ -1305,13 +1499,31 @@ FEATURE_NAMES: List[str] = [
     "has_do_or_html_endpoint",
     "has_redirect_pattern",
     "host_length",
+    "host_contains_brand_token",
+    "brand_token_in_subdomain",
+    "brand_plus_keyword_pattern",
+    "brand_hyphen_compound",
+    "brand_target_action_pattern",
     "domain_age_days",
     "domain_age_log_days",
     "domain_age_missing",
+    "domain_is_very_new",
+    "domain_is_new",
+    "domain_is_established",
+    "domain_is_old",
     "ssl_valid_days",
     "ssl_remaining_days",
     "ssl_age_days",
     "ssl_missing",
+    "ssl_is_short_lived",
+    "ssl_is_normal_lived",
+    "ssl_is_long_lived",
+    "ssl_expires_very_soon",
+    "ssl_expires_soon",
+    "ssl_expires_far",
+    "ssl_is_very_new",
+    "ssl_is_recent",
+    "ssl_is_mature",
 ]
 
 _FEATURE_LABELS_KO: Dict[str, str] = {
@@ -1338,6 +1550,11 @@ _FEATURE_LABELS_KO: Dict[str, str] = {
     "has_do_or_html_endpoint": "서비스 엔드포인트 경로 포함 여부",
     "has_redirect_pattern": "리디렉션 파라미터 패턴 포함 여부",
     "host_length": "호스트 길이(스케일)",
+    "host_contains_brand_token": "호스트 내 브랜드 토큰 포함 여부",
+    "brand_token_in_subdomain": "서브도메인 내 브랜드 토큰 포함 여부",
+    "brand_plus_keyword_pattern": "브랜드+의심 키워드 조합 여부",
+    "brand_hyphen_compound": "브랜드 하이픈 결합형 여부",
+    "brand_target_action_pattern": "브랜드+대상+행위 위장 패턴",
     "domain_age_days": "도메인 등록 후 경과 일수",
     "domain_age_log_days": "도메인 나이 로그 변환값",
     "domain_age_missing": "도메인 나이 조회 실패 여부",
@@ -1418,6 +1635,8 @@ def extract_features(
     # urlsplit requires scheme to parse netloc well. If missing, prepend.
     parsed = urlsplit(u if "://" in u else "http://" + u)
     host = _safe_lower(parsed.hostname or "")
+    if host.startswith("www."):
+        host = host[4:]
     path = _safe_lower(parsed.path or "")
     url_lower = _safe_lower(u)
     multi_tld_flag = has_multi_level_tld(host)
@@ -1426,6 +1645,16 @@ def extract_features(
     length_feats = extract_length_features(url)
     domain_age_feats = get_domain_age_features_for_mode(url, enable_domain_age)
     ssl_feats = get_ssl_features_for_mode(url, enable_ssl)
+    domain_age_bucket_feats = _bucketize_domain_age_features(
+        float(domain_age_feats["domain_age_days"]),
+        float(domain_age_feats["domain_age_missing"]),
+    )
+    ssl_bucket_feats = _bucketize_ssl_features(
+        float(ssl_feats["ssl_valid_days"]),
+        float(ssl_feats["ssl_remaining_days"]),
+        float(ssl_feats["ssl_age_days"]),
+        float(ssl_feats["ssl_missing"]),
+    )
 
     host_len = len(host)
 
@@ -1460,6 +1689,21 @@ def extract_features(
     has_redirect_pattern = 1.0 if any(
         pattern in url_lower for pattern in ("redirect=", "returnurl=", "continue=", "url=")
     ) else 0.0
+
+    brand_tokens_in_host = _get_brand_tokens_in_host(host)
+    host_parts = _split_host_labels(host)
+    simple_brand_host_label_count = 3 if multi_tld_flag else 2
+    is_simple_brand_host = any(
+        len(host_parts) == simple_brand_host_label_count and host_parts[0] == brand
+        for brand in brand_tokens_in_host
+    )
+    host_contains_brand_token = (
+        1.0 if brand_tokens_in_host and not is_simple_brand_host else 0.0
+    )
+    brand_token_in_subdomain = _brand_token_in_subdomain(host)
+    brand_plus_keyword_pattern = _brand_plus_keyword_pattern(host)
+    brand_hyphen_compound = _brand_hyphen_compound(host)
+    brand_target_action_pattern = _brand_target_action_pattern(host)
 
     # Typosquatting-specific features (domain / host only)
     domain_digit_ratio = _domain_digit_letter_ratio(host)
@@ -1502,13 +1746,31 @@ def extract_features(
             float(has_do_or_html_endpoint),
             float(has_redirect_pattern),
             float(length_feats["host_length"]),
+            float(host_contains_brand_token),
+            float(brand_token_in_subdomain),
+            float(brand_plus_keyword_pattern),
+            float(brand_hyphen_compound),
+            float(brand_target_action_pattern),
             float(domain_age_feats["domain_age_days"]),
             float(domain_age_feats["domain_age_log_days"]),
             float(domain_age_feats["domain_age_missing"]),
+            float(domain_age_bucket_feats["domain_is_very_new"]),
+            float(domain_age_bucket_feats["domain_is_new"]),
+            float(domain_age_bucket_feats["domain_is_established"]),
+            float(domain_age_bucket_feats["domain_is_old"]),
             float(ssl_feats["ssl_valid_days"]),
             float(ssl_feats["ssl_remaining_days"]),
             float(ssl_feats["ssl_age_days"]),
             float(ssl_feats["ssl_missing"]),
+            float(ssl_bucket_feats["ssl_is_short_lived"]),
+            float(ssl_bucket_feats["ssl_is_normal_lived"]),
+            float(ssl_bucket_feats["ssl_is_long_lived"]),
+            float(ssl_bucket_feats["ssl_expires_very_soon"]),
+            float(ssl_bucket_feats["ssl_expires_soon"]),
+            float(ssl_bucket_feats["ssl_expires_far"]),
+            float(ssl_bucket_feats["ssl_is_very_new"]),
+            float(ssl_bucket_feats["ssl_is_recent"]),
+            float(ssl_bucket_feats["ssl_is_mature"]),
         ],
         dtype=np.float32,
     )

@@ -121,7 +121,16 @@ def _run_xgboost_inference(raw_url: str):
     dom_prob = float(output.get("dom_probability", 0.0))
     final_prob = max(typo_prob, domain_prob, dom_prob)
     output["final_probability"] = round(final_prob, 6)
-    output["label"] = int(1 if final_prob >= 0.5 else 0)
+    if typo_prob >= 0.90 or domain_prob >= 0.90:
+        output["label"] = 1
+    elif (
+        (typo_prob >= 0.5 and domain_prob >= 0.5)
+        or (typo_prob >= 0.5 and dom_prob >= 0.5)
+        or (domain_prob >= 0.5 and dom_prob >= 0.5)
+    ):
+        output["label"] = 1
+    else:
+        output["label"] = 0
     output["verdict"] = "malicious" if output["label"] == 1 else "benign"
     return output
 
