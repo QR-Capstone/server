@@ -269,12 +269,12 @@ def _fmt_block(data: Dict[str, Any]) -> str:
     gnn = data.get("gnn")
     if gnn is None:
         st = data.get("gnn_status") or {}
-        lines.append(f"**GNN(lexical)**: 스킵 — `{st.get('reason', '')[:80]}`")
+        lines.append(f"**GNN(web graph)**: 스킵 — `{st.get('reason', '')[:80]}`")
     elif isinstance(gnn, dict) and gnn.get("error"):
-        lines.append(f"**GNN(lexical)**: 오류 — `{gnn.get('error', '')[:120]}`")
+        lines.append(f"**GNN(web graph)**: 오류 — `{gnn.get('error', '')[:120]}`")
     else:
         lines.append(
-            f"**GNN(lexical)**: `{gnn.get('verdict')}`  p={gnn.get('probability')}"
+            f"**GNN(web graph)**: `{gnn.get('verdict')}`  p={gnn.get('probability')}"
         )
 
     t = data.get("duration_sec")

@@ -39,8 +39,8 @@ STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
 _engine_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="phish_engine")
 # XGBoost on its own thread pool (runs in parallel with KoBERT).
 _xgboost_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="xgboost_infer")
-# GNN lexical RF (gnn_model.pkl)
-_gnn_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gnn_lexical")
+# Web-structure GNN (gnn_model.pkl)
+_gnn_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gnn_webgraph")
 
 
 async def _run_engine(fn, *args, **kwargs):
@@ -136,7 +136,7 @@ def _run_xgboost_inference(raw_url: str):
 
 
 def _run_gnn_inference(raw_url: str):
-    """GNN lexical RF (gnn_model.pkl); None if model not loaded."""
+    """Web-structure GNN (gnn_model.pkl); None if model not loaded."""
     model = getattr(app.state, "gnn_model", None)
     cols = getattr(app.state, "gnn_columns", None)
     if model is None or not cols:
@@ -168,11 +168,10 @@ def _log_line_gnn(gnn: object) -> str:
     if gnn is None:
         st = getattr(app.state, "gnn_status", {}) or {}
         reason = st.get("reason") or "no_model_loaded"
-        # Typical: missing file, or pickle/Python mismatch (see startup logs)
-        return f"GNN(lexical RF): skipped — {reason}"
+        return f"GNN(web graph): skipped — {reason}"
     if isinstance(gnn, dict) and gnn.get("error"):
-        return f"GNN(lexical RF): error {gnn.get('error', '')[:80]}"
-    return f"GNN(lexical RF): verdict={gnn.get('verdict')} p={gnn.get('probability')}"
+        return f"GNN(web graph): error {gnn.get('error', '')[:80]}"
+    return f"GNN(web graph): verdict={gnn.get('verdict')} p={gnn.get('probability')}"
 
 
 class URLRequest(BaseModel):
@@ -204,7 +203,7 @@ async def startup_event():
     app.state.gnn_status = {"enabled": False, "reason": "not_loaded"}
     app.state.gnn_engine = None
 
-    # Optional: GNN lexical RF (gnn_engine: gnn_model.pkl + gnn_model_features.pkl)
+    # Optional: web-structure GNN (gnn_engine: gnn_model.pkl + gnn_model_features.pkl)
     try:
         eng_gnn = GNN_Engine()
         app.state.gnn_engine = eng_gnn
@@ -485,7 +484,7 @@ async def analyze_xgboost_only(request: URLRequest):
 
 @app.post("/analyze/gnn")
 async def analyze_gnn_only(request: URLRequest):
-    """GNN lexical RF only."""
+    """Web-structure GNN only."""
     target_url = (request.url or "").strip()
     if not target_url:
         raise HTTPException(status_code=400, detail="URL is empty.")
