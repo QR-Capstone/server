@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 try:
@@ -177,7 +177,26 @@ def _normalize_url(raw_url: str) -> str:
         raise ValueError("empty url")
     if not u.startswith(("http://", "https://")):
         u = "https://" + u
-    return u
+    parsed = urlsplit(u)
+    host = parsed.hostname or ""
+    if not host:
+        return u
+    try:
+        ascii_host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        ascii_host = host
+    netloc = ascii_host
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    if parsed.username:
+        userinfo = quote(parsed.username, safe="")
+        if parsed.password:
+            userinfo += ":" + quote(parsed.password, safe="")
+        netloc = f"{userinfo}@{netloc}"
+    path = quote(parsed.path or "", safe="/:%@!$&'()*+,;=-._~")
+    query = quote(parsed.query or "", safe="=&?/:@!$'()*+,;%-._~")
+    fragment = quote(parsed.fragment or "", safe="=&?/:@!$'()*+,;%-._~")
+    return urlunsplit((parsed.scheme, netloc, path, query, fragment))
 
 
 def _safe_ratio(num: float, den: float) -> float:
@@ -668,8 +687,14 @@ def build_web_graph(url: str, fetch: bool = True) -> WebGraph:
 
     text = " ".join(parser.text_chunks[:80])
     parsed_base = urlsplit(base_url)
+    requested_base = urlsplit(normalized)
     visible_identity_text = " ".join(
-        [parsed_base.hostname or "", parsed_base.path or "", text]
+        [
+            requested_base.hostname or "",
+            requested_base.path or "",
+            parsed_base.hostname or "",
+            parsed_base.path or "",
+        ]
     )
     tokens = set(_tokenize(visible_identity_text))
     brands = {t for t in tokens if t in BRAND_WORDS}
@@ -902,6 +927,12 @@ def _structure_prior_logit(features: Dict[str, float]) -> float:
 
 def _benign_structure_logit(features: Dict[str, float]) -> float:
     """Reduce false positives for normal first-party JS applications."""
+    if (
+        features.get("html_fetched", 0.0) <= 0.0
+        and features.get("graph_edge_count", 0.0) <= 0.01
+        and features.get("credential_surface", 0.0) == 0.0
+    ):
+        return -6.0
     if features.get("html_fetched", 0.0) <= 0.0:
         return 0.0
     has_capture_surface = (
@@ -942,7 +973,14 @@ def _benign_structure_logit(features: Dict[str, float]) -> float:
         and features.get("brand_capture_mismatch", 0.0) == 0.0
     )
     if no_capture_surface:
-        return -10.5
+        low_relation_risk = (
+            features.get("brand_domain_mismatch", 0.0) == 0.0
+            and features.get("external_resource_ratio", 0.0) <= 0.10
+            and features.get("risky_edge_ratio", 0.0) <= 0.05
+            and features.get("page_risk_after_mp", 0.0) <= 0.25
+            and features.get("relation_weighted_risk", 0.0) <= 0.25
+        )
+        return -3.5 if low_relation_risk else -0.75
     return 0.0
 
 
