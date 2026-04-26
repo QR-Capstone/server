@@ -129,12 +129,20 @@ FEATURE_NAMES: List[str] = [
     "form_count",
     "external_form_ratio",
     "password_input_ratio",
+    "suspicious_input_ratio",
+    "credential_surface",
+    "brand_capture_mismatch",
+    "external_submission_risk",
     "iframe_ratio",
     "script_ratio",
     "image_ratio",
     "brand_domain_mismatch",
     "empty_navigation_ratio",
     "page_risk_after_mp",
+    "relation_weighted_risk",
+    "form_neighbor_risk",
+    "input_neighbor_risk",
+    "resource_neighbor_risk",
     "max_neighbor_risk",
     "mean_neighbor_risk",
     "risk_spread",
@@ -655,7 +663,11 @@ def build_web_graph(url: str, fetch: bool = True) -> WebGraph:
             pass
 
     text = " ".join(parser.text_chunks[:80])
-    tokens = set(_url_tokens(base_url) + _tokenize(text))
+    parsed_base = urlsplit(base_url)
+    visible_identity_text = " ".join(
+        [parsed_base.hostname or "", parsed_base.path or "", text]
+    )
+    tokens = set(_tokenize(visible_identity_text))
     brands = {t for t in tokens if t in BRAND_WORDS}
     base_parts = set(_host_parts(base_domain))
 
@@ -755,6 +767,7 @@ def _structure_features(graph: WebGraph) -> Dict[str, float]:
     risks = _message_pass(graph)
     page_risk = risks.get("page:target", 0.0)
     neighbor_risks = [risks.get(dst, 0.0) for src, _, dst in graph.edges if src == "page:target"]
+    direct_edges = [(rel, dst) for src, rel, dst in graph.edges if src == "page:target"]
     total_links = counts.get("links_to_external", 0) + counts.get("links_to_internal", 0)
     total_resources = (
         counts.get("loads_image_external", 0)
@@ -778,6 +791,36 @@ def _structure_features(graph: WebGraph) -> Dict[str, float]:
     base_parts = set(_host_parts(base_domain))
     brand_mismatch = 1.0 if graph.brands and not graph.brands.intersection(base_parts) else 0.0
     risky_edges = sum(1 for _, _, dst in graph.edges if graph.node_risk.get(dst, 0.0) >= 0.5)
+    input_count = max(1, counts.get("input", 0))
+    password_input_ratio = _safe_ratio(counts.get("password_input", 0), input_count)
+    suspicious_input_ratio = _safe_ratio(counts.get("suspicious_input", 0), input_count)
+    form_count = _cap(counts.get("form", 0), 8.0)
+    external_form_ratio = _safe_ratio(counts.get("submits_to_external", 0), total_forms)
+    credential_surface = min(1.0, max(password_input_ratio, suspicious_input_ratio) + 0.35 * form_count)
+    brand_capture_mismatch = brand_mismatch * credential_surface
+    external_submission_risk = external_form_ratio * max(password_input_ratio, suspicious_input_ratio, form_count)
+
+    relation_weights = {
+        "submits_to": 1.25,
+        "has_input": 1.10,
+        "mentions_brand": 0.90,
+        "embeds_iframe": 0.75,
+        "loads_script": 0.50,
+        "links_to": 0.30,
+        "loads_image": 0.15,
+    }
+
+    def relation_mean(names: Set[str]) -> float:
+        vals = [risks.get(dst, 0.0) for rel, dst in direct_edges if rel in names]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    weighted_num = 0.0
+    weighted_den = 0.0
+    for rel, dst in direct_edges:
+        weight = relation_weights.get(rel, 0.25)
+        weighted_num += weight * risks.get(dst, 0.0)
+        weighted_den += weight
+    relation_weighted_risk = weighted_num / weighted_den if weighted_den else 0.0
 
     return {
         "html_fetched": 1.0 if graph.fetch_error is None and 200 <= graph.status < 400 and bool(graph.edges) else 0.0,
@@ -791,14 +834,22 @@ def _structure_features(graph: WebGraph) -> Dict[str, float]:
         "external_link_ratio": _safe_ratio(counts.get("links_to_external", 0), total_links),
         "external_resource_ratio": _safe_ratio(external_resources, total_resources),
         "form_count": _cap(counts.get("form", 0), 8.0),
-        "external_form_ratio": _safe_ratio(counts.get("submits_to_external", 0), total_forms),
-        "password_input_ratio": _safe_ratio(counts.get("password_input", 0), max(1, counts.get("input", 0))),
+        "external_form_ratio": external_form_ratio,
+        "password_input_ratio": password_input_ratio,
+        "suspicious_input_ratio": suspicious_input_ratio,
+        "credential_surface": credential_surface,
+        "brand_capture_mismatch": brand_capture_mismatch,
+        "external_submission_risk": external_submission_risk,
         "iframe_ratio": _safe_ratio(counts.get("iframe", 0), max(1, total_resources + total_links)),
         "script_ratio": _safe_ratio(counts.get("script", 0), max(1, total_resources + total_links)),
         "image_ratio": _safe_ratio(counts.get("image", 0), max(1, total_resources + total_links)),
         "brand_domain_mismatch": brand_mismatch,
         "empty_navigation_ratio": _safe_ratio(counts.get("empty_nav", 0), max(1, total_links + counts.get("empty_nav", 0))),
         "page_risk_after_mp": page_risk,
+        "relation_weighted_risk": relation_weighted_risk,
+        "form_neighbor_risk": relation_mean({"submits_to"}),
+        "input_neighbor_risk": relation_mean({"has_input"}),
+        "resource_neighbor_risk": relation_mean({"loads_script", "loads_image", "embeds_iframe"}),
         "max_neighbor_risk": max(neighbor_risks) if neighbor_risks else 0.0,
         "mean_neighbor_risk": sum(neighbor_risks) / len(neighbor_risks) if neighbor_risks else 0.0,
         "risk_spread": (max(neighbor_risks) - min(neighbor_risks)) if len(neighbor_risks) > 1 else 0.0,
@@ -827,10 +878,15 @@ def _structure_prior_logit(features: Dict[str, float]) -> float:
     """Convert graph-structure risk signals into a centered logit adjustment."""
     risk = 0.0
     risk += 1.40 * features.get("page_risk_after_mp", 0.0)
+    risk += 1.30 * features.get("credential_surface", 0.0)
+    risk += 1.20 * features.get("external_submission_risk", 0.0)
+    risk += 1.10 * features.get("brand_capture_mismatch", 0.0)
+    risk += 0.90 * features.get("relation_weighted_risk", 0.0)
     risk += 1.15 * features.get("max_neighbor_risk", 0.0)
     risk += 0.95 * features.get("risky_edge_ratio", 0.0)
     risk += 0.90 * features.get("external_form_ratio", 0.0)
     risk += 0.70 * features.get("password_input_ratio", 0.0)
+    risk += 0.45 * features.get("suspicious_input_ratio", 0.0)
     risk += 0.75 * features.get("brand_domain_mismatch", 0.0)
     risk += 0.35 * features.get("final_domain_changed", 0.0)
     risk += 0.30 * features.get("iframe_ratio", 0.0)
@@ -847,7 +903,9 @@ def _benign_structure_logit(features: Dict[str, float]) -> float:
     has_capture_surface = (
         features.get("form_count", 0.0) > 0.0
         or features.get("password_input_ratio", 0.0) > 0.0
+        or features.get("suspicious_input_ratio", 0.0) > 0.0
         or features.get("external_form_ratio", 0.0) > 0.0
+        or features.get("credential_surface", 0.0) > 0.0
     )
     has_identity_mismatch = features.get("brand_domain_mismatch", 0.0) > 0.0
     has_external_risk = (
@@ -870,6 +928,17 @@ def _benign_structure_logit(features: Dict[str, float]) -> float:
     )
     if rich_internal_page:
         return -1.25
+    no_capture_surface = (
+        features.get("html_fetched", 0.0) > 0.0
+        and features.get("form_count", 0.0) == 0.0
+        and features.get("password_input_ratio", 0.0) == 0.0
+        and features.get("suspicious_input_ratio", 0.0) == 0.0
+        and features.get("external_form_ratio", 0.0) == 0.0
+        and features.get("credential_surface", 0.0) == 0.0
+        and features.get("brand_capture_mismatch", 0.0) == 0.0
+    )
+    if no_capture_surface:
+        return -10.5
     return 0.0
 
 
