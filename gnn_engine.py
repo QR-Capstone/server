@@ -995,7 +995,7 @@ def _benign_structure_logit(features: Dict[str, float]) -> float:
         and features.get("path_len", 0.0) <= 0.20
     )
     if clean_first_party_login:
-        return -2.0
+        return -3.0
     no_capture_surface = (
         features.get("html_fetched", 0.0) > 0.0
         and features.get("form_count", 0.0) == 0.0
