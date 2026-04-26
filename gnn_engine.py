@@ -90,6 +90,14 @@ BRAND_WORDS = {
     "paypal",
 }
 
+BRAND_DOMAIN_ALIASES = {
+    "naver": {"naver", "pstatic"},
+    "kakao": {"kakao", "daum"},
+    "google": {"google", "gstatic", "googleusercontent"},
+    "microsoft": {"microsoft", "live", "office", "windows"},
+    "apple": {"apple", "icloud"},
+}
+
 COMMON_SECOND_LEVEL_SUFFIXES = {
     "ac",
     "co",
@@ -217,6 +225,11 @@ def _shannon_entropy(text: str) -> float:
 
 def _host_parts(host: str) -> List[str]:
     return [p for p in host.lower().split(".") if p]
+
+
+def _brand_matches_domain(brand: str, host_parts: Set[str]) -> bool:
+    allowed = BRAND_DOMAIN_ALIASES.get(brand, {brand})
+    return bool(allowed.intersection(host_parts))
 
 
 def _registered_domain(host: str) -> str:
@@ -701,7 +714,7 @@ def build_web_graph(url: str, fetch: bool = True) -> WebGraph:
     base_parts = set(_host_parts(base_domain))
 
     for brand in brands:
-        risk = 0.75 if brand not in base_parts else 0.05
+        risk = 0.75 if not _brand_matches_domain(brand, base_parts) else 0.05
         _add_edge(nodes, edges, node_risk, page, "mentions_brand", f"brand:{brand}", risk)
         counts["brand"] += 1
 
@@ -818,7 +831,11 @@ def _structure_features(graph: WebGraph) -> Dict[str, float]:
     )
     base_domain = _registered_domain(urlsplit(graph.final_url).hostname or "")
     base_parts = set(_host_parts(base_domain))
-    brand_mismatch = 1.0 if graph.brands and not graph.brands.intersection(base_parts) else 0.0
+    brand_mismatch = (
+        1.0
+        if graph.brands and not any(_brand_matches_domain(brand, base_parts) for brand in graph.brands)
+        else 0.0
+    )
     risky_edges = sum(1 for _, _, dst in graph.edges if graph.node_risk.get(dst, 0.0) >= 0.5)
     input_count = max(1, counts.get("input", 0))
     password_input_ratio = _safe_ratio(counts.get("password_input", 0), input_count)
@@ -963,6 +980,22 @@ def _benign_structure_logit(features: Dict[str, float]) -> float:
     )
     if rich_internal_page:
         return -1.25
+    clean_first_party_login = (
+        features.get("is_https", 0.0) > 0.0
+        and features.get("form_count", 0.0) > 0.0
+        and features.get("external_form_ratio", 0.0) == 0.0
+        and features.get("brand_domain_mismatch", 0.0) == 0.0
+        and features.get("brand_capture_mismatch", 0.0) == 0.0
+        and features.get("risky_edge_ratio", 0.0) <= 0.08
+        and features.get("page_risk_after_mp", 0.0) <= 0.18
+        and features.get("relation_weighted_risk", 0.0) <= 0.22
+        and features.get("external_resource_ratio", 0.0) <= 0.50
+        and features.get("dot_count", 0.0) <= 0.30
+        and features.get("hyphen_count", 0.0) <= 0.10
+        and features.get("path_len", 0.0) <= 0.20
+    )
+    if clean_first_party_login:
+        return -2.0
     no_capture_surface = (
         features.get("html_fetched", 0.0) > 0.0
         and features.get("form_count", 0.0) == 0.0
