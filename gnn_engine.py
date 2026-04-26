@@ -21,6 +21,7 @@ import pickle
 import re
 import socket
 import ssl
+import subprocess
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -29,6 +30,21 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
 
+try:
+    import requests
+except Exception:  # pragma: no cover
+    requests = None  # type: ignore
+
+try:
+    from curl_cffi import requests as curl_requests
+except Exception:  # pragma: no cover
+    curl_requests = None  # type: ignore
+
+try:
+    import dns.resolver
+except Exception:  # pragma: no cover
+    dns = None  # type: ignore
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_KIND = "web_structure_gnn_phishing_v1"
@@ -36,6 +52,7 @@ ARTIFACT_VERSION = 2
 
 DEFAULT_TIMEOUT = float(os.getenv("GNN_FETCH_TIMEOUT", "4.0"))
 DEFAULT_MAX_BYTES = int(os.getenv("GNN_FETCH_MAX_BYTES", str(512 * 1024)))
+PUBLIC_DNS_SERVERS = ("1.1.1.1", "8.8.8.8")
 
 PHISHING_WORDS = {
     "account",
@@ -271,6 +288,265 @@ class FetchedPage:
     redirect_count: int
 
 
+def _decode_response_body(raw: bytes, headers: Dict[str, str], max_bytes: int) -> bytes:
+    if headers.get("transfer-encoding", "").lower() == "chunked":
+        out = bytearray()
+        pos = 0
+        while pos < len(raw) and len(out) < max_bytes:
+            line_end = raw.find(b"\r\n", pos)
+            if line_end < 0:
+                break
+            size_text = raw[pos:line_end].split(b";", 1)[0].strip()
+            try:
+                size = int(size_text, 16)
+            except ValueError:
+                break
+            pos = line_end + 2
+            if size == 0:
+                break
+            out.extend(raw[pos : pos + size])
+            pos += size + 2
+        return bytes(out[:max_bytes])
+    return raw[:max_bytes]
+
+
+def _parse_http_response(raw: bytes, max_bytes: int) -> Tuple[int, Dict[str, str], bytes]:
+    head, _, body = raw.partition(b"\r\n\r\n")
+    lines = head.decode("iso-8859-1", errors="replace").split("\r\n")
+    status = 0
+    if lines:
+        parts = lines[0].split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            status = int(parts[1])
+    headers: Dict[str, str] = {}
+    for line in lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+    return status, headers, _decode_response_body(body, headers, max_bytes)
+
+
+def _public_dns_ips(hostname: str) -> List[str]:
+    ips: List[str] = []
+    if dns is not None:
+        for nameserver in PUBLIC_DNS_SERVERS:
+            try:
+                resolver = dns.resolver.Resolver(configure=False)
+                resolver.nameservers = [nameserver]
+                resolver.timeout = 2.0
+                resolver.lifetime = 3.0
+                answers = resolver.resolve(hostname, "A")
+                ips.extend(str(answer) for answer in answers)
+            except Exception:
+                continue
+    for nameserver in PUBLIC_DNS_SERVERS:
+        try:
+            result = subprocess.run(
+                ["nslookup", hostname, nameserver],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+        except Exception:
+            continue
+        for line in (result.stdout or "").splitlines():
+            stripped = line.strip()
+            if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", stripped):
+                ips.append(stripped)
+            elif stripped.lower().startswith("addresses:"):
+                _, _, value = stripped.partition(":")
+                value = value.strip()
+                if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", value):
+                    ips.append(value)
+    ordered: List[str] = []
+    for ip in ips:
+        if ip not in ordered:
+            ordered.append(ip)
+    return ordered
+
+
+def _fetch_via_ip(
+    url: str,
+    ip: str,
+    timeout: float,
+    max_bytes: int,
+    redirects_left: int = 3,
+) -> FetchedPage:
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    scheme = parsed.scheme or "http"
+    port = parsed.port or (443 if scheme == "https" else 80)
+    path = parsed.path or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+
+    sock = socket.create_connection((ip, port), timeout=timeout)
+    try:
+        if scheme == "https":
+            context = ssl.create_default_context()
+            conn = context.wrap_socket(sock, server_hostname=host)
+        else:
+            conn = sock
+        conn.settimeout(timeout)
+        req = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36\r\n"
+            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
+            "Accept-Language: ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7\r\n"
+            "Connection: close\r\n\r\n"
+        ).encode("ascii", errors="ignore")
+        conn.sendall(req)
+        chunks = bytearray()
+        limit = max_bytes + 65536
+        while len(chunks) < limit:
+            data = conn.recv(65536)
+            if not data:
+                break
+            chunks.extend(data)
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+    status, headers, body = _parse_http_response(bytes(chunks), max_bytes)
+    location = headers.get("location", "")
+    if status in {301, 302, 303, 307, 308} and location and redirects_left > 0:
+        next_url = urljoin(url, location)
+        return _fetch_with_public_dns(next_url, timeout, max_bytes, redirects_left - 1)
+    charset = "utf-8"
+    content_type = headers.get("content-type", "")
+    match = re.search(r"charset=([^;\s]+)", content_type, re.I)
+    if match:
+        charset = match.group(1)
+    html = body.decode(charset, errors="replace")
+    return FetchedPage(url, url, status, html, None, 0)
+
+
+def _fetch_with_public_dns(
+    url: str,
+    timeout: float,
+    max_bytes: int,
+    redirects_left: int = 3,
+) -> FetchedPage:
+    host = urlsplit(url).hostname or ""
+    if not host:
+        return FetchedPage(url, url, 0, "", "public_dns:no_host", 0)
+    ips = _public_dns_ips(host)
+    last_error = "public_dns:no_ip"
+    for ip in ips:
+        try:
+            return _fetch_via_ip(url, ip, timeout, max_bytes, redirects_left)
+        except Exception as e:
+            last_error = f"public_dns:{ip}:{type(e).__name__}:{e}"
+    return FetchedPage(url, url, 0, "", last_error, 0)
+
+
+def _fetch_with_curl_cffi(url: str, timeout: float, max_bytes: int) -> Optional[FetchedPage]:
+    if curl_requests is None:
+        return None
+    try:
+        response = curl_requests.get(
+            url,
+            impersonate="chrome116",
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        raw = bytes(response.content[:max_bytes])
+        html = raw.decode(response.encoding or "utf-8", errors="replace")
+        return FetchedPage(
+            url,
+            str(response.url),
+            int(response.status_code),
+            html,
+            None if response.status_code < 400 else f"HTTP {response.status_code}",
+            0,
+        )
+    except Exception as e:
+        return FetchedPage(url, url, 0, "", f"curl_cffi:{type(e).__name__}:{e}", 0)
+
+
+def _fetch_with_requests(url: str, timeout: float, max_bytes: int) -> Optional[FetchedPage]:
+    if requests is None:
+        return None
+    try:
+        response = requests.get(
+            url,
+            timeout=timeout,
+            allow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        raw = response.content[:max_bytes]
+        html = raw.decode(response.encoding or "utf-8", errors="replace")
+        return FetchedPage(
+            url,
+            response.url,
+            int(response.status_code),
+            html,
+            None if response.status_code < 400 else f"HTTP {response.status_code}",
+            0,
+        )
+    except Exception as e:
+        return FetchedPage(url, url, 0, "", f"requests:{type(e).__name__}:{e}", 0)
+
+
+def _html_needs_browser(html: str) -> bool:
+    if not html:
+        return False
+    parser = _StructureParser()
+    try:
+        parser.feed(html)
+    except Exception:
+        return False
+    structural = len(parser.links) + len(parser.images) + len(parser.forms) + len(parser.inputs)
+    return len(parser.scripts) >= 8 and structural <= 2
+
+
+def _fetch_with_playwright(url: str, timeout: float, max_bytes: int) -> Optional[FetchedPage]:
+    if os.getenv("GNN_USE_PLAYWRIGHT", "1") != "1":
+        return None
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        return None
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1920, "height": 1080},
+            )
+            page = context.new_page()
+            response = page.goto(url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+            page.wait_for_timeout(1500)
+            html = page.content()[:max_bytes]
+            final_url = page.url
+            status = int(response.status) if response else 200
+            browser.close()
+            return FetchedPage(url, final_url, status, html, None, 0)
+    except Exception as e:
+        return FetchedPage(url, url, 0, "", f"playwright:{type(e).__name__}:{e}", 0)
+
+
+def _maybe_browser_enhance(page: FetchedPage, timeout: float, max_bytes: int) -> FetchedPage:
+    if page.error or page.status >= 400 or page.status == 0:
+        return page
+    if not _html_needs_browser(page.html):
+        return page
+    rendered = _fetch_with_playwright(page.final_url or page.requested_url, timeout, max_bytes)
+    if rendered and not rendered.error and len(rendered.html) > len(page.html):
+        return rendered
+    return page
+
+
 def fetch_page(url: str, timeout: float = DEFAULT_TIMEOUT, max_bytes: int = DEFAULT_MAX_BYTES) -> FetchedPage:
     normalized = _normalize_url(url)
     headers = {
@@ -289,16 +565,33 @@ def fetch_page(url: str, timeout: float = DEFAULT_TIMEOUT, max_bytes: int = DEFA
             charset = resp.headers.get_content_charset() or "utf-8"
             html = raw.decode(charset, errors="replace")
             redirects = 1 if _registered_domain(urlsplit(normalized).hostname or "") != _registered_domain(urlsplit(final_url).hostname or "") else 0
-            return FetchedPage(normalized, final_url, status, html, None, redirects)
+            return _maybe_browser_enhance(
+                FetchedPage(normalized, final_url, status, html, None, redirects),
+                timeout,
+                max_bytes,
+            )
     except HTTPError as e:
         body = ""
         try:
             body = e.read(max_bytes).decode("utf-8", errors="replace")
         except Exception:
             body = ""
-        return FetchedPage(normalized, e.geturl() or normalized, int(e.code), body, str(e), 0)
+        page = FetchedPage(normalized, e.geturl() or normalized, int(e.code), body, str(e), 0)
     except (URLError, TimeoutError, socket.timeout, ssl.SSLError, OSError) as e:
-        return FetchedPage(normalized, normalized, 0, "", str(e), 0)
+        page = FetchedPage(normalized, normalized, 0, "", str(e), 0)
+
+    for fallback in (
+        _fetch_with_curl_cffi(normalized, timeout, max_bytes),
+        _fetch_with_requests(normalized, timeout, max_bytes),
+        _fetch_with_public_dns(normalized, timeout, max_bytes),
+    ):
+        if fallback and fallback.status and fallback.html and not fallback.error:
+            return _maybe_browser_enhance(fallback, timeout, max_bytes)
+
+    rendered = _fetch_with_playwright(normalized, timeout, max_bytes)
+    if rendered and rendered.status and rendered.html and not rendered.error:
+        return rendered
+    return page
 
 
 @dataclass
@@ -538,6 +831,39 @@ def _structure_prior_logit(features: Dict[str, float]) -> float:
     return max(-1.25, min(1.25, risk - 0.65))
 
 
+def _benign_structure_logit(features: Dict[str, float]) -> float:
+    """Reduce false positives for normal first-party JS applications."""
+    if features.get("html_fetched", 0.0) <= 0.0:
+        return 0.0
+    has_capture_surface = (
+        features.get("form_count", 0.0) > 0.0
+        or features.get("password_input_ratio", 0.0) > 0.0
+        or features.get("external_form_ratio", 0.0) > 0.0
+    )
+    has_identity_mismatch = features.get("brand_domain_mismatch", 0.0) > 0.0
+    has_external_risk = (
+        features.get("external_resource_ratio", 0.0) > 0.15
+        or features.get("risky_edge_ratio", 0.0) > 0.10
+        or features.get("iframe_ratio", 0.0) > 0.05
+    )
+    first_party_spa = (
+        features.get("script_ratio", 0.0) >= 0.80
+        and features.get("external_resource_ratio", 0.0) <= 0.05
+        and features.get("graph_edge_count", 0.0) >= 0.10
+    )
+    if first_party_spa and not has_capture_surface and not has_identity_mismatch and not has_external_risk:
+        return -4.5
+    rich_internal_page = (
+        features.get("internal_link_ratio", 0.0) >= 0.65
+        and features.get("external_form_ratio", 0.0) == 0.0
+        and features.get("password_input_ratio", 0.0) == 0.0
+        and not has_identity_mismatch
+    )
+    if rich_internal_page:
+        return -1.25
+    return 0.0
+
+
 def _sigmoid(z: float) -> float:
     if z >= 0:
         ez = math.exp(-z)
@@ -575,6 +901,7 @@ class WebStructureGNNModel:
         vec = [float(fmap.get(name, 0.0)) for name in FEATURE_NAMES]
         z = _dot(self.weights, _standardize(vec, self.means, self.scales)) + self.bias
         z += float(self.metadata.get("structure_prior_weight", 2.4)) * _structure_prior_logit(fmap)
+        z += _benign_structure_logit(fmap)
         return _sigmoid(z)
 
     def evidence(self, url: str) -> Dict[str, Any]:

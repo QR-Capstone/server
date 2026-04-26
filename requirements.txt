@@ -20,6 +20,7 @@ requests>=2.28.0
 beautifulsoup4>=4.12.0
 curl-cffi>=0.6.0
 playwright>=1.40.0
+dnspython>=2.4.0
 
 # --- XGBoost URL 모델 (XG_core, *.joblib) ---
 joblib>=1.3.0
