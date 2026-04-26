@@ -32,6 +32,7 @@ BASE_COLUMNS = [
     "final_url",
     "status_code",
     "fetch_error",
+    "fetch_method",
     "graph_nodes",
     "graph_edges",
 ]
@@ -110,6 +111,7 @@ def _collect_row(row: Dict[str, str]) -> Dict[str, str]:
     out["final_url"] = graph.final_url
     out["status_code"] = str(graph.status)
     out["fetch_error"] = graph.fetch_error or ""
+    out["fetch_method"] = graph.fetch_method
     out["graph_nodes"] = str(len(graph.nodes))
     out["graph_edges"] = str(len(graph.edges))
     for name in FEATURE_NAMES:

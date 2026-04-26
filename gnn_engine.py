@@ -286,6 +286,7 @@ class FetchedPage:
     html: str
     error: Optional[str]
     redirect_count: int
+    fetch_method: str = "unknown"
 
 
 def _decode_response_body(raw: bytes, headers: Dict[str, str], max_bytes: int) -> bytes:
@@ -422,7 +423,7 @@ def _fetch_via_ip(
     if match:
         charset = match.group(1)
     html = body.decode(charset, errors="replace")
-    return FetchedPage(url, url, status, html, None, 0)
+    return FetchedPage(url, url, status, html, None, 0, "public_dns")
 
 
 def _fetch_with_public_dns(
@@ -433,7 +434,7 @@ def _fetch_with_public_dns(
 ) -> FetchedPage:
     host = urlsplit(url).hostname or ""
     if not host:
-        return FetchedPage(url, url, 0, "", "public_dns:no_host", 0)
+        return FetchedPage(url, url, 0, "", "public_dns:no_host", 0, "public_dns")
     ips = _public_dns_ips(host)
     last_error = "public_dns:no_ip"
     for ip in ips:
@@ -441,7 +442,7 @@ def _fetch_with_public_dns(
             return _fetch_via_ip(url, ip, timeout, max_bytes, redirects_left)
         except Exception as e:
             last_error = f"public_dns:{ip}:{type(e).__name__}:{e}"
-    return FetchedPage(url, url, 0, "", last_error, 0)
+    return FetchedPage(url, url, 0, "", last_error, 0, "public_dns")
 
 
 def _fetch_with_curl_cffi(url: str, timeout: float, max_bytes: int) -> Optional[FetchedPage]:
@@ -463,9 +464,10 @@ def _fetch_with_curl_cffi(url: str, timeout: float, max_bytes: int) -> Optional[
             html,
             None if response.status_code < 400 else f"HTTP {response.status_code}",
             0,
+            "curl_cffi",
         )
     except Exception as e:
-        return FetchedPage(url, url, 0, "", f"curl_cffi:{type(e).__name__}:{e}", 0)
+        return FetchedPage(url, url, 0, "", f"curl_cffi:{type(e).__name__}:{e}", 0, "curl_cffi")
 
 
 def _fetch_with_requests(url: str, timeout: float, max_bytes: int) -> Optional[FetchedPage]:
@@ -487,9 +489,10 @@ def _fetch_with_requests(url: str, timeout: float, max_bytes: int) -> Optional[F
             html,
             None if response.status_code < 400 else f"HTTP {response.status_code}",
             0,
+            "requests",
         )
     except Exception as e:
-        return FetchedPage(url, url, 0, "", f"requests:{type(e).__name__}:{e}", 0)
+        return FetchedPage(url, url, 0, "", f"requests:{type(e).__name__}:{e}", 0, "requests")
 
 
 def _html_needs_browser(html: str) -> bool:
@@ -531,9 +534,9 @@ def _fetch_with_playwright(url: str, timeout: float, max_bytes: int) -> Optional
             final_url = page.url
             status = int(response.status) if response else 200
             browser.close()
-            return FetchedPage(url, final_url, status, html, None, 0)
+            return FetchedPage(url, final_url, status, html, None, 0, "playwright")
     except Exception as e:
-        return FetchedPage(url, url, 0, "", f"playwright:{type(e).__name__}:{e}", 0)
+        return FetchedPage(url, url, 0, "", f"playwright:{type(e).__name__}:{e}", 0, "playwright")
 
 
 def _maybe_browser_enhance(page: FetchedPage, timeout: float, max_bytes: int) -> FetchedPage:
@@ -566,7 +569,7 @@ def fetch_page(url: str, timeout: float = DEFAULT_TIMEOUT, max_bytes: int = DEFA
             html = raw.decode(charset, errors="replace")
             redirects = 1 if _registered_domain(urlsplit(normalized).hostname or "") != _registered_domain(urlsplit(final_url).hostname or "") else 0
             return _maybe_browser_enhance(
-                FetchedPage(normalized, final_url, status, html, None, redirects),
+                FetchedPage(normalized, final_url, status, html, None, redirects, "urlopen"),
                 timeout,
                 max_bytes,
             )
@@ -576,9 +579,9 @@ def fetch_page(url: str, timeout: float = DEFAULT_TIMEOUT, max_bytes: int = DEFA
             body = e.read(max_bytes).decode("utf-8", errors="replace")
         except Exception:
             body = ""
-        page = FetchedPage(normalized, e.geturl() or normalized, int(e.code), body, str(e), 0)
+        page = FetchedPage(normalized, e.geturl() or normalized, int(e.code), body, str(e), 0, "urlopen")
     except (URLError, TimeoutError, socket.timeout, ssl.SSLError, OSError) as e:
-        page = FetchedPage(normalized, normalized, 0, "", str(e), 0)
+        page = FetchedPage(normalized, normalized, 0, "", str(e), 0, "urlopen")
 
     for fallback in (
         _fetch_with_curl_cffi(normalized, timeout, max_bytes),
@@ -606,6 +609,7 @@ class WebGraph:
     domains: Set[str]
     brands: Set[str]
     counts: Dict[str, int]
+    fetch_method: str
 
 
 def _node_domain(abs_url: str) -> str:
@@ -629,7 +633,11 @@ def _add_edge(
 
 def build_web_graph(url: str, fetch: bool = True) -> WebGraph:
     normalized = _normalize_url(url)
-    fetched = fetch_page(normalized) if fetch else FetchedPage(normalized, normalized, 0, "", "fetch_disabled", 0)
+    fetched = (
+        fetch_page(normalized)
+        if fetch
+        else FetchedPage(normalized, normalized, 0, "", "fetch_disabled", 0, "disabled")
+    )
     base_url = fetched.final_url or normalized
     base_domain = _registered_domain(urlsplit(base_url).hostname or "")
     page = "page:target"
@@ -720,6 +728,7 @@ def build_web_graph(url: str, fetch: bool = True) -> WebGraph:
         domains=domains,
         brands=brands,
         counts=dict(counts),
+        fetch_method=fetched.fetch_method,
     )
 
 
@@ -771,7 +780,7 @@ def _structure_features(graph: WebGraph) -> Dict[str, float]:
     risky_edges = sum(1 for _, _, dst in graph.edges if graph.node_risk.get(dst, 0.0) >= 0.5)
 
     return {
-        "html_fetched": 1.0 if graph.fetch_error is None and bool(graph.edges or graph.counts) else 0.0,
+        "html_fetched": 1.0 if graph.fetch_error is None and 200 <= graph.status < 400 and bool(graph.edges) else 0.0,
         "fetch_failed": 1.0 if graph.fetch_error else 0.0,
         "status_bad": 1.0 if graph.status >= 400 or graph.status == 0 else 0.0,
         "final_domain_changed": 1.0 if final_changed else 0.0,
@@ -921,6 +930,7 @@ class WebStructureGNNModel:
             "status": graph.status,
             "fetch_error": graph.fetch_error,
             "final_url": graph.final_url,
+            "fetch_method": graph.fetch_method,
             "nodes": len(graph.nodes),
             "edges": len(graph.edges),
             "top_risk_nodes": top,
