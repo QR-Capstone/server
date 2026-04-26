@@ -358,11 +358,15 @@ def _public_dns_ips(hostname: str) -> List[str]:
             )
         except Exception:
             continue
+        in_answer = False
         for line in (result.stdout or "").splitlines():
             stripped = line.strip()
+            if stripped.lower().startswith("name:"):
+                in_answer = True
+                continue
             if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", stripped):
                 ips.append(stripped)
-            elif stripped.lower().startswith("addresses:"):
+            elif in_answer and stripped.lower().startswith(("address:", "addresses:")):
                 _, _, value = stripped.partition(":")
                 value = value.strip()
                 if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", value):
