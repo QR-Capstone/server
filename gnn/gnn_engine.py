@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 import os
 import pickle
+import random
 import re
 import socket
 import ssl
@@ -45,10 +46,21 @@ try:
 except Exception:  # pragma: no cover
     dns = None  # type: ignore
 
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+except Exception as e:  # pragma: no cover
+    torch = None  # type: ignore
+    nn = None  # type: ignore
+    F = None  # type: ignore
+    _TORCH_IMPORT_ERROR = e
+_NN_MODULE = nn.Module if nn is not None else object
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-MODEL_KIND = "web_structure_gnn_phishing_v1"
-ARTIFACT_VERSION = 2
+MODEL_KIND = "web_structure_torch_gnn_phishing_v2"
+ARTIFACT_VERSION = 3
 
 DEFAULT_TIMEOUT = float(os.getenv("GNN_FETCH_TIMEOUT", "4.0"))
 DEFAULT_MAX_BYTES = int(os.getenv("GNN_FETCH_MAX_BYTES", str(512 * 1024)))
@@ -1017,45 +1029,326 @@ def _benign_structure_logit(features: Dict[str, float]) -> float:
     return 0.0
 
 
-def _sigmoid(z: float) -> float:
-    if z >= 0:
-        ez = math.exp(-z)
-        return 1.0 / (1.0 + ez)
-    ez = math.exp(z)
-    return ez / (1.0 + ez)
+GRAPH_NODE_TYPES = [
+    "page",
+    "url",
+    "fetch",
+    "link",
+    "resource",
+    "form",
+    "input",
+    "brand",
+    "domain",
+    "risk",
+]
+NODE_FEATURE_DIM = len(GRAPH_NODE_TYPES) + 8
 
 
-def _dot(a: Sequence[float], b: Sequence[float]) -> float:
-    return sum(x * y for x, y in zip(a, b))
+@dataclass
+class GraphSample:
+    x: List[List[float]]
+    edges: List[Tuple[int, int]]
 
 
-def _standardize(x: Sequence[float], means: Sequence[float], scales: Sequence[float]) -> List[float]:
-    return [(v - m) / s for v, m, s in zip(x, means, scales)]
+def _node_features(node_type: str, attrs: Sequence[float]) -> List[float]:
+    one_hot = [1.0 if node_type == t else 0.0 for t in GRAPH_NODE_TYPES]
+    vals = [float(v) for v in attrs[:8]]
+    vals.extend([0.0] * (8 - len(vals)))
+    return one_hot + vals
+
+
+def _edge_pair(edges: List[Tuple[int, int]], a: int, b: int) -> None:
+    if a == b:
+        return
+    edges.append((a, b))
+    edges.append((b, a))
+
+
+def graph_sample_from_feature_map(fmap: Dict[str, float]) -> GraphSample:
+    """Build a semantic phishing graph from URL/page-structure feature signals."""
+    url_risk = min(
+        1.0,
+        0.25 * fmap.get("url_len", 0.0)
+        + 0.20 * fmap.get("dot_count", 0.0)
+        + 0.20 * fmap.get("hyphen_count", 0.0)
+        + 0.25 * fmap.get("phish_word_ratio", 0.0)
+        + 0.10 * fmap.get("digit_ratio", 0.0),
+    )
+    fetch_risk = max(
+        fmap.get("fetch_failed", 0.0),
+        fmap.get("status_bad", 0.0),
+        0.65 * fmap.get("final_domain_changed", 0.0),
+    )
+    link_risk = min(
+        1.0,
+        0.55 * fmap.get("external_link_ratio", 0.0)
+        + 0.45 * fmap.get("domain_diversity", 0.0),
+    )
+    resource_risk = min(
+        1.0,
+        0.65 * fmap.get("external_resource_ratio", 0.0)
+        + 0.25 * fmap.get("iframe_ratio", 0.0)
+        + 0.10 * fmap.get("script_ratio", 0.0),
+    )
+    form_risk = min(
+        1.0,
+        0.45 * fmap.get("form_count", 0.0)
+        + 0.55 * fmap.get("external_form_ratio", 0.0),
+    )
+    input_risk = min(
+        1.0,
+        0.55 * fmap.get("password_input_ratio", 0.0)
+        + 0.45 * fmap.get("suspicious_input_ratio", 0.0),
+    )
+    brand_risk = max(
+        fmap.get("brand_domain_mismatch", 0.0),
+        fmap.get("brand_capture_mismatch", 0.0),
+    )
+    domain_risk = max(
+        fmap.get("final_domain_changed", 0.0),
+        fmap.get("external_submission_risk", 0.0),
+        fmap.get("domain_diversity", 0.0),
+    )
+    relation_risk = max(
+        fmap.get("page_risk_after_mp", 0.0),
+        fmap.get("relation_weighted_risk", 0.0),
+        fmap.get("max_neighbor_risk", 0.0),
+        fmap.get("risky_edge_ratio", 0.0),
+    )
+
+    nodes = [
+        _node_features(
+            "page",
+            [
+                relation_risk,
+                fmap.get("graph_node_count", 0.0),
+                fmap.get("graph_edge_count", 0.0),
+                fmap.get("html_fetched", 0.0),
+                fmap.get("is_https", 0.0),
+                fmap.get("credential_surface", 0.0),
+                fmap.get("brand_capture_mismatch", 0.0),
+                fmap.get("external_submission_risk", 0.0),
+            ],
+        ),
+        _node_features(
+            "url",
+            [
+                url_risk,
+                fmap.get("url_len", 0.0),
+                fmap.get("host_len", 0.0),
+                fmap.get("path_len", 0.0),
+                fmap.get("entropy", 0.0),
+                fmap.get("token_count", 0.0),
+                fmap.get("phish_word_ratio", 0.0),
+                fmap.get("brand_word_ratio", 0.0),
+            ],
+        ),
+        _node_features(
+            "fetch",
+            [
+                fetch_risk,
+                fmap.get("html_fetched", 0.0),
+                fmap.get("fetch_failed", 0.0),
+                fmap.get("status_bad", 0.0),
+                fmap.get("final_domain_changed", 0.0),
+                fmap.get("redirect_count", 0.0),
+                0.0,
+                0.0,
+            ],
+        ),
+        _node_features(
+            "link",
+            [
+                link_risk,
+                fmap.get("internal_link_ratio", 0.0),
+                fmap.get("external_link_ratio", 0.0),
+                fmap.get("empty_navigation_ratio", 0.0),
+                fmap.get("domain_diversity", 0.0),
+                0.0,
+                0.0,
+                0.0,
+            ],
+        ),
+        _node_features(
+            "resource",
+            [
+                resource_risk,
+                fmap.get("external_resource_ratio", 0.0),
+                fmap.get("iframe_ratio", 0.0),
+                fmap.get("script_ratio", 0.0),
+                fmap.get("image_ratio", 0.0),
+                fmap.get("resource_neighbor_risk", 0.0),
+                0.0,
+                0.0,
+            ],
+        ),
+        _node_features(
+            "form",
+            [
+                form_risk,
+                fmap.get("form_count", 0.0),
+                fmap.get("external_form_ratio", 0.0),
+                fmap.get("form_neighbor_risk", 0.0),
+                fmap.get("external_submission_risk", 0.0),
+                0.0,
+                0.0,
+                0.0,
+            ],
+        ),
+        _node_features(
+            "input",
+            [
+                input_risk,
+                fmap.get("password_input_ratio", 0.0),
+                fmap.get("suspicious_input_ratio", 0.0),
+                fmap.get("credential_surface", 0.0),
+                fmap.get("input_neighbor_risk", 0.0),
+                0.0,
+                0.0,
+                0.0,
+            ],
+        ),
+        _node_features(
+            "brand",
+            [
+                brand_risk,
+                fmap.get("brand_word_ratio", 0.0),
+                fmap.get("brand_domain_mismatch", 0.0),
+                fmap.get("brand_capture_mismatch", 0.0),
+                fmap.get("credential_surface", 0.0),
+                0.0,
+                0.0,
+                0.0,
+            ],
+        ),
+        _node_features(
+            "domain",
+            [
+                domain_risk,
+                fmap.get("domain_diversity", 0.0),
+                fmap.get("final_domain_changed", 0.0),
+                fmap.get("external_submission_risk", 0.0),
+                fmap.get("external_link_ratio", 0.0),
+                fmap.get("external_resource_ratio", 0.0),
+                0.0,
+                0.0,
+            ],
+        ),
+        _node_features(
+            "risk",
+            [
+                relation_risk,
+                fmap.get("page_risk_after_mp", 0.0),
+                fmap.get("relation_weighted_risk", 0.0),
+                fmap.get("max_neighbor_risk", 0.0),
+                fmap.get("mean_neighbor_risk", 0.0),
+                fmap.get("risk_spread", 0.0),
+                fmap.get("risky_edge_ratio", 0.0),
+                fmap.get("credential_surface", 0.0),
+            ],
+        ),
+    ]
+    edges: List[Tuple[int, int]] = []
+    for idx in range(1, len(nodes)):
+        _edge_pair(edges, 0, idx)
+    _edge_pair(edges, 5, 6)  # form <-> input
+    _edge_pair(edges, 5, 8)  # form <-> domain
+    _edge_pair(edges, 7, 8)  # brand <-> domain
+    _edge_pair(edges, 3, 8)  # links <-> domain
+    _edge_pair(edges, 4, 8)  # resources <-> domain
+    _edge_pair(edges, 9, 5)  # risk <-> form
+    _edge_pair(edges, 9, 6)  # risk <-> input
+    _edge_pair(edges, 9, 7)  # risk <-> brand
+    return GraphSample(nodes, edges)
+
+
+def graph_sample_for_url(url: str, fetch: bool = True) -> Tuple[GraphSample, WebGraph]:
+    graph = build_web_graph(url, fetch=fetch)
+    return graph_sample_from_feature_map(feature_map_from_graph(graph)), graph
+
+
+def _require_torch() -> None:
+    if torch is None or nn is None or F is None:
+        raise RuntimeError(f"torch is required for the real GNN model: {_TORCH_IMPORT_ERROR}")
+
+
+class GraphSAGEPhishingNet(_NN_MODULE):  # type: ignore[misc]
+    def __init__(self, in_dim: int, hidden_dim: int = 48, dropout: float = 0.12):
+        super().__init__()
+        self.self1 = nn.Linear(in_dim, hidden_dim)
+        self.neigh1 = nn.Linear(in_dim, hidden_dim)
+        self.self2 = nn.Linear(hidden_dim, hidden_dim)
+        self.neigh2 = nn.Linear(hidden_dim, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def _aggregate(self, x, edge_index):
+        if edge_index.numel() == 0:
+            return torch.zeros_like(x)
+        src, dst = edge_index
+        out = torch.zeros_like(x)
+        out.index_add_(0, dst, x[src])
+        deg = torch.zeros(x.size(0), device=x.device, dtype=x.dtype)
+        deg.index_add_(0, dst, torch.ones_like(dst, dtype=x.dtype))
+        return out / deg.clamp_min(1.0).unsqueeze(1)
+
+    def forward(self, x, edge_index):
+        h = F.relu(self.self1(x) + self.neigh1(self._aggregate(x, edge_index)))
+        h = self.dropout(h)
+        h = F.relu(self.self2(h) + self.neigh2(self._aggregate(h, edge_index)))
+        graph_emb = torch.cat([h.mean(dim=0), h.max(dim=0).values], dim=0)
+        return self.classifier(graph_emb).squeeze(0)
+
+
+def _sample_to_tensors(sample: GraphSample, device: str = "cpu"):
+    _require_torch()
+    x = torch.tensor(sample.x, dtype=torch.float32, device=device)
+    if sample.edges:
+        edge_index = torch.tensor(sample.edges, dtype=torch.long, device=device).t().contiguous()
+    else:
+        edge_index = torch.empty((2, 0), dtype=torch.long, device=device)
+    return x, edge_index
 
 
 @dataclass
 class WebStructureGNNModel:
-    weights: List[float]
-    bias: float
-    means: List[float]
-    scales: List[float]
+    state_dict: Dict[str, Any]
     threshold: float
     metadata: Dict[str, Any]
+
+    def __post_init__(self) -> None:
+        _require_torch()
+        self.device = "cpu"
+        self.net = GraphSAGEPhishingNet(
+            int(self.metadata.get("node_feature_dim", NODE_FEATURE_DIM)),
+            int(self.metadata.get("hidden_dim", 48)),
+            float(self.metadata.get("dropout", 0.12)),
+        )
+        self.net.load_state_dict(self.state_dict)
+        self.net.to(self.device)
+        self.net.eval()
 
     @property
     def feature_names(self) -> List[str]:
         return list(FEATURE_NAMES)
 
     def predict_proba_one(self, url: str, fetch: bool = True) -> float:
-        fmap = feature_map_for_url(url, fetch=fetch)
-        return self.predict_proba_from_features(fmap)
+        sample, _ = graph_sample_for_url(url, fetch=fetch)
+        return self.predict_proba_from_sample(sample)
 
     def predict_proba_from_features(self, fmap: Dict[str, float]) -> float:
-        vec = [float(fmap.get(name, 0.0)) for name in FEATURE_NAMES]
-        z = _dot(self.weights, _standardize(vec, self.means, self.scales)) + self.bias
-        z += float(self.metadata.get("structure_prior_weight", 2.4)) * _structure_prior_logit(fmap)
-        z += _benign_structure_logit(fmap)
-        return _sigmoid(z)
+        return self.predict_proba_from_sample(graph_sample_from_feature_map(fmap))
+
+    def predict_proba_from_sample(self, sample: GraphSample) -> float:
+        x, edge_index = _sample_to_tensors(sample, self.device)
+        with torch.no_grad():
+            logit = self.net(x, edge_index)
+            return float(torch.sigmoid(logit).item())
 
     def evidence(self, url: str) -> Dict[str, Any]:
         return self.evidence_from_graph(build_web_graph(url, fetch=True))
@@ -1087,8 +1380,8 @@ def train_web_structure_gnn_model(
     labels: Sequence[int],
     *,
     fetch_pages: bool = False,
-    epochs: int = 900,
-    learning_rate: float = 0.08,
+    epochs: int = 120,
+    learning_rate: float = 0.003,
     l2: float = 0.001,
     threshold: float = 0.5,
 ) -> WebStructureGNNModel:
@@ -1097,50 +1390,24 @@ def train_web_structure_gnn_model(
     if not urls:
         raise ValueError("empty training data")
 
-    raw_vectors = [graph_feature_vector(url, fetch=fetch_pages) for url in urls]
-    cols = list(zip(*raw_vectors))
-    means = [sum(col) / len(col) for col in cols]
-    scales = []
-    for col, mean in zip(cols, means):
-        var = sum((v - mean) ** 2 for v in col) / max(1, len(col) - 1)
-        scales.append(math.sqrt(var) if var > 1e-12 else 1.0)
-    vectors = [_standardize(v, means, scales) for v in raw_vectors]
-
-    weights = [0.0 for _ in FEATURE_NAMES]
-    bias = 0.0
-    ys = [int(y) for y in labels]
-    n = float(len(vectors))
-    for _ in range(max(1, epochs)):
-        grad_w = [0.0 for _ in weights]
-        grad_b = 0.0
-        for x, y in zip(vectors, ys):
-            err = _sigmoid(_dot(weights, x) + bias) - y
-            for i, val in enumerate(x):
-                grad_w[i] += err * val
-            grad_b += err
-        for i in range(len(weights)):
-            grad_w[i] = grad_w[i] / n + l2 * weights[i]
-            weights[i] -= learning_rate * grad_w[i]
-        bias -= learning_rate * (grad_b / n)
-
-    metadata = {
-        "kind": MODEL_KIND,
-        "artifact_version": ARTIFACT_VERSION,
-        "feature_names": FEATURE_NAMES,
-        "training_rows": len(urls),
-        "fetch_pages_during_training": bool(fetch_pages),
-        "structure_prior_weight": 2.4,
-        "description": "Webpage structure graph with two-round message passing and logistic classifier.",
-    }
-    return WebStructureGNNModel(weights, bias, means, scales, threshold, metadata)
+    samples = [graph_sample_from_feature_map(feature_map_for_url(url, fetch=fetch_pages)) for url in urls]
+    return train_web_structure_gnn_model_from_samples(
+        samples,
+        labels,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        l2=l2,
+        threshold=threshold,
+        metadata_extra={"fetch_pages_during_training": bool(fetch_pages)},
+    )
 
 
 def train_web_structure_gnn_model_from_vectors(
     vectors: Sequence[Sequence[float]],
     labels: Sequence[int],
     *,
-    epochs: int = 900,
-    learning_rate: float = 0.08,
+    epochs: int = 120,
+    learning_rate: float = 0.003,
     l2: float = 0.001,
     threshold: float = 0.5,
     metadata_extra: Optional[Dict[str, Any]] = None,
@@ -1152,55 +1419,80 @@ def train_web_structure_gnn_model_from_vectors(
     raw_vectors = [[float(v) for v in row] for row in vectors]
     if any(len(row) != len(FEATURE_NAMES) for row in raw_vectors):
         raise ValueError(f"each vector must have {len(FEATURE_NAMES)} features")
+    samples = [
+        graph_sample_from_feature_map({name: value for name, value in zip(FEATURE_NAMES, row)})
+        for row in raw_vectors
+    ]
+    metadata = {"trained_from_stored_features": True}
+    if metadata_extra:
+        metadata.update(metadata_extra)
+    return train_web_structure_gnn_model_from_samples(
+        samples,
+        labels,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        l2=l2,
+        threshold=threshold,
+        metadata_extra=metadata,
+    )
 
-    cols = list(zip(*raw_vectors))
-    means = [sum(col) / len(col) for col in cols]
-    scales = []
-    for col, mean in zip(cols, means):
-        var = sum((v - mean) ** 2 for v in col) / max(1, len(col) - 1)
-        scales.append(math.sqrt(var) if var > 1e-12 else 1.0)
-    train_vectors = [_standardize(v, means, scales) for v in raw_vectors]
 
-    weights = [0.0 for _ in FEATURE_NAMES]
-    bias = 0.0
-    ys = [int(y) for y in labels]
-    n = float(len(train_vectors))
-    for _ in range(max(1, epochs)):
-        grad_w = [0.0 for _ in weights]
-        grad_b = 0.0
-        for x, y in zip(train_vectors, ys):
-            err = _sigmoid(_dot(weights, x) + bias) - y
-            for i, val in enumerate(x):
-                grad_w[i] += err * val
-            grad_b += err
-        for i in range(len(weights)):
-            grad_w[i] = grad_w[i] / n + l2 * weights[i]
-            weights[i] -= learning_rate * grad_w[i]
-        bias -= learning_rate * (grad_b / n)
-
+def train_web_structure_gnn_model_from_samples(
+    samples: Sequence[GraphSample],
+    labels: Sequence[int],
+    *,
+    epochs: int = 120,
+    learning_rate: float = 0.003,
+    l2: float = 0.001,
+    threshold: float = 0.5,
+    metadata_extra: Optional[Dict[str, Any]] = None,
+) -> WebStructureGNNModel:
+    _require_torch()
+    if len(samples) != len(labels):
+        raise ValueError("samples and labels length mismatch")
+    if not samples:
+        raise ValueError("empty training data")
+    torch.manual_seed(42)
+    net = GraphSAGEPhishingNet(NODE_FEATURE_DIM)
+    optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=l2)
+    criterion = nn.BCEWithLogitsLoss()
+    order = list(range(len(samples)))
+    for epoch in range(max(1, epochs)):
+        random.Random(42 + epoch).shuffle(order)
+        net.train()
+        for idx in order:
+            x, edge_index = _sample_to_tensors(samples[idx])
+            y = torch.tensor(float(labels[idx]), dtype=torch.float32)
+            optimizer.zero_grad()
+            loss = criterion(net(x, edge_index), y)
+            loss.backward()
+            optimizer.step()
     metadata = {
         "kind": MODEL_KIND,
         "artifact_version": ARTIFACT_VERSION,
         "feature_names": FEATURE_NAMES,
-        "training_rows": len(raw_vectors),
-        "fetch_pages_during_training": False,
-        "trained_from_stored_features": True,
-        "structure_prior_weight": 2.4,
-        "description": "Webpage structure graph features captured at collection time.",
+        "graph_node_types": GRAPH_NODE_TYPES,
+        "node_feature_dim": NODE_FEATURE_DIM,
+        "hidden_dim": 48,
+        "dropout": 0.12,
+        "training_rows": len(samples),
+        "model_family": "GraphSAGE",
+        "description": "Real Torch GraphSAGE GNN over URL/page-structure phishing graph nodes.",
     }
     if metadata_extra:
         metadata.update(metadata_extra)
-    return WebStructureGNNModel(weights, bias, means, scales, threshold, metadata)
+    return WebStructureGNNModel(
+        {k: v.detach().cpu() for k, v in net.state_dict().items()},
+        threshold,
+        metadata,
+    )
 
 
 def save_gnn_artifact(model: WebStructureGNNModel, model_path: str, features_path: Optional[str] = None) -> None:
     artifact = {
         "kind": MODEL_KIND,
         "version": ARTIFACT_VERSION,
-        "weights": model.weights,
-        "bias": model.bias,
-        "means": model.means,
-        "scales": model.scales,
+        "state_dict": model.state_dict,
         "threshold": model.threshold,
         "metadata": model.metadata,
     }
@@ -1215,10 +1507,7 @@ def _artifact_to_model(artifact: Dict[str, Any]) -> WebStructureGNNModel:
     if artifact.get("kind") != MODEL_KIND:
         raise ValueError(f"unsupported_gnn_artifact:{artifact.get('kind')!r}")
     return WebStructureGNNModel(
-        weights=[float(x) for x in artifact["weights"]],
-        bias=float(artifact["bias"]),
-        means=[float(x) for x in artifact["means"]],
-        scales=[float(x) for x in artifact["scales"]],
+        state_dict=dict(artifact["state_dict"]),
         threshold=float(artifact.get("threshold", 0.5)),
         metadata=dict(artifact.get("metadata", {})),
     )
@@ -1264,8 +1553,8 @@ def predict_gnn(
 ) -> Dict[str, Any]:
     url = _normalize_url(raw_url)
     fetch = os.getenv("GNN_FETCH_PAGE", "1") != "0"
-    graph = build_web_graph(url, fetch=fetch)
-    prob_mal = float(model.predict_proba_from_features(feature_map_from_graph(graph)))
+    sample, graph = graph_sample_for_url(url, fetch=fetch)
+    prob_mal = float(model.predict_proba_from_sample(sample))
     label = 1 if prob_mal >= model.threshold else 0
     out = {
         "url": url,
