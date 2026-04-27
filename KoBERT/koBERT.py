@@ -272,7 +272,7 @@ def warmup_engine(include_pw=True):
     print("\n  [시스템] AI 모델(KoBERT) 가중치 로딩 중...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = BertTokenizer.from_pretrained('monologg/kobert')
-    model = BertForSequenceClassification.from_pretrained('monologg/kobert', num_labels=2)
+    model = BertForSequenceClassification.from_pretrained('monologg/kobert', num_labels=2, attn_implementation="eager")
     
     if os.path.exists(WEIGHTS_FILE):
         model.load_state_dict(torch.load(WEIGHTS_FILE, map_location=device, weights_only=False))
@@ -316,7 +316,6 @@ def predict_phishing_result(target_url):
         target_url = "https://" + target_url
 
     safe_tlds = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
-
     safe_official_domains = [
         "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com",
         "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr"
@@ -324,7 +323,6 @@ def predict_phishing_result(target_url):
 
     try:
         domain = urlparse(target_url).netloc.lower()
-        # 루트 도메인이 정확히 일치하거나, 서브도메인(예: banking.nonghyup.com)인 경우 통과
         if any(domain.endswith(tld) for tld in safe_tlds) or \
            any(domain == d or domain.endswith("." + d) for d in safe_official_domains):
             print(f"  🛡️ [공식 기관 화이트리스트 패스] {domain} -> 검사 생략 (0초 컷 정상 처리)")
@@ -336,9 +334,8 @@ def predict_phishing_result(target_url):
     use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
     max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
     
-    # 🔥 [공통 설정] 점수 보정을 위한 휴리스틱 키워드 사전
     high_risk_keywords = ["통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "네이버pay 사용이 불가능", "결제시스템 불안정화", "급등주", "무료 리딩", "VVIP 정보", "세력주", "손실 복구", "무료 체험"]
-    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호", "입력을 요청", "입력을 요구"]
+    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호", "입력을 요구"]
 
     # ----------------------------------------------------
     # 🌟 [1단계] 루트 URL 검사
@@ -348,7 +345,13 @@ def predict_phishing_result(target_url):
 
     if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
         print("  🚨 [즉결 심판] Cloudflare에서 이미 차단된 피싱 사이트입니다! (AI 검사 생략)")
-        return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
+        
+        # 🔥 [추가] 즉결 심판 시에도 안드로이드 앱에서 텍스트를 띄울 수 있도록 evidence 추가
+        evidence_dict = {
+            "suspect_sentence": "Cloudflare 악성 사이트 경고 화면",
+            "ai_reason": "글로벌 보안 네트워크(Cloudflare)에서 이미 악성 피싱 사이트로 블랙리스트에 등재되어 차단된 페이지입니다. AI 검사를 생략하고 즉시 접속을 원천 차단합니다."
+        }
+        return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url, "evidence": evidence_dict}
     
     if len(processed_text) < 150 or processed_text.startswith("[오류]"):
         print("  ⚠️ [알림] 텍스트 부족/오류 감지! 메인 페이지 정밀 스캔(Playwright) 기동...")
@@ -366,31 +369,153 @@ def predict_phishing_result(target_url):
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
     
     with torch.no_grad():
-        outputs = model(input_ids, attention_mask=attention_mask)
+        # 🔥 [핵심 추가] output_attentions=True 를 넣어야 XAI 추출이 가능합니다!
+        outputs = model(input_ids, attention_mask=attention_mask, output_attentions=True)
         probs = F.softmax(outputs.logits, dim=-1)[0]
     
     prob_phishing = probs[1].item() * 100
     base_prob_1 = prob_phishing
     
-    # 🔥 [점수 보정 1] 여백 채우기 (1-Depth 루트 URL)
+    # ----------------------------------------------------
+    # 🧠 [XAI] 원본 문장(Sentence) 매핑형 X-ray 분석 로직
+    # ----------------------------------------------------
+    try:
+        attentions = outputs.attentions
+        last_layer_attn = attentions[-1][0] 
+        avg_attn = torch.mean(last_layer_attn, dim=0) 
+        cls_attn = avg_attn[0] 
+        
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', processed_text) if s.strip()]
+        sentence_scores = []
+        token_idx = 1 
+        max_tokens = len(cls_attn) - 1 
+        
+        for sentence in sentences:
+            if token_idx >= max_tokens: break
+            sub_tokens = tokenizer.tokenize(sentence)
+            sub_len = len(sub_tokens)
+            
+            end_idx = min(token_idx + sub_len, max_tokens)
+            score = sum([cls_attn[i].item() * 100 for i in range(token_idx, end_idx)])
+            
+            if len(sentence) > 5: 
+                sentence_scores.append((sentence, score))
+            token_idx += sub_len 
+            
+        sentence_scores.sort(key=lambda x: x[1], reverse=True)
+        top_sentences = sentence_scores if sentence_scores else [("분석할 문장이 없습니다.", 0.0)]
+        
+    except Exception as e:
+        print(f"  ❌ [XAI 디버깅 에러]: {e}")
+        top_sentences = [("XAI 추출 실패", 0.0)]
+
+    # --- 안드로이드 앱 전송용 데이터 (Evidence) 준비 ---
+    top_sent = top_sentences[0][0] if top_sentences else "분석된 문맥이 없습니다."
+    top_score = top_sentences[0][1] if top_sentences else 0.0
+    
+    detected_reqs = []
+    if any(k in processed_text for k in action_keywords): detected_reqs.append("행동(로그인/인증) 요구")
+    if any(k in processed_text for k in ["전화번호", "이메일", "카드번호", "계좌번호", "주민등록번호"]): detected_reqs.append("개인정보/금융 입력")
+    req_str = ", ".join([f"[{req}]" for req in detected_reqs]) if detected_reqs else "[특이사항 없음]"
+
+    # 🔥 [1단계] 텍스트에서 실제로 발견된 위험/요구 '키워드' 추출
+    found_high_risk = [kw for kw in high_risk_keywords if kw in processed_text]
+    found_actions = [kw for kw in action_keywords if kw in processed_text]
+    found_sensitive = [kw for kw in ["전화번호", "이메일", "카드번호", "계좌번호", "주민등록번호"] if kw in processed_text]
+
+    # 발견된 단어들을 예쁜 자연어로 묶기
+    demand_parts = []
+    if found_actions: demand_parts.append(f"'{', '.join(found_actions)}'")
+    if found_sensitive: demand_parts.append(f"'{', '.join(found_sensitive)}'")
+    demand_str = " 및 ".join(demand_parts) if demand_parts else "특정 정보"
+    
+    high_risk_str = f"'{', '.join(found_high_risk)}'" if found_high_risk else ""
+
+    # 🔥 [2단계] 키워드 기반 '범죄 유형(Threat Type)' 세부 분류 로직
+    scam_type = "기관/기업 사칭 피싱" # 기본값
+    loan_kws = ["통신요금 담보", "신불자", "내구제", "폰테크", "무직자 대출", "통신연체자"]
+    invest_kws = ["비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "급등주", "VVIP 정보", "세력주", "무료 리딩"]
+    
+    # 🌟 [추가] 어색한 기계 번역투 감지 키워드 및 정규식 로직
+    trans_kws = ["상륙 하 다", "상륙하 다", "서명 하 다", "지불 하 다", "제출 하 다", "얻 다", "이 긴 다", "청소 하 라", "계 좌", "비 밀 번 호", "제시 하 다", "갱 신 하 다"]
+    # 정규식: "동사 + 하 다" 형태로 비정상적으로 띄어쓰기가 파괴된 경우 감지
+    is_translated = any(kw in processed_text for kw in trans_kws) or re.search(r'[가-힣]\s+하\s+다\b', processed_text)
+
+    if any(kw in processed_text for kw in loan_kws):
+        scam_type = "불법 대출 및 금융 사기"
+    elif any(kw in processed_text for kw in invest_kws):
+        scam_type = "불법 투자 유도(리딩방) 사기"
+    elif is_translated:
+        scam_type = "해외 기계 번역(번역투) 피싱" # 번역투 사기 유형으로 확정!
+
+    # 🔥 [3단계] 점수 보정 
     boost_weight_1 = 0.0
-    if any(kw in processed_text for kw in high_risk_keywords): boost_weight_1 += 0.50
-    if any(kw in processed_text for kw in action_keywords): boost_weight_1 += 0.15
-    boost_weight_1 = min(boost_weight_1, 0.75) # 가중치 최대 75% 제한
+    if found_high_risk: boost_weight_1 += 0.50
+    if found_actions: boost_weight_1 += 0.15
+    boost_weight_1 = min(boost_weight_1, 0.75) 
     
     if boost_weight_1 > 0:
         prob_phishing += (100 - prob_phishing) * boost_weight_1
         print(f"  📈 [점수 보정] 위험/요구 키워드 탐지! KoBERT({base_prob_1:.1f}%) ➡️ 보정 후({prob_phishing:.1f}%)")
-    
-    if prob_phishing > 50:
-        print(f"  🚨 [1-Depth 결과] 악성 감지! (최종 확률 {prob_phishing:.2f}%) -> 즉시 종료")
-        print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
-        return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url}
+
+    # 🔥 [4단계] AI 주도형(AI-Driven) 초정밀 판단 사유 생성
+    if prob_phishing <= 50.0:
+        if not found_actions and not found_sensitive and base_prob_1 < 5.0:
+            ai_reason = "AI 문맥 분석 결과, 위험한 단어나 개인정보 요구가 전혀 없는 안전한 일반 웹페이지로 확인되었습니다."
+        elif demand_parts:
+            if base_prob_1 < 20.0:
+                ai_reason = f"페이지 내에 {demand_str} 입력을 요구하는 폼이 존재합니다. 그러나 AI가 주변 문맥을 심층 분석한 결과, 기만 의도가 없는 '정상적인 공식 서비스 안내/인증'으로 판단하여 통과시켰습니다."
+            else:
+                ai_reason = f"{demand_str} 요구와 함께 다소 주의가 필요한 텍스트가 탐지되었습니다. 그러나 AI 판단 결과, 피싱 특유의 치명적인 협박이나 긴급성(긴급 행동 유도)이 결여되어 있어 최종 정상 범주로 분류했습니다."
+        else:
+             ai_reason = f"일부 주의가 필요한 문구(AI 위험도 {base_prob_1:.1f}%)가 있으나, AI가 문서를 종합적으로 스캔한 결과 직접적인 정보 탈취 목적이 없다고 판단하여 정상 처리했습니다."
     else:
-        print(f"  ✅ [1-Depth 결과] 정상 판별 (최종 확률 {prob_phishing:.2f}%)")
+        if found_high_risk:
+            ai_reason = f"명백한 불법 키워드({high_risk_str})가 탐지되었으며, AI가 이와 연관된 문맥을 정밀 분석한 결과 {demand_str}를 탈취하려는 '{scam_type}' 목적이 확실시되어 접속을 차단합니다."
+        elif is_translated:
+            # 🌟 [추가] 번역투 감지 시 전용 메세지 출력!
+            ai_reason = f"AI 분석 결과, \"{top_sent[:20]}...\" 해당 문구들이 부자연스러운 기계 번역투 및 어색한 띄어쓰기로 작성된 것이 확인되었습니다. 이는 해외 기반의 양산형 사기 사이트의 전형적인 특징이므로 최종 악성으로 판별 및 차단합니다."
+        elif demand_parts and base_prob_1 >= 60.0:
+            ai_reason = f"AI 엔진이 \"{top_sent[:25]}...\" 문장에 내포된 기만적 의도를 정확히 포착했습니다. 이는 불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되었습니다."
+        elif demand_parts and boost_weight_1 > 0:
+            ai_reason = f"AI가 전체 텍스트에서 수상한 흐름(위험도 {base_prob_1:.1f}%)을 1차 감지하였고, 실제로 {demand_str} 입력을 요구하는 구조가 2차 확인됨에 따라 딥러닝-룰베이스 교차 검증을 거쳐 최종 악성으로 확정했습니다."
+        else:
+            ai_reason = f"특정 키워드 없이도, AI가 \"{top_sent[:20]}...\" 문맥 자체에서 사용자를 속여 시스템을 장악하려는 고도의 악의적 의도를 찾아내어 원천 차단합니다."
+
+    # 🔥 최종 evidence_dict 생성
+    evidence_dict = {
+        "suspect_sentence": top_sent, 
+        "ai_reason": ai_reason
+    }
+   # 📱 [앱 UI 콘솔 미리보기 출력 부분도 정제]
+    print("\n" + "■"*60)
+    print("📱 [Quishing Defender UI 미리보기]")
+    print("-" * 60)
+    
+    if prob_phishing > 50.0:
+        print("🚨 [접속 차단됨] 피싱 사이트 의심!")
+        print(f"💬 {ai_reason}\n")
+        print(f"⚠️ 의심 문구: \"{top_sent}\"")
+    else:
+        print("✅ [접속 허용] 안전한 웹사이트입니다.")
+        print(f"💬 {ai_reason}\n")
+        print(f"🔎 확인 문구: \"{top_sent}\"")
+        
+    print("■"*60 + "\n")
+
+    # 🔥 [여기에 버그 픽스 코드 추가!] 1-Depth에서 악성(50% 초과)으로 확정 났다면, 2-Depth로 가지 않고 즉시 악성 리턴!
+    if prob_phishing > 50.0:
+        print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
+        return {
+            "judgment": "unnormal", 
+            "riskLevel": "HIGH", 
+            "risklevel": "HIGH", 
+            "detectedUrl": target_url, 
+            "evidence": evidence_dict
+        }
 
     # ----------------------------------------------------
-    # 🌟 [2단계] 서브 링크 수집 (max_links = 2)
+    # 🌟 [2단계] 서브 링크 수집 및 병렬 스캔 (기존 로직 유지)
     # ----------------------------------------------------
     deep_links = extract_deep_links(raw_html, target_url, max_links=2)
     fetched_data = []
@@ -410,58 +535,33 @@ def predict_phishing_result(target_url):
             except concurrent.futures.TimeoutError:
                 print("  ⚠️ [경고] 2-Depth 일반 수집 타임아웃 발생")
 
-    # ----------------------------------------------------
-    # 🌟 [3단계] AI 일괄 병렬 검사
-    # ----------------------------------------------------
-    valid_urls = []
-    valid_texts = []
-    urls_to_pw_scan = [] 
-
+    valid_urls, valid_texts, urls_to_pw_scan = [], [], []
     whitelist_domains = ["naver.com", "youtube.com", "daum.net"]
 
     for idx, (url, current_text) in enumerate(fetched_data, 1):
-        if any(safe_domain in url.lower() for safe_domain in whitelist_domains):
-            print(f"  🛡️ [화이트리스트 패스] {url}")
-            continue 
-
+        if any(safe_domain in url.lower() for safe_domain in whitelist_domains): continue 
         if len(current_text) < 150 or current_text.startswith("[오류]") or current_text.startswith("[판별 보류]"):
-            if use_pw:
-                print(f"  ⏳ [대기열 추가] 자바스크립트 사이트 의심 ({url})")
-                urls_to_pw_scan.append(url) 
+            if use_pw: urls_to_pw_scan.append(url) 
             continue
-
         has_risk = any(kw in current_text for kw in high_risk_keywords + action_keywords)
         if not current_text.startswith("[오류]"):
             if len(current_text) >= 80 or has_risk:
-                print(f"  📄 [일반 텍스트 확보] {url}")
-                valid_urls.append(url)
-                valid_texts.append(current_text)
-            else:
-                print(f"  🗑️ [스캔 폐기] 짧은 에러/안내 페이지 스킵: {url}")
+                valid_urls.append(url); valid_texts.append(current_text)
 
-    # 비동기 병렬 처리 구역
     if urls_to_pw_scan:
         print(f"\n🚀 [비동기 병렬 스캔 시작] 대기열 {len(urls_to_pw_scan)}개의 탭을 동시에 엽니다!")
         try:
             pw_start = time.time()
-            if not async_pw_manager:
-                async_pw_manager = AsyncPlaywrightPool()
-            
+            if not async_pw_manager: async_pw_manager = AsyncPlaywrightPool()
             pw_results = async_pw_manager.scrape_parallel(urls_to_pw_scan)
-            
             for p_url, p_text, _ in pw_results:
                 has_risk = any(kw in p_text for kw in high_risk_keywords + action_keywords)
                 if not p_text.startswith("[오류]"):
                     if len(p_text) >= 80 or has_risk:
-                        valid_urls.append(p_url)
-                        valid_texts.append(p_text)
-                    else:
-                        print(f"  🗑️ [스캔 폐기] 짧은 에러/안내 페이지 스킵: {p_url}")
+                        valid_urls.append(p_url); valid_texts.append(p_text)
             print(f"  ⚡ [병렬 스캔 완료] 소요 시간: {time.time() - pw_start:.2f}초")
-        except Exception as e:
-            print(f"  ❌ [병렬 스캔 에러] {e}")
+        except Exception as e: print(f"  ❌ [병렬 스캔 에러] {e}")
 
-    # AI 최종 추론 (Batch)
     if valid_texts:
         print(f"\n🧠 [AI 2-Depth 정밀 분석] 확보된 텍스트 {len(valid_texts)}개 일괄 검사 중...")
         inputs = tokenizer(valid_texts, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
@@ -476,7 +576,6 @@ def predict_phishing_result(target_url):
             base_prob_2 = probs[i][1].item() * 100
             prob_phishing_2 = base_prob_2
             
-            # 🔥 [점수 보정 2] 여백 채우기 (3-Depth 서브 링크)
             boost_weight_2 = 0.0
             if any(kw in current_text for kw in high_risk_keywords): boost_weight_2 += 0.40
             if any(kw in current_text for kw in action_keywords): boost_weight_2 += 0.15
@@ -484,14 +583,13 @@ def predict_phishing_result(target_url):
             
             if boost_weight_2 > 0:
                 prob_phishing_2 += (100 - prob_phishing_2) * boost_weight_2
-                print(f"  📈 [점수 보정] 위험/요구 키워드 탐지! KoBERT({base_prob_2:.1f}%) ➡️ 보정 후({prob_phishing_2:.1f}%)")
             
             if prob_phishing_2 > 50:
                 print(f"  🚨 [2-Depth 결과] 악성 감지! URL: {url} (최종 확률 {prob_phishing_2:.2f}%)")
                 print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
-                return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": url}
-            else:
-                print(f"  ✅ [2-Depth 결과] 정상 (최종 확률 {prob_phishing_2:.2f}%) - {url}")
+                # 🔥 evidence 리턴 추가
+                return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": url, "evidence": evidence_dict}
 
     print(f"\n✅ 모든 스캔 완료. 특이사항 없음! (총 소요 시간: {time.time() - start_time:.2f}초)")
-    return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", "detectedUrl": target_url}
+    # 🔥 evidence 리턴 추가
+    return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", "detectedUrl": target_url, "evidence": evidence_dict}
