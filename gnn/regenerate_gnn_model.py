@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Train the web-structure GNN lane from gnn_total_dataset.csv.
+Train the real Torch GraphSAGE GNN lane from gnn_total_dataset.csv.
 
-The output replaces the old RandomForest checkpoint while keeping the same
-filenames expected by main.py:
+The output keeps the same filenames expected by main.py:
 
   gnn_model.pkl
   gnn_model_features.pkl
@@ -118,8 +117,8 @@ def main() -> int:
         action="store_true",
         help="Fetch live HTML during training to learn page-structure graph features.",
     )
-    parser.add_argument("--epochs", type=int, default=900)
-    parser.add_argument("--learning-rate", type=float, default=0.08)
+    parser.add_argument("--epochs", type=int, default=120)
+    parser.add_argument("--learning-rate", type=float, default=0.003)
     parser.add_argument("--l2", type=float, default=0.001)
     parser.add_argument("--test-size", type=float, default=0.2)
     parser.add_argument("--random-state", type=int, default=42)
