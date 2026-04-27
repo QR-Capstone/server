@@ -199,14 +199,19 @@ def extract_with_requests_and_raw_html(url: str):
         except Exception: return "[오류] 로컬 파일을 읽을 수 없습니다", ""
     else:
         try:
-            # 🔥 속도 저하를 막기 위해 원래의 칼차단 1.2초로 복구!
             timeout = float(os.getenv("KOBERT_HTTP_TIMEOUT", "1.2")) 
             response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
             raw_bytes = response.content
-            try: html = raw_bytes.decode('utf-8')
+            
+            # 🔥 [수정] 인코딩 깨짐 완벽 방어 로직 (CP949 도입)
+            try: 
+                html = raw_bytes.decode('utf-8')
             except UnicodeDecodeError:
-                try: html = raw_bytes.decode('euc-kr')
-                except UnicodeDecodeError: html = raw_bytes.decode('utf-8', errors='replace')
+                try: 
+                    # euc-kr 대신 더 넓은 범위의 cp949 사용 및 에러 무시(ignore)
+                    html = raw_bytes.decode('cp949', errors='ignore')
+                except UnicodeDecodeError: 
+                    html = raw_bytes.decode('utf-8', errors='replace')
         except Exception:
             return "[오류] 네트워크 접속 문제 (Timeout)", ""
     return extract_with_html_ultimate_clean(html), html
