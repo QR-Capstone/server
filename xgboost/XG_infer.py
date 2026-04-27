@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from typing import List, Optional
 
 from XG_core import _validate_single_input_url, load_bundle, predict_url, predict_url_dom
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_TYPO_MODEL = os.path.join(BASE_DIR, "url_xgb_paired_first.joblib")
+DEFAULT_DOMAIN_MODEL = os.path.join(BASE_DIR, "url_xgb_domain_age.joblib")
+DEFAULT_DOM_MODEL = os.path.join(BASE_DIR, "url_xgb_dom.joblib")
 
 def predict_url_domain(bundle, url: str):
     return predict_url(
@@ -85,18 +91,18 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--model_typo",
-        default="url_xgb_paired_first.joblib",
-        help="Path to typo model bundle (.joblib). Default: url_xgb_paired_first.joblib",
+        default=DEFAULT_TYPO_MODEL,
+        help=f"Path to typo model bundle (.joblib). Default: {DEFAULT_TYPO_MODEL}",
     )
     p.add_argument(
         "--model_domain",
-        default="url_xgb_domain_age.joblib",
-        help="Path to domain-age model bundle (.joblib). Default: url_xgb_domain_age.joblib",
+        default=DEFAULT_DOMAIN_MODEL,
+        help=f"Path to domain-age model bundle (.joblib). Default: {DEFAULT_DOMAIN_MODEL}",
     )
     p.add_argument(
         "--model_dom",
-        default="url_xgb_dom.joblib",
-        help="Path to DOM model bundle (.joblib). Default: url_xgb_dom.joblib",
+        default=DEFAULT_DOM_MODEL,
+        help=f"Path to DOM model bundle (.joblib). Default: {DEFAULT_DOM_MODEL}",
     )
     p.add_argument("--url", required=True, help="Single URL to classify.")
     p.add_argument(

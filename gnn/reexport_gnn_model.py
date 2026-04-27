@@ -13,6 +13,10 @@ import argparse
 import os
 import sys
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_MODEL_PATH = os.path.join(BASE_DIR, "gnn_model.pkl")
+DEFAULT_FEATURES_PATH = os.path.join(BASE_DIR, "gnn_model_features.pkl")
+
 
 def _dump(obj, path: str, compress: int) -> None:
     import joblib
@@ -30,7 +34,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Re-export GNN RF pickle for portability.")
     p.add_argument(
         "--model-in",
-        default="gnn_model.pkl",
+        default=DEFAULT_MODEL_PATH,
         help="Existing model path (must load on this Python)",
     )
     p.add_argument(
@@ -40,7 +44,7 @@ def main() -> int:
     )
     p.add_argument(
         "--features-in",
-        default="gnn_model_features.pkl",
+        default=DEFAULT_FEATURES_PATH,
         help="Feature column list pickle",
     )
     p.add_argument(

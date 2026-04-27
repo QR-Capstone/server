@@ -1,9 +1,20 @@
 import asyncio
 import functools
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIRS = {
+    "gnn": os.path.join(BASE_DIR, "gnn"),
+    "xgboost": os.path.join(BASE_DIR, "xgboost"),
+    "KoBERT": os.path.join(BASE_DIR, "KoBERT"),
+}
+for _model_dir in MODEL_DIRS.values():
+    if _model_dir not in sys.path:
+        sys.path.insert(0, _model_dir)
 
 # Tuning (same env vars as engine module): MAX_SEQ_LEN, USE_PLAYWRIGHT_IN_ANALYZE, etc.
 # os.environ.setdefault("MAX_SEQ_LEN", "128")
@@ -242,9 +253,18 @@ async def startup_event():
             print(f"  [GNN] smoke failed (requests may fail too): {e}")
 
     # Optional XGBoost bundles (typo, domain-age, DOM — same as XG_infer.py)
-    xg_typo_path = os.getenv("XG_MODEL_TYPO", "url_xgb_paired_first.joblib")
-    xg_domain_path = os.getenv("XG_MODEL_DOMAIN", "url_xgb_domain_age.joblib")
-    xg_dom_path = os.getenv("XG_MODEL_DOM", "url_xgb_dom.joblib")
+    xg_typo_path = os.getenv(
+        "XG_MODEL_TYPO",
+        os.path.join(MODEL_DIRS["xgboost"], "url_xgb_paired_first.joblib"),
+    )
+    xg_domain_path = os.getenv(
+        "XG_MODEL_DOMAIN",
+        os.path.join(MODEL_DIRS["xgboost"], "url_xgb_domain_age.joblib"),
+    )
+    xg_dom_path = os.getenv(
+        "XG_MODEL_DOM",
+        os.path.join(MODEL_DIRS["xgboost"], "url_xgb_dom.joblib"),
+    )
     xg_errors = []
     try:
         if os.path.isfile(xg_typo_path):
