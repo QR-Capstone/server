@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from typing import List, Optional
 
-from XG_core import _validate_single_input_url, load_bundle, predict_url, predict_url_dom
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_TYPO_MODEL = os.path.join(BASE_DIR, "url_xgb_paired_first.joblib")
-DEFAULT_DOMAIN_MODEL = os.path.join(BASE_DIR, "url_xgb_domain_age.joblib")
-DEFAULT_DOM_MODEL = os.path.join(BASE_DIR, "url_xgb_dom.joblib")
+from XG_core import (
+    _validate_single_input_url,
+    build_all_explanations,
+    load_bundle,
+    predict_url,
+    predict_url_dom,
+)
 
 def predict_url_domain(bundle, url: str):
     return predict_url(
@@ -40,14 +40,14 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
     bundle_typo = load_bundle(args.model_typo)
     bundle_domain = load_bundle(args.model_domain)
     bundle_dom = load_bundle(args.model_dom)
-    _, prob_typo, _ = predict_url(
+    _, prob_typo, typo_feature_map = predict_url(
         bundle_typo,
         url,
         enable_domain_age=False,
-        enable_ssl=bool(bundle_typo.meta.get("enable_ssl", False)),
+        enable_ssl=False,
         domain_only=False,
     )
-    _, prob_domain, _ = predict_url_domain(bundle_domain, url)
+    _, prob_domain, domain_feature_map = predict_url_domain(bundle_domain, url)
     _, prob_dom, dom_feature_map = predict_url_dom(bundle_dom, url)
     final_probability = max(prob_typo, prob_domain, prob_dom)
     if prob_typo >= 0.90 or prob_domain >= 0.90:
@@ -61,9 +61,22 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
     else:
         verdict_label = 0
     verdict = "malicious" if verdict_label == 1 else "benign"
+    explanations = build_all_explanations(
+        url=url,
+        typo_feat_map=typo_feature_map,
+        typo_probability=prob_typo,
+        domain_feat_map=domain_feature_map,
+        domain_probability=prob_domain,
+        dom_feature_map=dom_feature_map,
+        dom_probability=prob_dom,
+    )
 
     print("[Input URL]")
     print(url)
+    print()
+    print("[Detailed Reasons / 상세 근거]")
+    for reason in explanations:
+        print(f"- {reason}")
     print()
     print("[Model Outputs]")
     print(f"typo_probability: {prob_typo:.4f}")
@@ -91,18 +104,18 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--model_typo",
-        default=DEFAULT_TYPO_MODEL,
-        help=f"Path to typo model bundle (.joblib). Default: {DEFAULT_TYPO_MODEL}",
+        default="url_xgb_paired_first.joblib",
+        help="Path to typo model bundle (.joblib). Default: url_xgb_paired_first.joblib",
     )
     p.add_argument(
         "--model_domain",
-        default=DEFAULT_DOMAIN_MODEL,
-        help=f"Path to domain-age model bundle (.joblib). Default: {DEFAULT_DOMAIN_MODEL}",
+        default="url_xgb_domain_age.joblib",
+        help="Path to domain-age model bundle (.joblib). Default: url_xgb_domain_age.joblib",
     )
     p.add_argument(
         "--model_dom",
-        default=DEFAULT_DOM_MODEL,
-        help=f"Path to DOM model bundle (.joblib). Default: {DEFAULT_DOM_MODEL}",
+        default="url_xgb_dom.joblib",
+        help="Path to DOM model bundle (.joblib). Default: url_xgb_dom.joblib",
     )
     p.add_argument("--url", required=True, help="Single URL to classify.")
     p.add_argument(

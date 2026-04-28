@@ -499,12 +499,105 @@ def extract_length_features(url: str) -> Dict[str, float]:
 
 _RDAP_LOOKUP_TIMEOUT_SECONDS = 3.0
 _DOMAIN_AGE_MAX_DAYS = 36500.0
-_DOMAIN_AGE_FALLBACK = {
+_DOMAIN_AGE_LOOKUP_FAILED = {
     "domain_age_days": 0.0,
     "domain_age_log_days": 0.0,
     "domain_age_missing": 1.0,
+    "rdap_status_ok": 0.0,
+    "rdap_status_not_registered": 0.0,
+    "rdap_status_lookup_failed": 1.0,
+    "rdap_status_parse_failed": 0.0,
+}
+_DOMAIN_AGE_NOT_REGISTERED = {
+    "domain_age_days": 0.0,
+    "domain_age_log_days": 0.0,
+    "domain_age_missing": 1.0,
+    "rdap_status_ok": 0.0,
+    "rdap_status_not_registered": 1.0,
+    "rdap_status_lookup_failed": 0.0,
+    "rdap_status_parse_failed": 0.0,
+}
+_DOMAIN_AGE_PARSE_FAILED = {
+    "domain_age_days": 0.0,
+    "domain_age_log_days": 0.0,
+    "domain_age_missing": 1.0,
+    "rdap_status_ok": 0.0,
+    "rdap_status_not_registered": 0.0,
+    "rdap_status_lookup_failed": 0.0,
+    "rdap_status_parse_failed": 1.0,
+}
+_DOMAIN_AGE_DISABLED = {
+    "domain_age_days": 0.0,
+    "domain_age_log_days": 0.0,
+    "domain_age_missing": 1.0,
+    "rdap_status_ok": 0.0,
+    "rdap_status_not_registered": 0.0,
+    "rdap_status_lookup_failed": 0.0,
+    "rdap_status_parse_failed": 0.0,
 }
 _DOMAIN_AGE_CACHE: Dict[str, Dict[str, float]] = {}
+_NETWORK_CACHE: Dict[str, Dict[str, Any]] = {}
+
+def normalize_host_for_network(url: str) -> Dict[str, Any]:
+    """
+    Returns:
+    {
+        "raw_host": str,
+        "ascii_host": str,
+        "registered_domain": str,
+        "ascii_registered_domain": str,
+        "dns_resolved": bool
+    }
+    """
+    raw_host = _extract_host_for_domain_age(url)
+    cache_key = raw_host or (url or "").strip()
+    cached = _NETWORK_CACHE.get(cache_key)
+    if cached is not None:
+        print(f"[NETWORK DEBUG] raw_host={cached['raw_host']}")
+        print(f"[NETWORK DEBUG] ascii_host={cached['ascii_host']}")
+        print(f"[NETWORK DEBUG] registered_domain={cached['registered_domain']}")
+        print(f"[NETWORK DEBUG] ascii_registered_domain={cached['ascii_registered_domain']}")
+        print(f"[NETWORK DEBUG] dns_resolved={cached['dns_resolved']}")
+        return dict(cached)
+
+    ascii_host = raw_host
+    if raw_host:
+        try:
+            ascii_host = raw_host.encode("idna").decode("ascii")
+        except Exception:
+            ascii_host = raw_host
+
+    registered_domain = _get_registered_domain_for_rdap(raw_host)
+    ascii_registered_domain = registered_domain
+    if registered_domain:
+        try:
+            ascii_registered_domain = registered_domain.encode("idna").decode("ascii")
+        except Exception:
+            ascii_registered_domain = registered_domain
+
+    dns_resolved = False
+    if ascii_host:
+        try:
+            socket.gethostbyname(ascii_host)
+            dns_resolved = True
+        except Exception:
+            dns_resolved = False
+
+    info = {
+        "raw_host": raw_host,
+        "ascii_host": ascii_host,
+        "registered_domain": registered_domain,
+        "ascii_registered_domain": ascii_registered_domain,
+        "dns_resolved": dns_resolved,
+    }
+    _NETWORK_CACHE[cache_key] = dict(info)
+
+    print(f"[NETWORK DEBUG] raw_host={raw_host}")
+    print(f"[NETWORK DEBUG] ascii_host={ascii_host}")
+    print(f"[NETWORK DEBUG] registered_domain={registered_domain}")
+    print(f"[NETWORK DEBUG] ascii_registered_domain={ascii_registered_domain}")
+    print(f"[NETWORK DEBUG] dns_resolved={dns_resolved}")
+    return dict(info)
 
 def _extract_host_for_domain_age(url_or_host: str) -> str:
     raw = (url_or_host or "").strip()
@@ -533,9 +626,9 @@ def _get_registered_domain_for_rdap(url_or_host: str) -> str:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:])
 
-def _fetch_rdap_payload(registered_domain: str) -> Optional[Dict[str, Any]]:
+def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]], str]:
     if not registered_domain:
-        return None
+        return None, "lookup_failed"
     request = Request(
         f"https://rdap.org/domain/{registered_domain}",
         headers={
@@ -547,13 +640,27 @@ def _fetch_rdap_payload(registered_domain: str) -> Optional[Dict[str, Any]]:
         with urlopen(request, timeout=_RDAP_LOOKUP_TIMEOUT_SECONDS) as response:
             payload = response.read()
             charset = response.headers.get_content_charset() or "utf-8"
-    except (HTTPError, URLError, TimeoutError, ValueError, OSError):
-        return None
+    except HTTPError as e:
+        print(f"[RDAP DEBUG] http_status={e.code}")
+        if e.code == 404:
+            return None, "not_registered"
+        return None, "lookup_failed"
+    except TimeoutError:
+        print("[RDAP DEBUG] timeout")
+        return None, "lookup_failed"
+    except URLError as e:
+        print(f"[RDAP DEBUG] url_error={e}")
+        return None, "lookup_failed"
+    except (ValueError, OSError):
+        return None, "lookup_failed"
     try:
         parsed = json.loads(payload.decode(charset, errors="replace"))
     except Exception:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+        print("[RDAP DEBUG] json_parse_failed")
+        return None, "lookup_failed"
+    if not isinstance(parsed, dict):
+        return None, "lookup_failed"
+    return parsed, "ok"
 
 def _parse_rdap_datetime(value: str) -> Optional[datetime]:
     text = (value or "").strip()
@@ -618,26 +725,42 @@ def _compute_domain_age_days(created_at: datetime, now: Optional[datetime] = Non
     return float(min(age_days, _DOMAIN_AGE_MAX_DAYS))
 
 def extract_domain_age_features(url: str) -> Dict[str, float]:
-    registered_domain = _get_registered_domain_for_rdap(url)
+    network_info = normalize_host_for_network(url)
+    registered_domain = str(network_info.get("ascii_registered_domain", "") or "")
     print(f"[DOMAIN DEBUG] url={url}")
     print(f"[DOMAIN DEBUG] registered_domain={registered_domain}")
     print(f"[DOMAIN DEBUG] rdap_cache_hit={registered_domain in _DOMAIN_AGE_CACHE}")
 
     if not registered_domain:
-        return dict(_DOMAIN_AGE_FALLBACK)
+        print("[RDAP DEBUG] status=lookup_failed")
+        return dict(_DOMAIN_AGE_LOOKUP_FAILED)
+    if not bool(network_info.get("dns_resolved", False)):
+        print("[RDAP DEBUG] dns_failed_but_rdap_lookup_attempted")
 
     cached = _DOMAIN_AGE_CACHE.get(registered_domain)
     if cached is not None:
         return dict(cached)
 
-    payload = _fetch_rdap_payload(registered_domain)
+    payload, rdap_status = _fetch_rdap_payload(registered_domain)
+    print(f"[RDAP DEBUG] status={rdap_status}")
     print(f"[DOMAIN DEBUG] rdap_payload_exists={payload is not None}")
+
+    if rdap_status == "not_registered":
+        features = dict(_DOMAIN_AGE_NOT_REGISTERED)
+        _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
+        return dict(features)
+    if rdap_status == "lookup_failed":
+        features = dict(_DOMAIN_AGE_LOOKUP_FAILED)
+        # lookup_failed is cached for the current run only to avoid repeated network delays.
+        _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
+        return dict(features)
 
     created_at = _extract_rdap_creation_date(payload)
     if created_at is None:
-        print("[DOMAIN DEBUG] RDAP FAILED -> fallback")
-        _DOMAIN_AGE_CACHE[registered_domain] = dict(_DOMAIN_AGE_FALLBACK)
-        return dict(_DOMAIN_AGE_FALLBACK)
+        print("[RDAP DEBUG] creation_date_parse_failed")
+        features = dict(_DOMAIN_AGE_PARSE_FAILED)
+        _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
+        return dict(features)
 
     domain_age_days = _compute_domain_age_days(created_at)
     print(f"[DOMAIN DEBUG] domain_age_days={domain_age_days}")
@@ -645,17 +768,17 @@ def extract_domain_age_features(url: str) -> Dict[str, float]:
         "domain_age_days": float(domain_age_days),
         "domain_age_log_days": float(math.log1p(domain_age_days)),
         "domain_age_missing": 0.0,
+        "rdap_status_ok": 1.0,
+        "rdap_status_not_registered": 0.0,
+        "rdap_status_lookup_failed": 0.0,
+        "rdap_status_parse_failed": 0.0,
     }
     _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
     return dict(features)
 
 def get_domain_age_features_for_mode(url: str, enable_domain_age: bool) -> Dict[str, float]:
     if not enable_domain_age:
-        return {
-            "domain_age_days": 0.0,
-            "domain_age_log_days": 0.0,
-            "domain_age_missing": 1.0,
-        }
+        return dict(_DOMAIN_AGE_DISABLED)
     return extract_domain_age_features(url)
 
 # ============================================================
@@ -687,7 +810,15 @@ def _clamp_ssl_days(value: float) -> float:
     return float(min(max(0.0, value), _SSL_CERT_MAX_DAYS))
 
 def extract_ssl_features(url: str) -> Dict[str, float]:
-    host = _extract_host_for_domain_age(url)
+    parsed = urlsplit(url if "://" in (url or "") else "http://" + (url or ""))
+    network_info = normalize_host_for_network(url)
+    if not bool(network_info.get("dns_resolved", False)):
+        print("[SSL DEBUG] skipped due to DNS failure")
+        return dict(_SSL_FALLBACK)
+    host = str(network_info.get("ascii_host", "") or "")
+    print(f"[SSL DEBUG] url={url}")
+    print(f"[SSL DEBUG] scheme={parsed.scheme}")
+    print(f"[SSL DEBUG] host={host}")
     print(f"[DOMAIN DEBUG] ssl_host={host}")
     print(f"[DOMAIN DEBUG] ssl_cache_hit={host in _SSL_CACHE}")
 
@@ -703,10 +834,40 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
         with socket.create_connection((host, 443), timeout=_SSL_LOOKUP_TIMEOUT_SECONDS) as sock:
             with context.wrap_socket(sock, server_hostname=host) as tls_sock:
                 cert = tls_sock.getpeercert()
-    except (socket.timeout, socket.gaierror, socket.error, ssl.SSLError, ValueError, OSError):
+    except socket.gaierror:
+        print("[SSL DEBUG] DNS RESOLUTION FAILED")
         print("[DOMAIN DEBUG] SSL FAILED -> fallback")
         _SSL_CACHE[host] = dict(_SSL_FALLBACK)
         return dict(_SSL_FALLBACK)
+    except socket.timeout:
+        print("[SSL DEBUG] TCP CONNECTION TIMEOUT")
+        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK)
+    except ConnectionRefusedError:
+        print("[SSL DEBUG] CONNECTION REFUSED (port 443 closed)")
+        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK)
+    except ssl.SSLError as e:
+        print(f"[SSL DEBUG] SSL HANDSHAKE FAILED: {e}")
+        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK)
+    except (socket.error, ValueError, OSError):
+        print("[SSL DEBUG] UNKNOWN ERROR: socket/value/os level exception")
+        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK)
+    except Exception as e:
+        print(f"[SSL DEBUG] UNKNOWN ERROR: {e}")
+        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK)
+
+    print("[SSL DEBUG] TLS HANDSHAKE SUCCESS")
+    print(f"[SSL DEBUG] notBefore={cert.get('notBefore')}")
+    print(f"[SSL DEBUG] notAfter={cert.get('notAfter')}")
 
     not_before = _parse_ssl_cert_datetime(str(cert.get("notBefore", "")))
     not_after = _parse_ssl_cert_datetime(str(cert.get("notAfter", "")))
@@ -829,28 +990,78 @@ _DOM_FEATURE_CACHE: Dict[str, Dict[str, float]] = {}
 
 def _normalize_url_for_dom_fetch(url: str) -> str:
     raw = (url or "").strip()
+    print(f"[DOM DEBUG] normalize_raw_url={raw}")
     if not raw:
+        print("[DOM DEBUG] normalize_failed: empty url")
         return ""
     candidate = raw if "://" in raw else f"http://{raw}"
+    print(f"[DOM DEBUG] normalize_candidate={candidate}")
     try:
         parsed = urlsplit(candidate)
     except Exception:
+        print("[DOM DEBUG] normalize_failed: urlsplit exception")
         return ""
-    return candidate if parsed.hostname else ""
+    normalized = candidate if parsed.hostname else ""
+    if not normalized:
+        print("[DOM DEBUG] normalize_failed: hostname missing")
+    return normalized
 
 def _fetch_html_for_dom(url: str) -> Tuple[str, bool]:
-    target_url = _normalize_url_for_dom_fetch(url)
-    if not target_url or requests is None:
+    network_info = normalize_host_for_network(url)
+    if not bool(network_info.get("dns_resolved", False)):
+        print("[DOM DEBUG] skipped due to DNS failure")
         return "", True
+
+    target_url = _normalize_url_for_dom_fetch(url)
+    if not target_url:
+        print("[DOM DEBUG] normalize produced empty target_url")
+        return "", True
+    ascii_host = str(network_info.get("ascii_host", "") or "")
+    if ascii_host:
+        try:
+            parsed = urlsplit(target_url)
+            auth_part = ""
+            if parsed.username:
+                auth_part = parsed.username
+                if parsed.password:
+                    auth_part += f":{parsed.password}"
+                auth_part += "@"
+            port_part = f":{parsed.port}" if parsed.port else ""
+            netloc = f"{auth_part}{ascii_host}{port_part}"
+            target_url = parsed._replace(netloc=netloc).geturl()
+        except Exception:
+            pass
+    if requests is None:
+        print("[DOM DEBUG] requests library is not available")
+        return "", True
+    print(f"[DOM DEBUG] fetching_url={target_url}")
     try:
         response = requests.get(  # type: ignore[union-attr]
             target_url,
             timeout=_DOM_FETCH_TIMEOUT_SECONDS,
             headers={"User-Agent": "Mozilla/5.0"},
         )
-    except Exception:
+    except requests.exceptions.Timeout:
+        print("[DOM DEBUG] FETCH TIMEOUT")
         return "", True
+    except requests.exceptions.SSLError as e:
+        print(f"[DOM DEBUG] SSL ERROR: {e}")
+        return "", True
+    except requests.exceptions.ConnectionError as e:
+        print(f"[DOM DEBUG] CONNECTION ERROR: {e}")
+        return "", True
+    except requests.exceptions.TooManyRedirects as e:
+        print(f"[DOM DEBUG] TOO MANY REDIRECTS: {e}")
+        return "", True
+    except Exception as e:
+        print(f"[DOM DEBUG] UNKNOWN FETCH ERROR: {type(e).__name__}: {e}")
+        return "", True
+    print(f"[DOM DEBUG] status_code={response.status_code}")
+    print(f"[DOM DEBUG] final_url={response.url}")
+    print(f"[DOM DEBUG] content_type={response.headers.get('Content-Type')}")
+    print(f"[DOM DEBUG] html_length={len(response.text or '')}")
     if not response.ok:
+        print(f"[DOM DEBUG] RESPONSE NOT OK: status_code={response.status_code}")
         return "", True
     return response.text or "", False
 
@@ -900,6 +1111,7 @@ def _has_suspicious_form_action(current_url: str, action: str) -> bool:
 def _extract_dom_features_from_html(html: str, current_url: str) -> Dict[str, float]:
     soup = _parse_dom_soup(html)
     if soup is None:
+        print("[DOM DEBUG] BeautifulSoup parsing failed")
         return dict(_DOM_FETCH_FALLBACK)
 
     root_tags = [child for child in soup.children if getattr(child, "name", None)]
@@ -931,6 +1143,8 @@ def _extract_dom_features_from_html(html: str, current_url: str) -> Dict[str, fl
 
 def extract_dom_features(url: str) -> Dict[str, float]:
     target_url = _normalize_url_for_dom_fetch(url)
+    print(f"[DOM DEBUG] input_url={url}")
+    print(f"[DOM DEBUG] normalized_url={target_url}")
     if not target_url:
         return dict(_DOM_FETCH_FALLBACK)
 
@@ -2085,6 +2299,15 @@ def predict_url(
     proba = float(predict_proba(bundle.model, X)[0])
     label = 1 if proba >= 0.5 else 0
     feat_map = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
+    domain_age_meta = get_domain_age_features_for_mode(url, bool(enable_domain_age))
+    for key in (
+        "rdap_status_ok",
+        "rdap_status_not_registered",
+        "rdap_status_lookup_failed",
+        "rdap_status_parse_failed",
+    ):
+        if key in domain_age_meta:
+            feat_map[key] = float(domain_age_meta[key])
     return label, proba, feat_map
 
 def predict_url_dom(
@@ -2104,6 +2327,168 @@ def predict_url_dom(
         "dom_fetch_failed": float(dom_features.get("dom_fetch_failed", 0.0)),
     }
     return label, proba, dom_feature_map
+
+def build_typo_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
+    reasons: List[str] = []
+    added = set()
+
+    def _add(text: str) -> None:
+        if text not in added:
+            reasons.append(text)
+            added.add(text)
+
+    has_brand_similarity = (
+        float(feat_map.get("host_contains_brand_token", 0.0)) >= 1.0
+        or float(feat_map.get("brand_token_in_subdomain", 0.0)) >= 1.0
+        or float(feat_map.get("sld_3gram_jaccard_closest_brand", 0.0)) >= 0.6
+        or float(feat_map.get("sld_damerau_levenshtein_closest_brand", 999.0)) <= 2.0
+        or float(feat_map.get("sld_normalized_edit_distance", 1.0)) <= 0.35
+    )
+    if probability >= 0.5 or has_brand_similarity:
+        _add("브랜드명과 유사한 형태의 도메인으로 보여, 사용자를 혼동시킬 가능성이 있습니다.")
+
+    if float(feat_map.get("domain_homoglyph_ratio", 0.0)) >= 0.05 or float(
+        feat_map.get("domain_vowel_like_digit_count", 0.0)
+    ) >= 1.0:
+        _add("도메인에 숫자나 유사문자가 섞여 있어 정상 브랜드를 흉내낸 형태일 수 있습니다.")
+
+    if float(feat_map.get("brand_target_action_pattern", 0.0)) >= 1.0 or float(
+        feat_map.get("brand_plus_keyword_pattern", 0.0)
+    ) >= 1.0:
+        _add("로그인, 인증, 계정 확인과 같은 피싱성 표현이 함께 포함되어 있습니다.")
+
+    if float(feat_map.get("brand_hyphen_compound", 0.0)) >= 1.0:
+        _add("브랜드명과 다른 단어가 하이픈으로 결합된 도메인 패턴이 확인됩니다.")
+
+    return reasons
+
+def build_url_structure_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
+    reasons: List[str] = []
+    added = set()
+
+    def _add(text: str) -> None:
+        if text not in added:
+            reasons.append(text)
+            added.add(text)
+
+    host_len_raw = float(feat_map.get("host_len", 0.0))
+    host_len_scaled = float(feat_map.get("host_length", 0.0))
+    host_len = host_len_raw if host_len_raw > 0.0 else host_len_scaled * 50.0
+
+    url_len = float(feat_map.get("url_length", 0.0))
+    num_hyphens = float(feat_map.get("num_hyphens", 0.0))
+    num_subdomains = float(feat_map.get("num_subdomains", 0.0))
+
+    if host_len > 45.0 or url_len > 100.0:
+        _add("URL 길이가 일반적인 사이트보다 길어, 실제 사이트를 모방한 주소일 가능성이 있습니다.")
+    elif host_len > 0.0 and host_len < 6.0:
+        _add("도메인 길이가 매우 짧아 신뢰할 수 있는 공식 주소인지 추가 확인이 필요합니다.")
+
+    if num_hyphens >= 2.0:
+        _add("도메인에 하이픈이 여러 번 사용되어 정상 주소처럼 보이도록 구성되었을 수 있습니다.")
+
+    if num_subdomains >= 3.0:
+        _add("서브도메인이 과도하게 많아 실제 서비스 주소를 숨기려는 형태일 수 있습니다.")
+
+    if probability >= 0.5 and not reasons:
+        _add("주소 구조가 일반적인 정상 서비스 URL과 다르게 보여 주의가 필요합니다.")
+
+    return reasons
+
+def build_domain_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
+    reasons: List[str] = []
+    rdap_status_ok = float(feat_map.get("rdap_status_ok", 0.0))
+    rdap_status_not_registered = float(feat_map.get("rdap_status_not_registered", 0.0))
+    rdap_status_lookup_failed = float(feat_map.get("rdap_status_lookup_failed", 0.0))
+    rdap_status_parse_failed = float(feat_map.get("rdap_status_parse_failed", 0.0))
+    domain_age_missing = float(feat_map.get("domain_age_missing", 0.0))
+    domain_age_days = float(feat_map.get("domain_age_days", 0.0))
+
+    if rdap_status_not_registered >= 1.0:
+        reasons.append("RDAP 조회 결과, 도메인 등록 정보를 찾을 수 없습니다.")
+    elif rdap_status_lookup_failed >= 1.0:
+        reasons.append("RDAP 서버 조회에 실패하여 도메인 등록 이력을 확인하지 못했습니다.")
+    elif rdap_status_parse_failed >= 1.0:
+        reasons.append("RDAP 응답은 받았지만 도메인 생성일을 해석하지 못했습니다.")
+    elif rdap_status_ok >= 1.0 and domain_age_days <= 30.0:
+        reasons.append("도메인이 매우 최근에 등록된 신규 도메인입니다.")
+    elif rdap_status_ok >= 1.0 and domain_age_days <= 180.0:
+        reasons.append("도메인이 비교적 최근에 생성되었습니다.")
+    elif domain_age_missing >= 1.0:
+        reasons.append("도메인 등록 정보를 확인할 수 없습니다.")
+
+    return reasons
+
+def build_ssl_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
+    reasons: List[str] = []
+    ssl_missing = float(feat_map.get("ssl_missing", 0.0))
+    ssl_valid_days = float(feat_map.get("ssl_valid_days", 0.0))
+    ssl_remaining_days = float(feat_map.get("ssl_remaining_days", 0.0))
+
+    if ssl_missing >= 1.0:
+        reasons.append("SSL 인증서 정보를 확인하지 못했습니다.")
+    elif ssl_remaining_days <= 7.0:
+        reasons.append("SSL 인증서가 매우 곧 만료됩니다.")
+    elif ssl_valid_days <= 30.0:
+        reasons.append("SSL 인증서 유효기간이 매우 짧습니다.")
+
+    return reasons
+
+def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probability: float) -> List[str]:
+    reasons: List[str] = []
+
+    if float(dom_feature_map.get("dom_fetch_failed", 0.0)) >= 1.0:
+        reasons.append("페이지 구조 정보를 가져오지 못해 DOM 기반 검증이 제한되었습니다.")
+        return reasons
+
+    if float(dom_feature_map.get("dead_link_ratio", 0.0)) > 50.0:
+        reasons.append("페이지 내부에 이동할 수 없는 링크 비율이 높습니다.")
+
+    if float(dom_feature_map.get("suspicious_form_action", 0.0)) >= 1.0:
+        reasons.append("사용자 입력 정보가 외부 도메인으로 전송되는 form이 존재합니다.")
+
+    if float(dom_feature_map.get("hidden_tags_count", 0.0)) > 20.0:
+        reasons.append("사용자에게 보이지 않는 숨겨진 요소가 많이 포함되어 있습니다.")
+
+    return reasons
+
+def build_all_explanations(
+    url: str,
+    typo_feat_map: Dict[str, float],
+    typo_probability: float,
+    domain_feat_map: Dict[str, float],
+    domain_probability: float,
+    dom_feature_map: Dict[str, float],
+    dom_probability: float,
+) -> List[str]:
+    sections: List[str] = []
+
+    typo_reasons = build_typo_explanations(url, typo_feat_map, typo_probability)
+    url_structure_reasons = build_url_structure_explanations(url, typo_feat_map, typo_probability)
+    domain_reasons = build_domain_explanations(url, domain_feat_map, domain_probability)
+    ssl_reasons = build_ssl_explanations(url, domain_feat_map, domain_probability)
+    dom_reasons = build_dom_explanations(url, dom_feature_map, dom_probability)
+
+    def _append_section(title: str, items: List[str]) -> None:
+        if not items:
+            return
+        sections.append(title)
+        for item in items:
+            sections.append(f"- {item}")
+        sections.append("")
+
+    _append_section("[타이포스쿼팅]", typo_reasons)
+    _append_section("[URL 구조]", url_structure_reasons)
+    _append_section("[도메인 나이]", domain_reasons)
+    _append_section("[SSL 인증서]", ssl_reasons)
+    _append_section("[DOM 구조]", dom_reasons)
+
+    while sections and sections[-1] == "":
+        sections.pop()
+
+    if not sections:
+        return ["뚜렷한 악성 징후가 발견되지 않았습니다."]
+    return sections
 
 def _validate_single_input_url(url: str) -> str:
     value = (url or "").strip()
