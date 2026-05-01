@@ -58,9 +58,7 @@ class AsyncPlaywrightPool:
         )
         print("  [시스템] [OK] 마스터 브라우저 풀 준비 완료. (1, 2-Depth 공용)")
 
-    # 🔥 원래의 고속 스캔 속도(6000ms)로 원상 복구!
     async def _fetch_single(self, url, timeout_ms=6000, wait_sec=3.5):
-        # 안티봇 회피를 위해 평범한 윈도우 크롬 사용자인 척 위장은 유지
         context = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={'width': 1920, 'height': 1080}
@@ -123,21 +121,27 @@ def redact_pii(text: str) -> str:
 
 def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     soup = BeautifulSoup(html, "html.parser")
-    for noise in soup(["script", "style", "noscript", "iframe"]):
+    for noise in soup(["script", "style", "noscript", "iframe","header", "footer", "nav"]):
         noise.decompose()
     title = soup.title.string.strip() if soup.title and soup.title.string else ""
     type_map = { "tel": "전화번호", "email": "이메일", "password": "비밀번호", "text": "텍스트", "number": "숫자", "checkbox": "체크박스" }
     sensitive_map = { "account": "계좌번호", "acc_no": "계좌번호", "bank": "계좌번호", "resident": "주민등록번호", "jumin": "주민등록번호", "rrn": "주민등록번호", "card_num": "카드번호", "card_no": "카드번호", "cc_num": "카드번호", "cvc": "카드보안코드", "cvv": "카드보안코드" }
     raw_inputs = []
-    for input_tag in soup.find_all("input"):
-        i_type = (input_tag.get("type", "text") or "text").lower()
+    # 🌟 1. input 태그뿐만 아니라 내용 입력용 textarea 태그도 함께 스캔!
+    for input_tag in soup.find_all(["input", "textarea"]):
+        i_type = (input_tag.get("type", "text") or "text").lower() if input_tag.name == "input" else "텍스트"
         if i_type in ["hidden", "submit", "button", "image"]: continue
-        attr_context = f"{input_tag.get('name','')}_{input_tag.get('id','')}_{input_tag.get('placeholder','')}".lower()
+        
+        # 🌟 2. 입력창 안의 희미한 글씨(placeholder)가 있으면 무식하게 '텍스트'라 하지 않고 그대로 수집!
+        placeholder = input_tag.get('placeholder', '').strip()
+        if placeholder and len(placeholder) <= 15:
+            raw_inputs.append(placeholder)
+            continue
+            
+        attr_context = f"{input_tag.get('name','')}_{input_tag.get('id','')}".lower()
         found_sensitive = False
         for eng_key, kor_val in sensitive_map.items():
-            # 🔥 [수정] account 단어의 오탐(User Account) 방지 로직 추가
             if eng_key == "account":
-                # bank, finance 등의 단어가 함께 있거나, 한국어 placeholder에 '계좌'가 있을 때만 '계좌번호'로 인정
                 if any(k in attr_context for k in ["bank", "finance", "pay", "계좌", "환불"]):
                     raw_inputs.append(kor_val)
                     found_sensitive = True
@@ -146,7 +150,9 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
                 raw_inputs.append(kor_val)
                 found_sensitive = True
                 break
-        if not found_sensitive: raw_inputs.append(type_map.get(i_type, i_type))
+                
+        if not found_sensitive: 
+            raw_inputs.append(type_map.get(i_type, i_type))
     inputs_str = ", ".join(list(dict.fromkeys(raw_inputs)))
     raw_buttons = []
     ignore_keys = ["bksp", "shift", "enter", "lang", "space", "caps", "tab", "clear", "done", "search"]
@@ -161,31 +167,48 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     number_pattern = re.compile(r"^[\d,\.%+\-\s]+$")
     extracted_texts = []
     short_text_count = 0
+    
+    # 🌟 [추가됨] 한국어 폼 관련 필수 수집 키워드
+    vital_kws = ["이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청"]
+
     for text in soup.stripped_strings:
         if any(bad_word in text for bad_word in blacklist_words): continue
         if number_pattern.match(text): continue
+        
         text_len = len(text)
-        if 2 < text_len <= 25:
-            if short_text_count < 15: extracted_texts.append(text); short_text_count += 1
-        elif 25 < text_len <= 500: extracted_texts.append(text)
+        
+        # 🌟 [수정됨] 핵심 키워드가 포함되어 있으면 길이/개수 제한 무시하고 무조건 수집! (프리패스)
+        if any(kw in text for kw in vital_kws):
+            extracted_texts.append(text)
+        # 일반 텍스트는 1글자 초과(2글자 이상)부터 수집하도록 완화
+        elif 1 < text_len <= 25:
+            if short_text_count < 30: # 수집 한도도 15개 -> 30개로 넉넉하게 확장
+                extracted_texts.append(text)
+                short_text_count += 1
+        elif 25 < text_len <= 500:
+            extracted_texts.append(text)
     unique_texts = []
     seen = set()
     for t in extracted_texts:
         if t not in seen: seen.add(t); unique_texts.append(t)
     main_text = " ".join(unique_texts)[:300]
 
-    context_sentences = []
-    if title: context_sentences.append(f"이 웹페이지의 제목은 '{title}'입니다.")
-    if popup_text:context_sentences.append(f"접속 시 화면에 다음과 같은 경고 팝업이 발생했습니다. {popup_text}")
-    if main_text: context_sentences.append(f"화면에 표시된 주요 안내 사항은 다음과 같습니다. {main_text}")
-    if inputs_str and buttons_str:
-        if any(k in inputs_str for k in ["계좌", "주민", "카드"]): context_sentences.append(f"이 페이지는 보안이 필요한 '{inputs_str}' 입력을 요구하며, '{buttons_str}' 버튼이 존재합니다.")
-        else: context_sentences.append(f"이 페이지는 사용자에게 '{inputs_str}' 입력을 요청하며, '{buttons_str}' 버튼이 존재합니다.")
-    elif inputs_str: context_sentences.append(f"이 페이지는 사용자에게 '{inputs_str}' 입력을 요청합니다.")
-    elif buttons_str: context_sentences.append(f"이 페이지에는 '{buttons_str}' 버튼이 존재합니다.")
+    # 🌟 [수정] 무의미한 문법적 틀(Boilerplate) 완벽 제거. 순수 텍스트만 결합!
+    components = []
+    
+    if title: components.append(title)
+    if popup_text: components.append(popup_text)
+    if main_text: components.append(main_text)
+    
+    action_kws = []
+    if inputs_str: action_kws.append(inputs_str)
+    if buttons_str: action_kws.append(buttons_str)
+    if action_kws:
+        components.append(" ".join(action_kws))
 
-    final_text = " ".join(context_sentences)
+    final_text = ". ".join(components)
     final_text = re.sub(r"\s+", " ", final_text).strip()[:1000]
+    
     return redact_pii(final_text)
 
 def extract_with_requests_and_raw_html(url: str):
@@ -203,12 +226,10 @@ def extract_with_requests_and_raw_html(url: str):
             response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
             raw_bytes = response.content
             
-            # 🔥 [수정] 인코딩 깨짐 완벽 방어 로직 (CP949 도입)
             try: 
                 html = raw_bytes.decode('utf-8')
             except UnicodeDecodeError:
                 try: 
-                    # euc-kr 대신 더 넓은 범위의 cp949 사용 및 에러 무시(ignore)
                     html = raw_bytes.decode('cp949', errors='ignore')
                 except UnicodeDecodeError: 
                     html = raw_bytes.decode('utf-8', errors='replace')
@@ -351,7 +372,6 @@ def predict_phishing_result(target_url):
     if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
         print("  🚨 [즉결 심판] Cloudflare에서 이미 차단된 피싱 사이트입니다! (AI 검사 생략)")
         
-        # 🔥 [추가] 즉결 심판 시에도 안드로이드 앱에서 텍스트를 띄울 수 있도록 evidence 추가
         evidence_dict = {
             "suspect_sentence": "Cloudflare 악성 사이트 경고 화면",
             "ai_reason": "글로벌 보안 네트워크(Cloudflare)에서 이미 악성 피싱 사이트로 블랙리스트에 등재되어 차단된 페이지입니다. AI 검사를 생략하고 즉시 접속을 원천 차단합니다."
@@ -374,7 +394,6 @@ def predict_phishing_result(target_url):
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
     
     with torch.no_grad():
-        # 🔥 [핵심 추가] output_attentions=True 를 넣어야 XAI 추출이 가능합니다!
         outputs = model(input_ids, attention_mask=attention_mask, output_attentions=True)
         probs = F.softmax(outputs.logits, dim=-1)[0]
     
@@ -423,12 +442,10 @@ def predict_phishing_result(target_url):
     if any(k in processed_text for k in ["전화번호", "이메일", "카드번호", "계좌번호", "주민등록번호"]): detected_reqs.append("개인정보/금융 입력")
     req_str = ", ".join([f"[{req}]" for req in detected_reqs]) if detected_reqs else "[특이사항 없음]"
 
-    # 🔥 [1단계] 텍스트에서 실제로 발견된 위험/요구 '키워드' 추출
     found_high_risk = [kw for kw in high_risk_keywords if kw in processed_text]
     found_actions = [kw for kw in action_keywords if kw in processed_text]
     found_sensitive = [kw for kw in ["전화번호", "이메일", "카드번호", "계좌번호", "주민등록번호"] if kw in processed_text]
 
-    # 발견된 단어들을 예쁜 자연어로 묶기
     demand_parts = []
     if found_actions: demand_parts.append(f"'{', '.join(found_actions)}'")
     if found_sensitive: demand_parts.append(f"'{', '.join(found_sensitive)}'")
@@ -437,21 +454,39 @@ def predict_phishing_result(target_url):
     high_risk_str = f"'{', '.join(found_high_risk)}'" if found_high_risk else ""
 
     # 🔥 [2단계] 키워드 기반 '범죄 유형(Threat Type)' 세부 분류 로직
-    scam_type = "기관/기업 사칭 피싱" # 기본값
+    scam_type = "기관/기업 사칭 피싱"
     loan_kws = ["통신요금 담보", "신불자", "내구제", "폰테크", "무직자 대출", "통신연체자"]
     invest_kws = ["비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "급등주", "VVIP 정보", "세력주", "무료 리딩"]
-    
-    # 🌟 [추가] 어색한 기계 번역투 감지 키워드 및 정규식 로직
     trans_kws = ["상륙 하 다", "상륙하 다", "서명 하 다", "지불 하 다", "제출 하 다", "얻 다", "이 긴 다", "청소 하 라", "계 좌", "비 밀 번 호", "제시 하 다", "갱 신 하 다"]
-    # 정규식: "동사 + 하 다" 형태로 비정상적으로 띄어쓰기가 파괴된 경우 감지
-    is_translated = any(kw in processed_text for kw in trans_kws) or re.search(r'[가-힣]\s+하\s+다\b', processed_text)
+    gambling_kws = ["로또6/45", "동행복권", "연금복권", "파워볼", "프로토", "스포츠토토", "드림게임", "카지노"]
+    adult_kws = ["성인용품", "오피", "조건만남", "비아그라", "밤알바", "19금", "리얼돌"] 
 
-    if any(kw in processed_text for kw in loan_kws):
+    site_category = "일반"
+    if any(kw in processed_text for kw in adult_kws):
+        site_category = "성인 사이트"
+    elif any(kw in processed_text for kw in gambling_kws):
+        site_category = "도박"
+
+    is_translated = any(kw in processed_text for kw in trans_kws) or re.search(r'[가-힣]\s+하\s+다\b', processed_text)
+    is_fake_gambling = False
+    detected_gambling_str = "" 
+
+    detected_gambling_kws = [kw for kw in gambling_kws if kw in processed_text]
+    
+    if detected_gambling_kws:
+        legal_domains = ["dhlottery.co.kr", "betman.co.kr"]
+        if not any(legal_domain in target_url for legal_domain in legal_domains):
+            scam_type = "불법 사설 도박 및 공식 복권 사칭"
+            is_fake_gambling = True
+            found_high_risk = True 
+            detected_gambling_str = ", ".join(detected_gambling_kws[:2]) 
+            print(f"  🚨 [룰베이스 개입] 비인가 도메인({target_url})에서 사행성 키워드({detected_gambling_str}) 감지!")
+    elif any(kw in processed_text for kw in loan_kws):
         scam_type = "불법 대출 및 금융 사기"
     elif any(kw in processed_text for kw in invest_kws):
         scam_type = "불법 투자 유도(리딩방) 사기"
     elif is_translated:
-        scam_type = "해외 기계 번역(번역투) 피싱" # 번역투 사기 유형으로 확정!
+        scam_type = "해외 기계 번역(번역투) 피싱"
 
     # 🔥 [3단계] 점수 보정 
     boost_weight_1 = 0.0
@@ -462,7 +497,7 @@ def predict_phishing_result(target_url):
     if boost_weight_1 > 0:
         prob_phishing += (100 - prob_phishing) * boost_weight_1
         print(f"  📈 [점수 보정] 위험/요구 키워드 탐지! KoBERT({base_prob_1:.1f}%) ➡️ 보정 후({prob_phishing:.1f}%)")
-
+        
     # 🔥 [4단계] AI 주도형(AI-Driven) 초정밀 판단 사유 생성
     if prob_phishing <= 50.0:
         if not found_actions and not found_sensitive and base_prob_1 < 5.0:
@@ -475,24 +510,45 @@ def predict_phishing_result(target_url):
         else:
              ai_reason = f"일부 주의가 필요한 문구(AI 위험도 {base_prob_1:.1f}%)가 있으나, AI가 문서를 종합적으로 스캔한 결과 직접적인 정보 탈취 목적이 없다고 판단하여 정상 처리했습니다."
     else:
-        if found_high_risk:
+        if is_fake_gambling:
+            ai_reason = f"룰베이스 엔진 교차 검증 결과, '{detected_gambling_str}' 관련 복권/사행성 텍스트가 확인되었으나 접속 도메인({target_url})이 국가 공인 합법 도메인이 아닙니다. 전형적인 사칭 및 불법 사설 도박장으로 판별되어 접속을 강력히 차단합니다."
+        elif found_high_risk:
             ai_reason = f"명백한 불법 키워드({high_risk_str})가 탐지되었으며, AI가 이와 연관된 문맥을 정밀 분석한 결과 {demand_str}를 탈취하려는 '{scam_type}' 목적이 확실시되어 접속을 차단합니다."
         elif is_translated:
-            # 🌟 [추가] 번역투 감지 시 전용 메세지 출력!
-            ai_reason = f"AI 분석 결과, \"{top_sent[:20]}...\" 해당 문구들이 부자연스러운 기계 번역투 및 어색한 띄어쓰기로 작성된 것이 확인되었습니다. 이는 해외 기반의 양산형 사기 사이트의 전형적인 특징이므로 최종 악성으로 판별 및 차단합니다."
+            ai_reason = f"AI 분석 결과, \"{top_sent[:30]}...\" 해당 문구들이 부자연스러운 기계 번역투 및 어색한 띄어쓰기로 작성된 것이 확인되었습니다. 이는 해외 기반의 양산형 사기 사이트의 전형적인 특징이므로 최종 악성으로 판별 및 차단합니다."
         elif demand_parts and base_prob_1 >= 60.0:
-            ai_reason = f"AI 엔진이 \"{top_sent[:25]}...\" 문장에 내포된 기만적 의도를 정확히 포착했습니다. 이는 불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되었습니다."
+            ai_reason = f"AI 엔진이 \"{top_sent[:30]}...\" 문장에 내포된 기만적 의도를 정확히 포착했습니다. 이는 불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되었습니다."
         elif demand_parts and boost_weight_1 > 0:
             ai_reason = f"AI가 전체 텍스트에서 수상한 흐름(위험도 {base_prob_1:.1f}%)을 1차 감지하였고, 실제로 {demand_str} 입력을 요구하는 구조가 2차 확인됨에 따라 딥러닝-룰베이스 교차 검증을 거쳐 최종 악성으로 확정했습니다."
         else:
-            ai_reason = f"특정 키워드 없이도, AI가 \"{top_sent[:20]}...\" 문맥 자체에서 사용자를 속여 시스템을 장악하려는 고도의 악의적 의도를 찾아내어 원천 차단합니다."
+            ai_reason = f"특정 키워드 없이도, AI가 \"{top_sent[:30]}...\" 문맥 자체에서 사용자를 속여 시스템을 장악하려는 고도의 악의적 의도를 찾아내어 원천 차단합니다."
 
-    # 🔥 최종 evidence_dict 생성
-    evidence_dict = {
-        "suspect_sentence": top_sent, 
-        "ai_reason": ai_reason
+    # 🔥 [5단계] 수사 보고서(Forensic Report) 형태의 고급 JSON 데이터 조립
+    rule_trigger_msg = "특이사항 없음"
+    if is_fake_gambling: rule_trigger_msg = "국가 공인 도메인 불일치 (사설 도박장/사칭)"
+    elif is_translated: rule_trigger_msg = "부자연스러운 기계 번역 및 띄어쓰기 파괴 감지"
+    elif found_high_risk: rule_trigger_msg = f"고위험 범죄 키워드({high_risk_str}) 매칭"
+
+    final_json_report = {
+        "url": target_url,
+        "judgment": "unnormal" if prob_phishing > 50.0 else "normal",
+        "riskLevel": "HIGH" if prob_phishing > 50.0 else "LOW",
+        "threat_score": round(prob_phishing, 1),
+        "threat_type": scam_type if prob_phishing > 50.0 else "안전(위협 없음)",
+        "site_category": site_category,
+        "evidence": {
+            "heuristic_evidence": {
+                "detected_actions": demand_parts if demand_parts else ["요구 정보 없음"],
+                "rule_trigger": rule_trigger_msg
+            },
+            "ai_semantic_evidence": {
+                "suspect_sentence": top_sent, 
+                "ai_inference_logic": ai_reason
+            }
+        }
     }
-   # 📱 [앱 UI 콘솔 미리보기 출력 부분도 정제]
+
+    # 📱 [앱 UI 콘솔 미리보기 출력 부분]
     print("\n" + "■"*60)
     print("📱 [Quishing Defender UI 미리보기]")
     print("-" * 60)
@@ -500,27 +556,21 @@ def predict_phishing_result(target_url):
     if prob_phishing > 50.0:
         print("🚨 [접속 차단됨] 피싱 사이트 의심!")
         print(f"💬 {ai_reason}\n")
-        print(f"⚠️ 의심 문구: \"{top_sent}\"")
+        print(f"⚠️ 의심 문구: \"{top_sent}\"") 
     else:
         print("✅ [접속 허용] 안전한 웹사이트입니다.")
         print(f"💬 {ai_reason}\n")
-        print(f"🔎 확인 문구: \"{top_sent}\"")
+        print(f"🔎 확인 문구: \"{top_sent}\"") 
         
     print("■"*60 + "\n")
 
-    # 🔥 [여기에 버그 픽스 코드 추가!] 1-Depth에서 악성(50% 초과)으로 확정 났다면, 2-Depth로 가지 않고 즉시 악성 리턴!
+    # 🔥 [1-Depth 악성 조기 리턴] 
     if prob_phishing > 50.0:
         print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
-        return {
-            "judgment": "unnormal", 
-            "riskLevel": "HIGH", 
-            "risklevel": "HIGH", 
-            "detectedUrl": target_url, 
-            "evidence": evidence_dict
-        }
+        return final_json_report
 
     # ----------------------------------------------------
-    # 🌟 [2단계] 서브 링크 수집 및 병렬 스캔 (기존 로직 유지)
+    # 🌟 [2단계] 서브 링크 수집 및 병렬 스캔
     # ----------------------------------------------------
     deep_links = extract_deep_links(raw_html, target_url, max_links=2)
     fetched_data = []
@@ -592,9 +642,18 @@ def predict_phishing_result(target_url):
             if prob_phishing_2 > 50:
                 print(f"  🚨 [2-Depth 결과] 악성 감지! URL: {url} (최종 확률 {prob_phishing_2:.2f}%)")
                 print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
-                # 🔥 evidence 리턴 추가
-                return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": url, "evidence": evidence_dict}
+                
+                # 🔥 [수정] 2-Depth에서 피싱 발견 시 final_json_report를 업데이트하여 반환
+                final_json_report["url"] = url
+                final_json_report["judgment"] = "unnormal"
+                final_json_report["riskLevel"] = "HIGH"
+                final_json_report["threat_score"] = round(prob_phishing_2, 1)
+                final_json_report["threat_type"] = "은닉된 하위 페이지 피싱"
+                final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = "메인 페이지는 정상으로 판별되었으나, 내부에 연결된 하위 링크에서 정보 탈취용 악성 패턴이 감지되어 원천 차단합니다."
+                
+                return final_json_report
 
     print(f"\n✅ 모든 스캔 완료. 특이사항 없음! (총 소요 시간: {time.time() - start_time:.2f}초)")
-    # 🔥 evidence 리턴 추가
-    return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", "detectedUrl": target_url, "evidence": evidence_dict}
+    
+    # 🔥 [수정] 2-Depth 정상 완료 후 과거의 옛날 포맷 딕셔너리 대신 최신 포맷(final_json_report) 반환!
+    return final_json_report
