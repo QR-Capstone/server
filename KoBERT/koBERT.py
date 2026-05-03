@@ -117,6 +117,7 @@ def redact_pii(text: str) -> str:
     text = _RE_EMAIL.sub("[이메일]", text)
     text = re.sub(r"\b[\d\s]*\*{2,}[\d\s]*\b", "[카드번호_형태]", text)
     text = re.sub(r"\b\d{9,}\b", "[장문숫자]", text)
+    text = re.sub(r"http[s]?://(?:bit\.ly|vo\.la|t\.ly|cutt\.ly|url\.kr|ko\.gl|han\.gl|buly\.kr)/[a-zA-Z0-9]+", "[링크]", text)
     return text
 
 def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
@@ -344,16 +345,60 @@ def predict_phishing_result(target_url):
     safe_tlds = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     safe_official_domains = [
         "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com",
-        "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr"
+        "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", 
     ]
+    #legal_gambling_domains = [
+    #    "dhlottery.co.kr", "www.dhlottery.co.kr", "m.dhlottery.co.kr",
+    #    "betman.co.kr", "www.betman.co.kr", "m.betman.co.kr"
+    #]
 
     try:
         domain = urlparse(target_url).netloc.lower()
+        
+        # 1. 일반 공식 기관/은행 프리패스
         if any(domain.endswith(tld) for tld in safe_tlds) or \
            any(domain == d or domain.endswith("." + d) for d in safe_official_domains):
             print(f"  🛡️ [공식 기관 화이트리스트 패스] {domain} -> 검사 생략 (0초 컷 정상 처리)")
             print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
-            return {"judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", "detectedUrl": target_url}
+            # 하위 호환성을 유지하되, evidence 필드를 추가해줍니다.
+            return {
+                "url": target_url, "judgment": "normal", "riskLevel": "LOW", "risklevel": "LOW", 
+                "detectedUrl": target_url, "threat_score": 0.0, "threat_type": "안전(공공/금융기관)", "site_category": "공식 사이트",
+                "evidence": {"heuristic_evidence": {"detected_actions": [], "rule_trigger": "국가/공식 인증 도메인"}, "ai_semantic_evidence": {"suspect_sentence": "해당 없음", "ai_inference_logic": "공식 기관 도메인으로 확인되어 즉시 통과되었습니다."}}
+            }
+            
+        # 2. 🌟 [추가] 동행복권/베트맨 전용 프리패스 (오탐 방지)
+        if domain in legal_gambling_domains:
+            print(f"  🛡️ [합법 복권/토토 화이트리스트 패스] {domain} -> 검사 생략 (0초 컷 정상 처리)")
+            
+            # 앱 UI 미리보기 출력
+            print("\n" + "■"*60)
+            print("📱 [Quishing Defender UI 미리보기]")
+            print("-" * 60)
+            print("🟢 [접속 안전] 국가 승인 합법 사이트!")
+            print("💬 동행복권 또는 베트맨 등 국가에서 공식적으로 운영하는 합법 사이트입니다. 안심하고 이용하셔도 좋습니다.")
+            print("■"*60 + "\n")
+            
+            print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
+            
+            return {
+                "url": target_url,
+                "judgment": "normal",
+                "riskLevel": "SAFE",
+                "threat_score": 0.0,
+                "threat_type": "합법 복권/토토사이트",
+                "site_category": "합법 사이트",
+                "evidence": {
+                    "heuristic_evidence": {
+                        "detected_actions": [],
+                        "rule_trigger": "국가 승인 공식 도메인 (화이트리스트 통과)"
+                    },
+                    "ai_semantic_evidence": {
+                        "suspect_sentence": "해당 없음 (검사 생략)",
+                        "ai_inference_logic": "국가에서 공식적으로 운영 및 승인하는 합법 복권/스포츠토토 사이트로 확인되어 AI 검사 없이 안전한 사이트로 즉시 분류되었습니다."
+                    }
+                }
+            }
     except Exception:
         pass
 
@@ -420,7 +465,8 @@ def predict_phishing_result(target_url):
             sub_len = len(sub_tokens)
             
             end_idx = min(token_idx + sub_len, max_tokens)
-            score = sum([cls_attn[i].item() * 100 for i in range(token_idx, end_idx)])
+            total_score = sum([cls_attn[i].item() * 100 for i in range(token_idx, end_idx)])
+            score = total_score / sub_len if sub_len > 0 else 0
             
             if len(sentence) > 5: 
                 sentence_scores.append((sentence, score))
@@ -465,7 +511,7 @@ def predict_phishing_result(target_url):
     if any(kw in processed_text for kw in adult_kws):
         site_category = "성인 사이트"
     elif any(kw in processed_text for kw in gambling_kws):
-        site_category = "도박"
+        site_category = "도박/복권"
 
     is_translated = any(kw in processed_text for kw in trans_kws) or re.search(r'[가-힣]\s+하\s+다\b', processed_text)
     is_fake_gambling = False
