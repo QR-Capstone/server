@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 from urllib.parse import urlsplit
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +25,7 @@ for _model_dir in MODEL_DIRS.values():
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import uvicorn
-from XG_core import load_bundle, predict_url, predict_url_dom
+from XG_core import build_all_explanations, load_bundle, predict_url, predict_url_dom
 from gnn_engine import GNN_Engine, predict_gnn
 
 app = FastAPI(title="Phishing Detection API")
@@ -98,7 +99,7 @@ def _run_xgboost_inference(raw_url: str):
     output = {"url": url}
 
     if typo_bundle is not None:
-        typo_label, typo_prob, _ = predict_url(
+        typo_label, typo_prob, typo_feature_map = predict_url(
             typo_bundle,
             url,
             enable_domain_age=False,
@@ -107,9 +108,11 @@ def _run_xgboost_inference(raw_url: str):
         )
         output["typo_probability"] = round(float(typo_prob), 6)
         output["typo_label"] = int(typo_label)
+    else:
+        typo_feature_map = {}
 
     if domain_bundle is not None:
-        domain_label, domain_prob, _ = predict_url(
+        domain_label, domain_prob, domain_feature_map = predict_url(
             domain_bundle,
             url,
             enable_domain_age=True,
@@ -118,6 +121,8 @@ def _run_xgboost_inference(raw_url: str):
         )
         output["domain_probability"] = round(float(domain_prob), 6)
         output["domain_label"] = int(domain_label)
+    else:
+        domain_feature_map = {}
 
     if dom_bundle is not None:
         dom_label, dom_prob, dom_feature_map = predict_url_dom(dom_bundle, url)
@@ -126,6 +131,8 @@ def _run_xgboost_inference(raw_url: str):
         output["dom_features"] = {
             k: round(float(v), 6) for k, v in dom_feature_map.items()
         }
+    else:
+        dom_feature_map = {}
 
     typo_prob = float(output.get("typo_probability", 0.0))
     domain_prob = float(output.get("domain_probability", 0.0))
@@ -143,6 +150,15 @@ def _run_xgboost_inference(raw_url: str):
     else:
         output["label"] = 0
     output["verdict"] = "malicious" if output["label"] == 1 else "benign"
+    output["explanations"] = build_all_explanations(
+        url=url,
+        typo_feat_map=typo_feature_map,
+        typo_probability=typo_prob if typo_bundle is not None else 0.0,
+        domain_feat_map=domain_feature_map,
+        domain_probability=domain_prob if domain_bundle is not None else 0.0,
+        dom_feature_map=dom_feature_map,
+        dom_probability=dom_prob if dom_bundle is not None else 0.0,
+    )
     return output
 
 
@@ -183,6 +199,249 @@ def _log_line_gnn(gnn: object) -> str:
     if isinstance(gnn, dict) and gnn.get("error"):
         return f"GNN(web graph): error {gnn.get('error', '')[:80]}"
     return f"GNN(web graph): verdict={gnn.get('verdict')} p={gnn.get('probability')}"
+
+
+def _risk_from_model_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"normal", "safe", "low", "benign", "clean", "allow", "allowed", "0"}:
+        return "SAFE"
+    if text in {
+        "unnormal",
+        "abnormal",
+        "high",
+        "danger",
+        "dangerous",
+        "malicious",
+        "phishing",
+        "scam",
+        "block",
+        "blocked",
+        "1",
+    }:
+        return "DANGEROUS"
+    return "UNKNOWN"
+
+
+def _verdict_from_risk(risk_level: str) -> str:
+    if risk_level == "SAFE":
+        return "benign"
+    if risk_level == "DANGEROUS":
+        return "malicious"
+    return "unknown"
+
+
+def _judgment_from_risk(risk_level: str) -> str:
+    if risk_level == "SAFE":
+        return "normal"
+    if risk_level == "DANGEROUS":
+        return "unnormal"
+    return "unknown"
+
+
+def _korean_risk_text(risk_level: str) -> str:
+    if risk_level == "SAFE":
+        return "정상"
+    if risk_level == "DANGEROUS":
+        return "악성"
+    return "의심"
+
+
+def _extract_model_risk(result: Any) -> str:
+    if not isinstance(result, dict):
+        return "UNKNOWN"
+    for key in ("judgment", "verdict", "riskLevel", "risklevel", "risk_level", "label"):
+        if key in result:
+            risk = _risk_from_model_text(result.get(key))
+            if risk != "UNKNOWN":
+                return risk
+    return "UNKNOWN"
+
+
+def _model_detail(
+    model: str,
+    result: Any,
+    status: dict | None = None,
+) -> dict[str, Any]:
+    if result is None:
+        reason = (status or {}).get("reason") or "model_not_loaded"
+        return {
+            "model": model,
+            "available": False,
+            "riskLevel": "UNKNOWN",
+            "judgment": "unknown",
+            "verdict": "unknown",
+            "summary": f"{model} 모델은 실행되지 않았습니다: {reason}",
+        }
+
+    if not isinstance(result, dict):
+        return {
+            "model": model,
+            "available": True,
+            "riskLevel": "UNKNOWN",
+            "judgment": "unknown",
+            "verdict": "unknown",
+            "summary": f"{model} 모델 결과 형식이 예상과 다릅니다.",
+            "raw": result,
+        }
+
+    risk_level = _extract_model_risk(result)
+    judgment = str(result.get("judgment") or _judgment_from_risk(risk_level))
+    verdict = str(result.get("verdict") or _verdict_from_risk(risk_level))
+    summary = f"{model}: {_korean_risk_text(risk_level)}"
+    if result.get("error"):
+        summary = f"{model}: 의심"
+    elif result.get("engine_disabled"):
+        summary = f"{model}: 의심"
+
+    detail = {
+        "model": model,
+        "available": not (result.get("engine_disabled") or result.get("status") == "unavailable"),
+        "riskLevel": risk_level,
+        "judgment": judgment,
+        "verdict": verdict,
+        "summary": summary,
+    }
+
+    if model == "KoBERT":
+        evidence = result.get("evidence") or {}
+        semantic = evidence.get("ai_semantic_evidence") or {}
+        evidence_reasons = [
+            f"문맥 분석 결과 - {semantic.get('ai_inference_logic')}"
+            if semantic.get("ai_inference_logic")
+            else None,
+        ]
+        detail.update(
+            {
+                "threat_type": result.get("threat_type"),
+                "site_category": result.get("site_category"),
+                "evidence_reasons": [r for r in evidence_reasons if r],
+                "ai_inference_logic": semantic.get("ai_inference_logic"),
+            },
+        )
+    elif model == "XGBoost":
+        explanations = _clean_xgboost_explanations(result.get("explanations") or [])
+        detail.update(
+            {
+                "evidence_reasons": explanations,
+                "typo_label": result.get("typo_label"),
+                "domain_label": result.get("domain_label"),
+                "dom_label": result.get("dom_label"),
+            },
+        )
+    elif model == "GNN":
+        probability = result.get("probability")
+        evidence_reasons = []
+        if probability is not None:
+            evidence_reasons.append(f"GNN 점수 - {float(probability):.3f}")
+        detail.update(
+            {
+                "evidence_reasons": evidence_reasons,
+                "model_type": result.get("model_type"),
+                "probability": probability,
+            },
+        )
+
+    return {k: v for k, v in detail.items() if v not in (None, "", [])}
+
+
+def _clean_xgboost_explanations(explanations: list[Any]) -> list[str]:
+    cleaned = []
+    for item in explanations:
+        text = str(item).strip()
+        if not text or text.startswith("["):
+            continue
+        if text.startswith("- "):
+            text = text[2:].strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def _xgboost_dominant_signal(result: dict[str, Any]) -> str:
+    signals = [
+        ("타이포스쿼팅", result.get("typo_probability"), result.get("typo_label")),
+        ("도메인 평판", result.get("domain_probability"), result.get("domain_label")),
+        ("DOM 구조", result.get("dom_probability"), result.get("dom_label")),
+    ]
+    present = [
+        (name, float(prob), label)
+        for name, prob, label in signals
+        if prob is not None
+    ]
+    if not present:
+        return "사용 가능한 세부 신호 없음"
+    name, prob, label = max(present, key=lambda item: item[1])
+    return f"{name} 신호가 가장 강함(label={label}, probability={prob:.3f})"
+
+
+def _decide_final_risk(details: list[dict[str, Any]]) -> str:
+    malicious_count = sum(
+        1 for detail in details
+        if detail.get("available") and detail.get("riskLevel") == "DANGEROUS"
+    )
+    if malicious_count >= 2:
+        return "DANGEROUS"
+    if malicious_count == 1:
+        return "UNKNOWN"
+    return "SAFE"
+
+
+def _detail_reason_lines(details: list[dict[str, Any]]) -> list[str]:
+    lines = []
+    for detail in details:
+        evidence_reasons = detail.get("evidence_reasons") or []
+        for reason in evidence_reasons:
+            lines.append(f"{detail['model']} : {reason}")
+    return lines
+
+
+def _build_final_response(
+    target_url: str,
+    kobert_result: dict,
+    xg_result: object,
+    gnn_result: object,
+    dur_wall: float,
+    t_kobert: float,
+    t_xg: float,
+    t_gnn: float,
+) -> dict:
+    details = [
+        _model_detail("KoBERT", kobert_result, getattr(app.state, "eng_status", {})),
+        _model_detail("XGBoost", xg_result, getattr(app.state, "xg_status", {})),
+        _model_detail("GNN", gnn_result, getattr(app.state, "gnn_status", {})),
+    ]
+    risk_level = _decide_final_risk(details)
+    judgment = _judgment_from_risk(risk_level)
+    malicious_count = sum(
+        1 for detail in details
+        if detail.get("available") and detail.get("riskLevel") == "DANGEROUS"
+    )
+    reasons = [
+        f"최종 판단 - {_korean_risk_text(risk_level)} (악성 판정 모델 {malicious_count}개)",
+        *_detail_reason_lines(details),
+    ]
+    return {
+        "url": target_url,
+        "judgment": judgment,
+        "riskLevel": risk_level,
+        "conclusion": _korean_risk_text(risk_level),
+        "decision_method": "string_label_interpretation",
+        "reasons": reasons,
+        "model_details": details,
+        "koBERT": kobert_result,
+        "xgboost": xg_result,
+        "gnn": gnn_result,
+        "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
+        "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
+        "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),
+        "duration_sec": round(dur_wall, 3),
+        "timing": {
+            "koBERT_sec": round(t_kobert, 6),
+            "xgboost_sec": round(t_xg, 6),
+            "gnn_sec": round(t_gnn, 6),
+            "total_wall_sec": round(dur_wall, 6),
+        },
+    }
 
 
 class URLRequest(BaseModel):
@@ -448,22 +707,16 @@ async def analyze_url(request: URLRequest):
         f"    {_log_line_gnn(gnn_result)}  ({t_gnn:.3f}s)\n"
         f"    wall time (parallel): {dur_wall:.3f}s"
     )
-    return {
-        "url": target_url,
-        "koBERT": kobert_result,
-        "xgboost": xg_result,
-        "gnn": gnn_result,
-        "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
-        "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
-        "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),
-        "duration_sec": round(dur_wall, 3),
-        "timing": {
-            "koBERT_sec": round(t_kobert, 6),
-            "xgboost_sec": round(t_xg, 6),
-            "gnn_sec": round(t_gnn, 6),
-            "total_wall_sec": round(dur_wall, 6),
-        },
-    }
+    return _build_final_response(
+        target_url=target_url,
+        kobert_result=kobert_result,
+        xg_result=xg_result,
+        gnn_result=gnn_result,
+        dur_wall=dur_wall,
+        t_kobert=t_kobert,
+        t_xg=t_xg,
+        t_gnn=t_gnn,
+    )
 
 
 @app.post("/analyze/engine")
