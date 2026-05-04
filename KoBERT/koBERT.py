@@ -61,10 +61,18 @@ class AsyncPlaywrightPool:
     async def _fetch_single(self, url, timeout_ms=6000, wait_sec=3.5):
         context = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={'width': 1920, 'height': 1080}
+            viewport={'width': 1920, 'height': 1080},
+            accept_downloads=False
         )
         page = await context.new_page()
         
+        # 🌟 [해결책 1] 네이티브 경고창(alert, confirm) 텍스트 낚아채기
+        popup_messages = []
+        async def handle_dialog(dialog):
+            popup_messages.append(dialog.message) # 경고창 텍스트 저장
+            await dialog.accept()                 # 경고창 닫기 (진행을 위해)
+        page.on("dialog", handle_dialog)
+
         async def intercept_route(route):
             req_url = route.request.url.lower()
             if route.request.resource_type in ["image", "media", "font"] or \
@@ -89,9 +97,23 @@ class AsyncPlaywrightPool:
                 await page.wait_for_timeout(250)
                 wait_time += 0.25
 
+            # 🌟 [해결책 2] 해커의 함정 강제 발동 (Auto-Clicker)
+            try:
+                # 피싱 사이트가 주로 유도하는 '간편결제', 'N Pay' 관련 버튼을 강제로 클릭해봅니다.
+                click_targets = await page.locator("text=/간편결제|N Pay|Npay/i").all()
+                for target in click_targets[:2]: # 브라우저 지연 방지를 위해 최대 2개만 찔러봄
+                    await target.click(timeout=800, force=True)
+                    await page.wait_for_timeout(400) # 클릭 후 팝업(모달)이 뜰 때까지 0.4초 대기
+            except Exception:
+                pass # 버튼이 없거나 클릭 불가능하면 부드럽게 패스
+
             full_html = await page.content()
-            clean_text = extract_with_html_ultimate_clean(full_html)
+            popup_text_combined = " ".join(popup_messages) # 수집된 경고창 텍스트 결합
+            
+            # 이미 만들어두신 ultimate_clean 함수의 popup_text 인자로 넘겨줍니다!
+            clean_text = extract_with_html_ultimate_clean(full_html, popup_text=popup_text_combined)
             return url, clean_text, full_html 
+            
         except Exception as e:
             return url, f"[오류] {e}", ""
         finally:
@@ -170,7 +192,7 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     short_text_count = 0
     
     # 🌟 [추가됨] 한국어 폼 관련 필수 수집 키워드
-    vital_kws = ["이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청"]
+    vital_kws = ["이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청", "결제", "일반결제"]
 
     for text in soup.stripped_strings:
         if any(bad_word in text for bad_word in blacklist_words): continue
@@ -192,7 +214,7 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     seen = set()
     for t in extracted_texts:
         if t not in seen: seen.add(t); unique_texts.append(t)
-    main_text = " ".join(unique_texts)[:300]
+    main_text = " ".join(unique_texts)[:500]
 
     # 🌟 [수정] 무의미한 문법적 틀(Boilerplate) 완벽 제거. 순수 텍스트만 결합!
     components = []
@@ -342,15 +364,17 @@ def predict_phishing_result(target_url):
     if not (target_url.startswith("http") or ":" in target_url or target_url.startswith("/")): 
         target_url = "https://" + target_url
 
+    is_http_vulnerable = target_url.lower().startswith("http://")
+
     safe_tlds = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     safe_official_domains = [
         "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com",
         "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", 
     ]
-    #legal_gambling_domains = [
-    #    "dhlottery.co.kr", "www.dhlottery.co.kr", "m.dhlottery.co.kr",
-    #    "betman.co.kr", "www.betman.co.kr", "m.betman.co.kr"
-    #]
+    legal_gambling_domains = [
+       "dhlottery.co.kr", "www.dhlottery.co.kr", "m.dhlottery.co.kr",
+        "betman.co.kr", "www.betman.co.kr", "m.betman.co.kr"
+    ]
 
     try:
         domain = urlparse(target_url).netloc.lower()
@@ -413,6 +437,44 @@ def predict_phishing_result(target_url):
     # ----------------------------------------------------
     print("\n▶ [1-Depth 메인 페이지 분석]")
     processed_text, raw_html = extract_with_requests_and_raw_html(target_url)
+
+    # 🌟 [신규 추가] 'Not Found' 페이지 감지 및 즉결 심판 로직
+    # 공백과 대소문자를 무시하고 핵심 텍스트만 비교합니다.
+    check_text = processed_text.lower().replace(" ", "").strip()
+    if check_text in ["notfound", "404notfound"]:
+        print("  🚨 [즉결 심판] 존재하지 않는 페이지(Not Found)입니다! (단속을 피해 폐쇄된 피싱 사이트 의심)")
+        
+        ai_reason = "페이지가 삭제되었거나 존재하지 않습니다. 피싱 조직이 신고를 받고 도메인을 버렸거나, 추적을 피하기 위해 사이트를 임시로 폐쇄한 전형적인 '치고 빠지기' 상태로 판단되어 위험 사이트로 분류 및 차단합니다."
+        
+        final_json_report = {
+            "url": target_url,
+            "judgment": "unnormal",
+            "riskLevel": "HIGH",
+            "threat_score": 99.0,
+            "threat_type": "은닉/폐쇄된 피싱 사이트",
+            "site_category": "접속 불가",
+            "evidence": {
+                "heuristic_evidence": {
+                    "detected_actions": ["페이지 폐쇄/숨김"],
+                    "rule_trigger": "Not Found 에러 페이지 감지"
+                },
+                "ai_semantic_evidence": {
+                    "suspect_sentence": "Not Found", 
+                    "ai_inference_logic": ai_reason
+                }
+            }
+        }
+        
+        # 앱 UI 콘솔 출력
+        print("\n" + "■"*60)
+        print("📱 [Quishing Defender UI 미리보기]")
+        print("-" * 60)
+        print("🚨 [접속 차단됨] 은닉/폐쇄된 피싱 사이트!")
+        print(f"💬 {ai_reason}\n")
+        print("■"*60 + "\n")
+        
+        return final_json_report
+    # ====================================================
 
     if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
         print("  🚨 [즉결 심판] Cloudflare에서 이미 차단된 피싱 사이트입니다! (AI 검사 생략)")
@@ -536,9 +598,12 @@ def predict_phishing_result(target_url):
 
     # 🔥 [3단계] 점수 보정 
     boost_weight_1 = 0.0
+    if is_http_vulnerable: 
+        boost_weight_1 += 0.50
+        print("  🔓 [보안 취약] HTTP 프로토콜 감지! (위험 가중치 +50% 부여)")
     if found_high_risk: boost_weight_1 += 0.50
     if found_actions: boost_weight_1 += 0.15
-    boost_weight_1 = min(boost_weight_1, 0.75) 
+    boost_weight_1 = min(boost_weight_1, 0.85)
     
     if boost_weight_1 > 0:
         prob_phishing += (100 - prob_phishing) * boost_weight_1
@@ -565,15 +630,27 @@ def predict_phishing_result(target_url):
         elif demand_parts and base_prob_1 >= 60.0:
             ai_reason = f"AI 엔진이 \"{top_sent[:30]}...\" 문장에 내포된 기만적 의도를 정확히 포착했습니다. 이는 불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되었습니다."
         elif demand_parts and boost_weight_1 > 0:
-            ai_reason = f"AI가 전체 텍스트에서 수상한 흐름(위험도 {base_prob_1:.1f}%)을 1차 감지하였고, 실제로 {demand_str} 입력을 요구하는 구조가 2차 확인됨에 따라 딥러닝-룰베이스 교차 검증을 거쳐 최종 악성으로 확정했습니다."
+            ai_reason = f"AI가 전체 텍스트에서 수상한 흐름을 1차 감지하였고, 실제로 {demand_str} 입력을 요구하는 구조가 2차 확인됨에 따라 딥러닝-룰베이스 교차 검증을 거쳐 최종 악성으로 확정했습니다."
         else:
             ai_reason = f"특정 키워드 없이도, AI가 \"{top_sent[:30]}...\" 문맥 자체에서 사용자를 속여 시스템을 장악하려는 고도의 악의적 의도를 찾아내어 원천 차단합니다."
+
+    # 🌟 [신규 추가] HTTP 취약 멘트 자연스럽게 합치기 (최종 방어선)
+    # 정상이든 악성이든 HTTP 기반이면 앞에 경고 문구를 붙여줍니다!
+    if is_http_vulnerable:
+        ai_reason = f"해당 링크는 보안이 취약한 링크(HTTP)이며, {ai_reason}"
 
     # 🔥 [5단계] 수사 보고서(Forensic Report) 형태의 고급 JSON 데이터 조립
     rule_trigger_msg = "특이사항 없음"
     if is_fake_gambling: rule_trigger_msg = "국가 공인 도메인 불일치 (사설 도박장/사칭)"
     elif is_translated: rule_trigger_msg = "부자연스러운 기계 번역 및 띄어쓰기 파괴 감지"
     elif found_high_risk: rule_trigger_msg = f"고위험 범죄 키워드({high_risk_str}) 매칭"
+    
+    # HTTP 취약점 트리거 추가
+    if is_http_vulnerable:
+        if rule_trigger_msg == "특이사항 없음":
+            rule_trigger_msg = "HTTP 보안 취약 프로토콜 감지"
+        else:
+            rule_trigger_msg += " 및 HTTP 보안 취약 프로토콜 감지"
 
     final_json_report = {
         "url": target_url,
@@ -589,11 +666,10 @@ def predict_phishing_result(target_url):
             },
             "ai_semantic_evidence": {
                 "suspect_sentence": top_sent, 
-                "ai_inference_logic": ai_reason
+                "ai_inference_logic": ai_reason  # ⬅️ 방금 완벽하게 만든 ai_reason이 그대로 들어갑니다!
             }
         }
     }
-
     # 📱 [앱 UI 콘솔 미리보기 출력 부분]
     print("\n" + "■"*60)
     print("📱 [Quishing Defender UI 미리보기]")
@@ -678,9 +754,10 @@ def predict_phishing_result(target_url):
             prob_phishing_2 = base_prob_2
             
             boost_weight_2 = 0.0
+            if url.lower().startswith("http://"): boost_weight_2 += 0.40
             if any(kw in current_text for kw in high_risk_keywords): boost_weight_2 += 0.40
             if any(kw in current_text for kw in action_keywords): boost_weight_2 += 0.15
-            boost_weight_2 = min(boost_weight_2, 0.50)
+            boost_weight_2 = min(boost_weight_2, 0.85)
             
             if boost_weight_2 > 0:
                 prob_phishing_2 += (100 - prob_phishing_2) * boost_weight_2
@@ -689,14 +766,17 @@ def predict_phishing_result(target_url):
                 print(f"  🚨 [2-Depth 결과] 악성 감지! URL: {url} (최종 확률 {prob_phishing_2:.2f}%)")
                 print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
                 
-                # 🔥 [수정] 2-Depth에서 피싱 발견 시 final_json_report를 업데이트하여 반환
                 final_json_report["url"] = url
                 final_json_report["judgment"] = "unnormal"
                 final_json_report["riskLevel"] = "HIGH"
                 final_json_report["threat_score"] = round(prob_phishing_2, 1)
                 final_json_report["threat_type"] = "은닉된 하위 페이지 피싱"
-                final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = "메인 페이지는 정상으로 판별되었으나, 내부에 연결된 하위 링크에서 정보 탈취용 악성 패턴이 감지되어 원천 차단합니다."
                 
+                # 2-Depth 사유도 HTTP 여부에 따라 분기 처리
+                if url.lower().startswith("http://"):
+                    final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = "해당 하위 링크는 보안이 취약한 링크(HTTP)이며, 정보 탈취용 악성 패턴이 감지되어 원천 차단합니다."
+                else:
+                    final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = "메인 페이지는 정상으로 판별되었으나, 내부에 연결된 하위 링크에서 정보 탈취용 악성 패턴이 감지되어 원천 차단합니다."
                 return final_json_report
 
     print(f"\n✅ 모든 스캔 완료. 특이사항 없음! (총 소요 시간: {time.time() - start_time:.2f}초)")
