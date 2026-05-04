@@ -249,8 +249,6 @@ def _korean_risk_text(risk_level: str) -> str:
 def _extract_model_risk(result: Any) -> str:
     if not isinstance(result, dict):
         return "UNKNOWN"
-    if any(str(result.get(key, "")).strip() == "1" for key in ("typo_label", "domain_label", "dom_label")):
-        return "DANGEROUS"
     for key in ("judgment", "verdict", "riskLevel", "risklevel", "risk_level", "label"):
         if key in result:
             risk = _risk_from_model_text(result.get(key))
