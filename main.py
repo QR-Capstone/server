@@ -330,8 +330,10 @@ def _model_detail(
         )
     elif model == "GNN":
         probability = result.get("probability")
-        evidence_reasons = []
-        if probability is not None:
+        evidence_reasons = _clean_gnn_explanations(result.get("explanation"))
+        if not evidence_reasons:
+            evidence_reasons = _gnn_reasons_from_graph_evidence(result.get("graph_evidence") or {})
+        if not evidence_reasons and probability is not None:
             evidence_reasons.append(f"GNN 점수 - {float(probability):.3f}")
         detail.update(
             {
@@ -355,6 +357,51 @@ def _clean_xgboost_explanations(explanations: list[Any]) -> list[str]:
         if text:
             cleaned.append(text)
     return cleaned
+
+
+def _clean_gnn_explanations(explanation: Any) -> list[str]:
+    if not explanation:
+        return []
+    cleaned = []
+    for raw_line in str(explanation).splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith(("🔥", "🎯")):
+            continue
+        if line.startswith("- "):
+            line = line[2:].strip()
+        line = line.replace("🚨 ", "").replace("⚠️ ", "").replace("🔍 ", "").replace("✅ ", "")
+        if line:
+            cleaned.append(line)
+    return cleaned
+
+
+def _gnn_reasons_from_graph_evidence(evidence: dict[str, Any]) -> list[str]:
+    if not evidence:
+        return []
+    reasons = []
+    counts = evidence.get("counts") or {}
+    if counts.get("links_to_external", 0) > 0:
+        reasons.append(f"외부 링크가 {counts.get('links_to_external')}개 확인되었습니다.")
+    if counts.get("form", 0) > 0:
+        reasons.append(f"사용자 입력 폼이 {counts.get('form')}개 확인되었습니다.")
+    if counts.get("password_input", 0) > 0:
+        reasons.append("비밀번호 입력 필드가 확인되었습니다.")
+    if counts.get("iframe", 0) > 0:
+        reasons.append(f"iframe이 {counts.get('iframe')}개 확인되었습니다.")
+    if counts.get("script", 0) > 10:
+        reasons.append(f"스크립트가 {counts.get('script')}개로 많습니다.")
+    top_nodes = evidence.get("top_risk_nodes") or []
+    if top_nodes:
+        first = top_nodes[0]
+        node = first.get("node")
+        risk = first.get("risk")
+        if node and risk is not None:
+            reasons.append(f"위험 연결 요소로 {node}가 감지되었습니다.")
+    if evidence.get("fetch_error"):
+        reasons.append("페이지 구조 수집에 실패했습니다.")
+    return reasons
 
 
 def _xgboost_dominant_signal(result: dict[str, Any]) -> str:
