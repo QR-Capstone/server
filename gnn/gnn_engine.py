@@ -1511,7 +1511,19 @@ def _artifact_to_model(artifact: Dict[str, Any]) -> WebStructureGNNModel:
         threshold=float(artifact.get("threshold", 0.5)),
         metadata=dict(artifact.get("metadata", {})),
     )
+def load_gnn_model(model_path: str, features_path: Optional[str] = None):
+    with open(model_path, "rb") as f:
+        artifact = pickle.load(f)
 
+    model = _artifact_to_model(artifact)
+
+    if features_path and os.path.isfile(features_path):
+        with open(features_path, "rb") as f:
+            columns = pickle.load(f)
+    else:
+        columns = FEATURE_NAMES
+
+    return model, columns
 
 def _explain_gnn_load_error(exc: Exception) -> str:
     return (
@@ -1521,30 +1533,102 @@ def _explain_gnn_load_error(exc: Exception) -> str:
     )
 
 
-def load_gnn_model(
-    model_path: str,
-    feature_columns_path: Optional[str] = None,
-) -> Tuple[WebStructureGNNModel, List[str]]:
-    if not os.path.isfile(model_path):
-        raise FileNotFoundError(model_path)
-    try:
-        with open(model_path, "rb") as f:
-            artifact = pickle.load(f)
-        model = _artifact_to_model(artifact)
-    except Exception as e:
-        raise RuntimeError(_explain_gnn_load_error(e)) from e
+def build_explanation(evidence: Dict[str, Any], features: Optional[Dict[str, float]] = None, prob: float = 0.0) -> str:
+    if not evidence:
+        return "No evidence available."
 
-    columns = list(FEATURE_NAMES)
-    if feature_columns_path and os.path.isfile(feature_columns_path):
-        try:
-            with open(feature_columns_path, "rb") as f:
-                loaded = pickle.load(f)
-            if isinstance(loaded, list) and loaded:
-                columns = [str(c) for c in loaded]
-        except Exception:
-            columns = list(FEATURE_NAMES)
-    return model, columns
+    lines = []
 
+    # =========================
+    # 1. 전체 위험도
+    # =========================
+    if prob >= 0.8:
+        lines.append(f"🚨 매우 높은 위험 ({prob:.2f}) → 피싱 가능성 매우 큼")
+    elif prob >= 0.6:
+        lines.append(f"⚠️ 높은 위험 ({prob:.2f}) → 의심 사이트")
+    elif prob >= 0.4:
+        lines.append(f"🔍 중간 위험 ({prob:.2f}) → 추가 확인 필요")
+    else:
+        lines.append(f"✅ 낮은 위험 ({prob:.2f})")
+
+    # =========================
+    # 2. 상태 정보
+    # =========================
+    status = evidence.get("status")
+    if status and status >= 400:
+        lines.append(f"⚠️ 비정상 HTTP 상태코드: {status}")
+
+    if evidence.get("fetch_error"):
+        lines.append("⚠️ 페이지 로딩 실패 → 숨김/차단 가능성")
+
+    # =========================
+    # 3. 구조 기반
+    # =========================
+    counts = evidence.get("counts", {})
+
+    # 🔥 추가한 부분
+    final_url = evidence.get("final_url", "")
+    if "pages.dev" in final_url:
+        lines.append("🚨 무료 호스팅(pages.dev) 사용 → 피싱 악용 빈번")
+
+    if evidence.get("nodes", 0) <= 3:
+        lines.append("⚠️ 페이지 구조가 비정상적으로 단순 → 가짜 페이지 가능성")
+
+    if counts.get("script", 0) > 0 and counts.get("link", 0) == 0:
+        lines.append("⚠️ 링크 없이 스크립트만 존재 → 동적 피싱 페이지 의심")
+
+    if counts.get("form", 0) > 0:
+        lines.append(f"🔑 사용자 입력 폼 존재 ({counts['form']}개)")
+
+    if counts.get("password_input", 0) > 0:
+        lines.append("🚨 비밀번호 입력 필드 존재 → 계정 탈취 위험")
+
+    if counts.get("iframe", 0) > 0:
+        lines.append("⚠️ iframe 사용 → 외부 페이지 삽입 가능성")
+
+    if counts.get("script", 0) > 10:
+        lines.append(f"⚠️ 스크립트 과다 ({counts['script']}개) → 악성 코드 가능성")
+
+    # =========================
+    # 4. Feature 기반
+    # =========================
+    if features:
+        if features.get("external_form_ratio", 0) > 0.5:
+            lines.append("🚨 외부 서버로 데이터 전송 → 정보 탈취 위험")
+
+        if features.get("credential_surface", 0) > 0.5:
+            lines.append("🚨 로그인/결제 정보 수집 구조 감지")
+
+        if features.get("brand_domain_mismatch", 0) > 0:
+            lines.append("🚨 브랜드 위장 (도메인 불일치)")
+
+        if features.get("relation_weighted_risk", 0) > 0.5:
+            lines.append("⚠️ 페이지 구성 요소 간 위험 연결 높음")
+
+        if features.get("external_resource_ratio", 0) > 0.5:
+            lines.append("⚠️ 외부 리소스 과다 → 신뢰도 낮음")
+
+    # =========================
+    # 5. GNN 노드
+    # =========================
+    top_nodes = evidence.get("top_risk_nodes", [])
+    if top_nodes:
+        lines.append("\n🔥 GNN 주요 위험 요소:")
+        for node in top_nodes[:5]:
+            lines.append(f" - {node['node']} (risk={node['risk']})")
+
+    # =========================
+    # 6. 공격 유형
+    # =========================
+    if features:
+        if features.get("credential_surface", 0) > 0.5:
+            lines.append("\n🎯 공격 유형: 계정 탈취형 피싱")
+        elif features.get("external_form_ratio", 0) > 0.5:
+            lines.append("\n🎯 공격 유형: 정보 유출형 사이트")
+        elif features.get("brand_domain_mismatch", 0) > 0:
+            lines.append("\n🎯 공격 유형: 브랜드 사칭 피싱")
+
+    return "\n".join(lines)
 
 def predict_gnn(
     model: WebStructureGNNModel,
@@ -1564,7 +1648,10 @@ def predict_gnn(
         "model_type": MODEL_KIND,
     }
     if fetch:
-        out["graph_evidence"] = model.evidence_from_graph(graph)
+        evidence = model.evidence_from_graph(graph)
+        out["graph_evidence"] = evidence
+        fmap = feature_map_from_graph(graph)
+        out["explanation"] = build_explanation(evidence, fmap, prob_mal)
     return out
 
 
