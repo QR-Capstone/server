@@ -13,7 +13,7 @@ import socket
 import ssl
 from datetime import datetime, timezone
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -792,6 +792,24 @@ _SSL_FALLBACK = {
     "ssl_remaining_days": 0.0,
     "ssl_age_days": 0.0,
     "ssl_missing": 1.0,
+    "ssl_status_no_cert": 0.0,
+    "ssl_status_lookup_failed": 1.0,
+}
+_SSL_FALLBACK_NO_CERT = {
+    "ssl_valid_days": 0.0,
+    "ssl_remaining_days": 0.0,
+    "ssl_age_days": 0.0,
+    "ssl_missing": 1.0,
+    "ssl_status_no_cert": 1.0,
+    "ssl_status_lookup_failed": 0.0,
+}
+_SSL_FALLBACK_LOOKUP_FAILED = {
+    "ssl_valid_days": 0.0,
+    "ssl_remaining_days": 0.0,
+    "ssl_age_days": 0.0,
+    "ssl_missing": 1.0,
+    "ssl_status_no_cert": 0.0,
+    "ssl_status_lookup_failed": 1.0,
 }
 _SSL_CACHE: Dict[str, Dict[str, float]] = {}
 
@@ -814,7 +832,7 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
     network_info = normalize_host_for_network(url)
     if not bool(network_info.get("dns_resolved", False)):
         print("[SSL DEBUG] skipped due to DNS failure")
-        return dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
     host = str(network_info.get("ascii_host", "") or "")
     print(f"[SSL DEBUG] url={url}")
     print(f"[SSL DEBUG] scheme={parsed.scheme}")
@@ -823,7 +841,7 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
     print(f"[DOMAIN DEBUG] ssl_cache_hit={host in _SSL_CACHE}")
 
     if not host:
-        return dict(_SSL_FALLBACK)
+        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
 
     cached = _SSL_CACHE.get(host)
     if cached is not None:
@@ -837,33 +855,33 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
     except socket.gaierror:
         print("[SSL DEBUG] DNS RESOLUTION FAILED")
         print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
-        return dict(_SSL_FALLBACK)
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
     except socket.timeout:
         print("[SSL DEBUG] TCP CONNECTION TIMEOUT")
         print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
-        return dict(_SSL_FALLBACK)
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
     except ConnectionRefusedError:
         print("[SSL DEBUG] CONNECTION REFUSED (port 443 closed)")
         print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
-        return dict(_SSL_FALLBACK)
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK_NO_CERT)
+        return dict(_SSL_FALLBACK_NO_CERT)
     except ssl.SSLError as e:
         print(f"[SSL DEBUG] SSL HANDSHAKE FAILED: {e}")
         print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
-        return dict(_SSL_FALLBACK)
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK_NO_CERT)
+        return dict(_SSL_FALLBACK_NO_CERT)
     except (socket.error, ValueError, OSError):
         print("[SSL DEBUG] UNKNOWN ERROR: socket/value/os level exception")
         print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
-        return dict(_SSL_FALLBACK)
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
     except Exception as e:
         print(f"[SSL DEBUG] UNKNOWN ERROR: {e}")
         print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
-        return dict(_SSL_FALLBACK)
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
 
     print("[SSL DEBUG] TLS HANDSHAKE SUCCESS")
     print(f"[SSL DEBUG] notBefore={cert.get('notBefore')}")
@@ -873,8 +891,8 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
     not_after = _parse_ssl_cert_datetime(str(cert.get("notAfter", "")))
     if not_before is None or not_after is None:
         print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK)
-        return dict(_SSL_FALLBACK)
+        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
 
     now = datetime.now(timezone.utc)
     ssl_valid_days = _clamp_ssl_days((not_after - not_before).total_seconds() / 86400.0)
@@ -888,6 +906,8 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
         "ssl_remaining_days": float(ssl_remaining_days),
         "ssl_age_days": float(ssl_age_days),
         "ssl_missing": 0.0,
+        "ssl_status_no_cert": 0.0,
+        "ssl_status_lookup_failed": 0.0,
     }
     _SSL_CACHE[host] = dict(features)
     return dict(features)
@@ -2328,14 +2348,127 @@ def predict_url_dom(
     }
     return label, proba, dom_feature_map
 
+# --- Typosquatting explanation helpers (설명 전용; URL·피처 값은 변경하지 않음) ---
+
+_HOMOGLYPH_DIGIT_TO_LETTERS: Dict[str, Tuple[str, ...]] = {
+    "0": ("o",),
+    "1": ("l", "i"),
+    "!": ("i",),
+    "3": ("e",),
+    "4": ("a",),
+    "@": ("a",),
+    "5": ("s",),
+    "$": ("s",),
+    "6": ("g",),
+    "8": ("b",),
+    "9": ("g",),
+}
+
+
+def _homoglyph_pair_from_positions(brand_char: str, sld_char: str) -> Optional[Tuple[str, str]]:
+    if brand_char == sld_char:
+        return None
+    letters = _HOMOGLYPH_DIGIT_TO_LETTERS.get(sld_char)
+    if letters and brand_char in letters:
+        return (brand_char, sld_char)
+    return None
+
+
+def _extract_homoglyph_changes(sld: str, brand: str) -> List[Tuple[str, str]]:
+    """Align SLD to brand (equal length); return unique (원래 문자, 조작 문자) pairs."""
+    sld_n = (sld or "").lower()
+    brand_n = (brand or "").lower()
+    if not sld_n or not brand_n or len(sld_n) != len(brand_n):
+        return []
+    out: List[Tuple[str, str]] = []
+    for i in range(len(sld_n)):
+        pair = _homoglyph_pair_from_positions(brand_n[i], sld_n[i])
+        if pair:
+            out.append(pair)
+    # dedupe preserving stable order
+    seen: Set[Tuple[str, str]] = set()
+    deduped: List[Tuple[str, str]] = []
+    for p in out:
+        if p not in seen:
+            seen.add(p)
+            deduped.append(p)
+    return deduped
+
+
+def _sld_homoglyph_indices(sld: str, brand: str) -> List[int]:
+    sld_n = (sld or "").lower()
+    brand_n = (brand or "").lower()
+    if not sld_n or not brand_n or len(sld_n) != len(brand_n):
+        return []
+    idxs: List[int] = []
+    for i in range(len(sld_n)):
+        if _homoglyph_pair_from_positions(brand_n[i], sld_n[i]):
+            idxs.append(i)
+    return idxs
+
+
+def _find_sld_span_in_url(url: str, host: str, sld: str) -> Optional[Tuple[int, int]]:
+    """Return [start, end) indices of the SLD substring inside the original url string."""
+    raw = url or ""
+    h = (host or "").lower()
+    slow = (sld or "").lower()
+    if not slow:
+        return None
+    ulow = raw.lower()
+    if h:
+        hpos = ulow.find(h)
+        if hpos >= 0:
+            seg = ulow[hpos : hpos + len(h)]
+            off = seg.find(slow)
+            if off >= 0:
+                start = hpos + off
+                return start, start + len(slow)
+    pos = ulow.find(slow)
+    if pos >= 0:
+        return pos, pos + len(slow)
+    return None
+
+
+def _highlight_homoglyph_chars_in_url(url: str, chars: Set[int]) -> str:
+    """설명용: chars는 원본 URL 문자열 기준으로 작은따옴표로 감쌀 인덱스 집합."""
+    if not chars:
+        return url
+    s = url
+    for i in sorted(chars, reverse=True):
+        if 0 <= i < len(s):
+            s = s[:i] + "'" + s[i] + "'" + s[i + 1 :]
+    return s
+
+
+def _format_homoglyph_arrow_list(pairs: List[Tuple[str, str]]) -> str:
+    uniq = sorted(set(pairs), key=lambda x: (x[0], x[1]))
+    return ", ".join(f"{a} → {b}" for a, b in uniq)
+
+
+def _get_suspicious_keywords_in_host(host: str) -> List[str]:
+    h = (host or "").lower()
+    found: List[str] = []
+    for kw in _SUSPICIOUS_BRAND_KEYWORDS:
+        if kw and kw in h:
+            found.append(kw)
+    return found
+
+
 def build_typo_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
     reasons: List[str] = []
-    added = set()
+    added: Set[str] = set()
 
     def _add(text: str) -> None:
         if text not in added:
             reasons.append(text)
             added.add(text)
+
+    host, _path, sld = _split_url_for_analysis(url)
+    if not sld or not BRAND_DICTIONARY:
+        return reasons
+
+    brand = _closest_brand(sld)
+    lev = _levenshtein(sld, brand) if brand else 999
 
     has_brand_similarity = (
         float(feat_map.get("host_contains_brand_token", 0.0)) >= 1.0
@@ -2344,23 +2477,92 @@ def build_typo_explanations(url: str, feat_map: Dict[str, float], probability: f
         or float(feat_map.get("sld_damerau_levenshtein_closest_brand", 999.0)) <= 2.0
         or float(feat_map.get("sld_normalized_edit_distance", 1.0)) <= 0.35
     )
-    if probability >= 0.5 or has_brand_similarity:
-        _add("브랜드명과 유사한 형태의 도메인으로 보여, 사용자를 혼동시킬 가능성이 있습니다.")
 
-    if float(feat_map.get("domain_homoglyph_ratio", 0.0)) >= 0.05 or float(
+    typo_context = (
+        has_brand_similarity
+        or probability >= 0.5
+        or float(feat_map.get("domain_homoglyph_ratio", 0.0)) >= 0.05
+        or float(feat_map.get("domain_vowel_like_digit_count", 0.0)) >= 1.0
+        or float(feat_map.get("brand_hyphen_compound", 0.0)) >= 1.0
+        or float(feat_map.get("brand_target_action_pattern", 0.0)) >= 1.0
+        or float(feat_map.get("brand_plus_keyword_pattern", 0.0)) >= 1.0
+    )
+    if not typo_context:
+        return reasons
+
+    max_items = 3
+    brand_keyword_impersonation = float(feat_map.get("brand_plus_keyword_pattern", 0.0)) >= 1.0
+    homoglyph_feat = float(feat_map.get("domain_homoglyph_ratio", 0.0)) >= 0.05 or float(
         feat_map.get("domain_vowel_like_digit_count", 0.0)
-    ) >= 1.0:
-        _add("도메인에 숫자나 유사문자가 섞여 있어 정상 브랜드를 흉내낸 형태일 수 있습니다.")
+    ) >= 1.0
+    hyphen_feat = float(feat_map.get("brand_hyphen_compound", 0.0)) >= 1.0
+    subdomain_brand_feat = float(feat_map.get("brand_token_in_subdomain", 0.0)) >= 1.0
+    target_action_feat = float(feat_map.get("brand_target_action_pattern", 0.0)) >= 1.0
 
-    if float(feat_map.get("brand_target_action_pattern", 0.0)) >= 1.0 or float(
-        feat_map.get("brand_plus_keyword_pattern", 0.0)
-    ) >= 1.0:
-        _add("로그인, 인증, 계정 확인과 같은 피싱성 표현이 함께 포함되어 있습니다.")
+    pairs = _extract_homoglyph_changes(sld, brand) if brand else []
+    sld_idx = _sld_homoglyph_indices(sld, brand) if brand else []
+    span = _find_sld_span_in_url(url, host, sld) if sld_idx else None
+    wrap_idx: Set[int] = set()
+    if span and sld_idx:
+        base = span[0]
+        for j in sld_idx:
+            wrap_idx.add(base + j)
 
-    if float(feat_map.get("brand_hyphen_compound", 0.0)) >= 1.0:
-        _add("브랜드명과 다른 단어가 하이픈으로 결합된 도메인 패턴이 확인됩니다.")
+    shown_impersonation = False
 
-    return reasons
+    # 1 — 브랜드 유사도 / 위장
+    if brand and brand_keyword_impersonation and brand in sld.lower():
+        _add(f"{brand} 브랜드명을 포함한 위장 도메인입니다.")
+        shown_impersonation = True
+    elif (
+        brand
+        and 1 <= lev <= 2
+        and float(feat_map.get("sld_damerau_levenshtein_closest_brand", 999.0)) <= 2.0
+        and (has_brand_similarity or probability >= 0.5)
+    ):
+        _add(f"{brand}과 매우 유사하게 조작된 도메인입니다. ({lev}글자 차이)")
+
+    if len(reasons) >= max_items:
+        return reasons[:max_items]
+
+    # 2 — 문자 치환 (homoglyph)
+    if brand and homoglyph_feat and pairs and wrap_idx:
+        hl = _highlight_homoglyph_chars_in_url(url, wrap_idx)
+        ch_str = _format_homoglyph_arrow_list(pairs)
+        _add(f"문자 치환({ch_str})이 사용된 피싱 패턴입니다. (조작된 문자: {hl})")
+
+    if len(reasons) >= max_items:
+        return reasons[:max_items]
+
+    # 3 — 피싱 유도 키워드
+    kws = _get_suspicious_keywords_in_host(host)
+    if (
+        kws
+        and not shown_impersonation
+        and (
+            target_action_feat
+            or float(feat_map.get("brand_plus_keyword_pattern", 0.0)) >= 1.0
+            or (float(feat_map.get("host_contains_brand_token", 0.0)) >= 1.0 and has_brand_similarity)
+        )
+    ):
+        pick = kws[0]
+        _add(f'"{pick}"와 같은 계정 탈취 유도 표현이 포함되어 있습니다.')
+
+    if len(reasons) >= max_items:
+        return reasons[:max_items]
+
+    # 4 — 하이픈
+    if hyphen_feat:
+        _add("브랜드명과 추가 단어가 하이픈으로 결합되어 공식 주소처럼 보이도록 구성되었습니다.")
+
+    if len(reasons) >= max_items:
+        return reasons[:max_items]
+
+    # 5 — 서브도메인에 브랜드
+    if subdomain_brand_feat:
+        _add("브랜드명이 서브도메인에 포함되어 공식 서비스처럼 보이게 배치되었습니다.")
+
+    return reasons[:max_items]
 
 def build_url_structure_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
     reasons: List[str] = []
@@ -2396,41 +2598,63 @@ def build_url_structure_explanations(url: str, feat_map: Dict[str, float], proba
     return reasons
 
 def build_domain_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
-    reasons: List[str] = []
     rdap_status_ok = float(feat_map.get("rdap_status_ok", 0.0))
     rdap_status_not_registered = float(feat_map.get("rdap_status_not_registered", 0.0))
     rdap_status_lookup_failed = float(feat_map.get("rdap_status_lookup_failed", 0.0))
     rdap_status_parse_failed = float(feat_map.get("rdap_status_parse_failed", 0.0))
-    domain_age_missing = float(feat_map.get("domain_age_missing", 0.0))
     domain_age_days = float(feat_map.get("domain_age_days", 0.0))
 
+    # CASE 1: 도메인 자체 미등록 (강한 위험 신호)
     if rdap_status_not_registered >= 1.0:
-        reasons.append("RDAP 조회 결과, 도메인 등록 정보를 찾을 수 없습니다.")
-    elif rdap_status_lookup_failed >= 1.0:
-        reasons.append("RDAP 서버 조회에 실패하여 도메인 등록 이력을 확인하지 못했습니다.")
-    elif rdap_status_parse_failed >= 1.0:
-        reasons.append("RDAP 응답은 받았지만 도메인 생성일을 해석하지 못했습니다.")
-    elif rdap_status_ok >= 1.0 and domain_age_days <= 30.0:
-        reasons.append("도메인이 매우 최근에 등록된 신규 도메인입니다.")
-    elif rdap_status_ok >= 1.0 and domain_age_days <= 180.0:
-        reasons.append("도메인이 비교적 최근에 생성되었습니다.")
-    elif domain_age_missing >= 1.0:
-        reasons.append("도메인 등록 정보를 확인할 수 없습니다.")
+        return ["해당 도메인은 등록이 되어 있지 않습니다."]
 
-    return reasons
+    # CASE 2: RDAP 조회 실패/파싱 실패 (중립 상태)
+    if rdap_status_lookup_failed >= 1.0 or rdap_status_parse_failed >= 1.0:
+        return ["도메인 등록 정보를 확인할 수 없습니다."]
+
+    # CASE 3: 정상 조회 (수치 기반 설명)
+    if rdap_status_ok >= 1.0:
+        days = max(0, int(domain_age_days))
+        if days <= 30:
+            return [f"도메인이 매우 최근에 등록된 신규 도메인입니다. (생성: {days}일 전)"]
+        if days <= 180:
+            return [f"도메인이 비교적 최근에 생성되었습니다. (생성: {days}일 전)"]
+        if days <= 365:
+            return [f"도메인이 어느 정도 운영된 이력이 있습니다. (생성: {days}일 전)"]
+        return [f"오래 운영된 도메인입니다. (생성: {days}일 전)"]
+
+    # 안전한 기본값: 상태 정보가 불충분한 경우에도 1줄 보장
+    return ["도메인 등록 정보를 확인할 수 없습니다."]
 
 def build_ssl_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
     reasons: List[str] = []
     ssl_missing = float(feat_map.get("ssl_missing", 0.0))
     ssl_valid_days = float(feat_map.get("ssl_valid_days", 0.0))
     ssl_remaining_days = float(feat_map.get("ssl_remaining_days", 0.0))
+    ssl_age_days = float(feat_map.get("ssl_age_days", 0.0))
+    ssl_status_no_cert = float(feat_map.get("ssl_status_no_cert", 0.0))
 
+    # CASE 1/2: 인증서 미발급 vs 조회 실패 구분
     if ssl_missing >= 1.0:
-        reasons.append("SSL 인증서 정보를 확인하지 못했습니다.")
-    elif ssl_remaining_days <= 7.0:
-        reasons.append("SSL 인증서가 매우 곧 만료됩니다.")
-    elif ssl_valid_days <= 30.0:
-        reasons.append("SSL 인증서 유효기간이 매우 짧습니다.")
+        if ssl_status_no_cert >= 1.0:
+            return ["SSL 인증서를 발급 받지 못했습니다."]
+        return ["SSL 인증서 정보를 확인할 수 없습니다."]
+
+    # CASE 3: 정상 조회 시 수치 기반 기본 설명(항상 출력)
+    valid_days_i = max(0, int(ssl_valid_days))
+    remaining_days_i = max(0, int(ssl_remaining_days))
+    age_days_i = max(0, int(ssl_age_days))
+    reasons.append(f"SSL 인증서 유효기간: {valid_days_i}일 / 남은 기간: {remaining_days_i}일")
+
+    # 추가 설명은 우선순위 기준 1개만 출력
+    if remaining_days_i <= 7:
+        reasons.append("SSL 인증서가 매우 곧 만료될 예정입니다.")
+    elif remaining_days_i <= 30:
+        reasons.append("SSL 인증서가 곧 만료될 예정입니다.")
+    elif valid_days_i <= 90:
+        reasons.append("SSL 인증서 유효기간이 비정상적으로 짧습니다.")
+    elif age_days_i <= 7:
+        reasons.append("SSL 인증서가 최근에 발급되었습니다.")
 
     return reasons
 
@@ -2438,17 +2662,83 @@ def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probabil
     reasons: List[str] = []
 
     if float(dom_feature_map.get("dom_fetch_failed", 0.0)) >= 1.0:
-        reasons.append("페이지 구조 정보를 가져오지 못해 DOM 기반 검증이 제한되었습니다.")
-        return reasons
+        return ["페이지 구조 정보를 가져오지 못했습니다."]
 
-    if float(dom_feature_map.get("dead_link_ratio", 0.0)) > 50.0:
-        reasons.append("페이지 내부에 이동할 수 없는 링크 비율이 높습니다.")
+    dom_max_depth = float(dom_feature_map.get("dom_max_depth", 0.0))
+    dead_link_ratio = float(dom_feature_map.get("dead_link_ratio", 0.0))
+    hidden_tags_count = float(dom_feature_map.get("hidden_tags_count", 0.0))
+    suspicious_form_action = float(dom_feature_map.get("suspicious_form_action", 0.0))
 
-    if float(dom_feature_map.get("suspicious_form_action", 0.0)) >= 1.0:
-        reasons.append("사용자 입력 정보가 외부 도메인으로 전송되는 form이 존재합니다.")
+    depth_i = max(0, int(dom_max_depth))
+    ratio_f = max(0.0, dead_link_ratio)
+    hidden_i = max(0, int(hidden_tags_count))
+    has_external_form = suspicious_form_action >= 1.0
 
-    if float(dom_feature_map.get("hidden_tags_count", 0.0)) > 20.0:
-        reasons.append("사용자에게 보이지 않는 숨겨진 요소가 많이 포함되어 있습니다.")
+    # 위험 기준을 넘은 항목만 우선순위로 선택 (최대 2개)
+    evidence: List[Tuple[int, str]] = []
+
+    if has_external_form:
+        evidence.append(
+            (
+                1,
+                "외부 폼 전송 여부(suspicious_form_action): 있음\n"
+                "→ 사용자가 입력한 정보가 현재 사이트가 아닌 외부 도메인으로 전송될 가능성이 있습니다.",
+            )
+        )
+
+    if hidden_i > 15:
+        evidence.append(
+            (
+                2,
+                f"숨겨진 요소 수(hidden_tags_count): {hidden_i}개\n"
+                "→ 사용자에게 보이지 않는 요소가 다수 포함되어 있어, 위장 요소나 숨겨진 코드가 존재할 가능성이 있습니다.",
+            )
+        )
+    elif hidden_i > 5:
+        evidence.append(
+            (
+                2,
+                f"숨겨진 요소 수(hidden_tags_count): {hidden_i}개\n"
+                "→ 일부 숨겨진 요소가 포함되어 있습니다.",
+            )
+        )
+
+    if ratio_f > 20.0:
+        evidence.append(
+            (
+                3,
+                f"죽은 링크 비율(dead_link_ratio): {ratio_f:.2f}%\n"
+                "→ 실제 이동되지 않는 링크가 많아, 겉모습만 구성된 피싱 페이지일 가능성이 있습니다.",
+            )
+        )
+    elif ratio_f > 5.0:
+        evidence.append(
+            (
+                3,
+                f"죽은 링크 비율(dead_link_ratio): {ratio_f:.2f}%\n"
+                "→ 일부 링크가 정상적으로 동작하지 않아 페이지 신뢰도가 낮을 수 있습니다.",
+            )
+        )
+
+    if depth_i > 20:
+        evidence.append(
+            (
+                4,
+                f"DOM 최대 깊이(dom_max_depth): {depth_i}\n"
+                "→ 페이지 구조가 비정상적으로 깊고 복잡하여, 정상적인 웹페이지보다 조작된 화면일 가능성이 있습니다.",
+            )
+        )
+    elif depth_i > 10:
+        evidence.append(
+            (
+                4,
+                f"DOM 최대 깊이(dom_max_depth): {depth_i}\n"
+                "→ 페이지 구조가 다소 복잡하여 일반적인 페이지보다 구조가 깊은 편입니다.",
+            )
+        )
+
+    for _, text in sorted(evidence, key=lambda x: x[0])[:2]:
+        reasons.append(text)
 
     return reasons
 
