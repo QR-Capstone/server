@@ -59,9 +59,12 @@ class AsyncPlaywrightPool:
         print("  [시스템] [OK] 마스터 브라우저 풀 준비 완료. (1, 2-Depth 공용)")
 
     async def _fetch_single(self, url, timeout_ms=6000, wait_sec=3.5):
+        # 🌟 [핵심 개선] 큐싱 타겟팅 모바일(iPhone) 환경 완벽 위장
         context = await self.browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={'width': 1920, 'height': 1080},
+            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            viewport={'width': 390, 'height': 844}, # iPhone 14 해상도
+            is_mobile=True,  # 모바일 브라우저 특성 활성화
+            has_touch=True,  # 터치스크린 이벤트 활성화
             accept_downloads=False
         )
         page = await context.new_page()
@@ -408,7 +411,7 @@ def predict_phishing_result(target_url):
             return {
                 "url": target_url,
                 "judgment": "normal",
-                "riskLevel": "SAFE",
+                "riskLevel": "low",
                 "threat_score": 0.0,
                 "threat_type": "합법 복권/토토사이트",
                 "site_category": "합법 사이트",
@@ -430,7 +433,7 @@ def predict_phishing_result(target_url):
     max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
     
     high_risk_keywords = ["통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "네이버pay 사용이 불가능", "결제시스템 불안정화", "급등주", "무료 리딩", "VVIP 정보", "세력주", "손실 복구", "무료 체험"]
-    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호", "입력을 요구"]
+    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호"]
 
     # ----------------------------------------------------
     # 🌟 [1단계] 루트 URL 검사
@@ -441,7 +444,7 @@ def predict_phishing_result(target_url):
     # 🌟 [신규 추가] 'Not Found' 페이지 감지 및 즉결 심판 로직
     # 공백과 대소문자를 무시하고 핵심 텍스트만 비교합니다.
     check_text = processed_text.lower().replace(" ", "").strip()
-    if check_text in ["notfound", "404notfound"]:
+    if check_text in ["notfound", "404notfound", "404", "404 Not Found"]:
         print("  🚨 [즉결 심판] 존재하지 않는 페이지(Not Found)입니다! (단속을 피해 폐쇄된 피싱 사이트 의심)")
         
         ai_reason = "페이지가 삭제되었거나 존재하지 않습니다. 피싱 조직이 신고를 받고 도메인을 버렸거나, 추적을 피하기 위해 사이트를 임시로 폐쇄한 전형적인 '치고 빠지기' 상태로 판단되어 위험 사이트로 분류 및 차단합니다."
@@ -494,6 +497,59 @@ def predict_phishing_result(target_url):
     if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
         print("  ❌ [오류] 사이트 접속 불가 (Timeout 등)")
         return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "detectedUrl": target_url}
+
+    # ====================================================
+    # 🌟 [신규 추가] Form Action 무단 유출 즉결 심판 (메신저 API 등)
+    # Playwright 렌더링까지 끝난 최종 raw_html을 검사하여 확실한 물증을 잡습니다.
+    # ====================================================
+    soup_form = BeautifulSoup(raw_html, "html.parser")
+    malicious_action_url = ""
+    action_type = ""
+    
+    for form in soup_form.find_all("form"):
+        action = form.get("action", "").lower()
+        if "api.telegram.org" in action or "discord.com/api/webhooks" in action:
+            malicious_action_url = action
+            action_type = "해커 메신저(Telegram/Discord) API"
+            break
+        elif re.match(r"^https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", action):
+            malicious_action_url = action
+            action_type = "은닉용 IP 주소 직접 전송"
+            break
+            
+    if malicious_action_url:
+        print(f"  🚨 [즉결 심판] {action_type} 폼 전송 감지! ({malicious_action_url[:50]}...)")
+        ai_reason = f"사용자가 입력한 정보(비밀번호 등)가 기업의 정상 서버가 아닌, '{action_type}'(으)로 무단 전송되도록 설계된 악성 폼(Form)이 발견되었습니다. 이는 가장 명백한 개인정보 탈취 수법이므로 AI 정밀 검사를 생략하고 즉시 차단합니다."
+        
+        final_json_report = {
+            "url": target_url,
+            "judgment": "unnormal",
+            "riskLevel": "HIGH",
+            "threat_score": 99.0,
+            "threat_type": "데이터 유출(탈취) 폼 감지",
+            "site_category": "악성 피싱",
+            "evidence": {
+                "heuristic_evidence": {
+                    "detected_actions": ["개인정보 외부 무단 전송"],
+                    "rule_trigger": f"{action_type} 통신 감지"
+                },
+                "ai_semantic_evidence": {
+                    "suspect_sentence": f"유출 목적지: {malicious_action_url[:40]}...", 
+                    "ai_inference_logic": ai_reason
+                }
+            }
+        }
+        
+        # 앱 UI 콘솔 출력
+        print("\n" + "■"*60)
+        print("📱 [Quishing Defender UI 미리보기]")
+        print("-" * 60)
+        print("🚨 [접속 차단됨] 치명적 데이터 유출 폼 감지!")
+        print(f"💬 {ai_reason}\n")
+        print("■"*60 + "\n")
+        
+        return final_json_report
+    # ==================================================== 
 
     print(f"  📝 [추출 텍스트]: {processed_text[:1000]}... (총 {len(processed_text)}자)")
 
@@ -666,7 +722,7 @@ def predict_phishing_result(target_url):
             },
             "ai_semantic_evidence": {
                 "suspect_sentence": top_sent, 
-                "ai_inference_logic": ai_reason  # ⬅️ 방금 완벽하게 만든 ai_reason이 그대로 들어갑니다!
+                "ai_inference_logic": ai_reason
             }
         }
     }
