@@ -2512,7 +2512,10 @@ def build_typo_explanations(url: str, feat_map: Dict[str, float], probability: f
 
     # 1 — 브랜드 유사도 / 위장
     if brand and brand_keyword_impersonation and brand in sld.lower():
-        _add(f"{brand} 브랜드명을 포함한 위장 도메인입니다.")
+        _add(
+            f"이 주소에는 {brand} 브랜드명이 포함되어 있어 정상 서비스처럼 보일 수 있습니다.\n"
+            "  하지만 실제 공식 도메인이 아닌 곳에 브랜드명을 넣어 사용자를 속이는 방식일 수 있습니다."
+        )
         shown_impersonation = True
     elif (
         brand
@@ -2520,7 +2523,10 @@ def build_typo_explanations(url: str, feat_map: Dict[str, float], probability: f
         and float(feat_map.get("sld_damerau_levenshtein_closest_brand", 999.0)) <= 2.0
         and (has_brand_similarity or probability >= 0.5)
     ):
-        _add(f"{brand}과 매우 유사하게 조작된 도메인입니다. ({lev}글자 차이)")
+        _add(
+            f"이 주소는 {brand}와 매우 비슷하게 만들어져 사용자가 공식 사이트로 착각할 수 있습니다. ({lev}글자 차이)\n"
+            "  실제 피싱 사이트는 유명 브랜드 주소와 거의 비슷한 철자를 사용해 접속을 유도하는 경우가 많습니다."
+        )
 
     if len(reasons) >= max_items:
         return reasons[:max_items]
@@ -2529,7 +2535,10 @@ def build_typo_explanations(url: str, feat_map: Dict[str, float], probability: f
     if brand and homoglyph_feat and pairs and wrap_idx:
         hl = _highlight_homoglyph_chars_in_url(url, wrap_idx)
         ch_str = _format_homoglyph_arrow_list(pairs)
-        _add(f"문자 치환({ch_str})이 사용된 피싱 패턴입니다. (조작된 문자: {hl})")
+        _add(
+            f"이 주소는 문자 치환({ch_str})을 이용해 정상 주소처럼 보이도록 구성되어 있습니다. (조작된 문자: {hl})\n"
+            "  숫자나 기호를 글자처럼 보이게 바꾸는 방식은 피싱 사이트에서 자주 사용되는 위장 기법입니다."
+        )
 
     if len(reasons) >= max_items:
         return reasons[:max_items]
@@ -2546,14 +2555,20 @@ def build_typo_explanations(url: str, feat_map: Dict[str, float], probability: f
         )
     ):
         pick = kws[0]
-        _add(f'"{pick}"와 같은 계정 탈취 유도 표현이 포함되어 있습니다.')
+        _add(
+            f'이 주소에는 "{pick}"처럼 로그인을 유도하거나 계정 확인을 요구하는 표현이 포함되어 있습니다.\n'
+            "  사용자의 계정 정보 입력을 유도하는 피싱 사이트에서 자주 나타나는 표현입니다."
+        )
 
     if len(reasons) >= max_items:
         return reasons[:max_items]
 
     # 4 — 하이픈
     if hyphen_feat:
-        _add("브랜드명과 추가 단어가 하이픈으로 결합되어 공식 주소처럼 보이도록 구성되었습니다.")
+        _add(
+            "이 주소는 브랜드명과 추가 단어가 하이픈으로 결합되어 공식 주소처럼 보이도록 만들어져 있습니다.\n"
+            "  공격자는 하이픈을 이용해 정상 서비스 주소처럼 보이는 긴 도메인을 만드는 경우가 많습니다."
+        )
 
     if len(reasons) >= max_items:
         return reasons[:max_items]
@@ -2582,18 +2597,33 @@ def build_url_structure_explanations(url: str, feat_map: Dict[str, float], proba
     num_subdomains = float(feat_map.get("num_subdomains", 0.0))
 
     if host_len > 45.0 or url_len > 100.0:
-        _add("URL 길이가 일반적인 사이트보다 길어, 실제 사이트를 모방한 주소일 가능성이 있습니다.")
+        _add(
+            "이 주소는 일반적인 사이트 주소보다 길어 한눈에 실제 목적지를 확인하기 어렵습니다.\n"
+            "  피싱 주소는 사용자가 의심하지 못하도록 긴 경로나 매개변수를 붙여 실제 도메인을 숨기는 경우가 있습니다."
+        )
     elif host_len > 0.0 and host_len < 6.0:
-        _add("도메인 길이가 매우 짧아 신뢰할 수 있는 공식 주소인지 추가 확인이 필요합니다.")
+        _add(
+            "이 주소의 도메인 이름이 매우 짧아 공식 서비스 주소인지 추가 확인이 필요합니다.\n"
+            "  짧은 도메인은 정상 서비스에서도 쓰이지만, 악성 주소가 간단한 이름으로 위장할 때도 사용될 수 있습니다."
+        )
 
     if num_hyphens >= 2.0:
-        _add("도메인에 하이픈이 여러 번 사용되어 정상 주소처럼 보이도록 구성되었을 수 있습니다.")
+        _add(
+            "이 주소는 도메인에 하이픈이 여러 번 포함되어 있어 정상 서비스 주소처럼 보이도록 꾸며졌을 수 있습니다.\n"
+            "  공격자는 브랜드명과 보안 관련 단어를 하이픈으로 연결해 사용자를 안심시키는 경우가 있습니다."
+        )
 
     if num_subdomains >= 3.0:
-        _add("서브도메인이 과도하게 많아 실제 서비스 주소를 숨기려는 형태일 수 있습니다.")
+        _add(
+            "이 주소는 서브도메인이 여러 단계로 구성되어 실제 도메인을 알아보기 어렵습니다.\n"
+            "  피싱 주소는 앞부분에 익숙한 단어를 넣고 실제 도메인을 뒤쪽에 숨기는 경우가 있습니다."
+        )
 
     if probability >= 0.5 and not reasons:
-        _add("주소 구조가 일반적인 정상 서비스 URL과 다르게 보여 주의가 필요합니다.")
+        _add(
+            "이 주소는 일반적인 정상 서비스 주소와 다른 구조를 가지고 있어 주의가 필요합니다.\n"
+            "  주소 구조가 낯설거나 복잡한 경우, 실제 접속 대상이 사용자가 예상한 사이트와 다를 수 있습니다."
+        )
 
     return reasons
 
@@ -2606,25 +2636,46 @@ def build_domain_explanations(url: str, feat_map: Dict[str, float], probability:
 
     # CASE 1: 도메인 자체 미등록 (강한 위험 신호)
     if rdap_status_not_registered >= 1.0:
-        return ["해당 도메인은 등록이 되어 있지 않습니다."]
+        return [
+            "현재 이 도메인은 정상적으로 등록된 사이트로 확인되지 않았습니다.\n"
+            "  잘못된 주소이거나 임시로 생성된 악성 주소일 가능성이 있습니다."
+        ]
 
     # CASE 2: RDAP 조회 실패/파싱 실패 (중립 상태)
     if rdap_status_lookup_failed >= 1.0 or rdap_status_parse_failed >= 1.0:
-        return ["도메인 등록 정보를 확인할 수 없습니다."]
+        return [
+            "이 도메인의 등록 정보를 확인하지 못했습니다.\n"
+            "  일시적인 조회 실패일 수 있지만, 신뢰할 수 있는 운영 이력을 확인할 수 없으므로 주의가 필요합니다."
+        ]
 
     # CASE 3: 정상 조회 (수치 기반 설명)
     if rdap_status_ok >= 1.0:
         days = max(0, int(domain_age_days))
         if days <= 30:
-            return [f"도메인이 매우 최근에 등록된 신규 도메인입니다. (생성: {days}일 전)"]
+            return [
+                f"이 도메인은 생성된 지 {days}일밖에 되지 않은 신규 도메인입니다.\n"
+                "  피싱 사이트는 차단을 피하기 위해 최근 생성된 도메인을 사용하는 경우가 많습니다."
+            ]
         if days <= 180:
-            return [f"도메인이 비교적 최근에 생성되었습니다. (생성: {days}일 전)"]
+            return [
+                f"이 도메인은 생성된 지 {days}일 된 비교적 새로운 도메인입니다.\n"
+                "  운영 이력이 짧은 도메인은 신뢰도가 충분히 검증되지 않았을 수 있습니다."
+            ]
         if days <= 365:
-            return [f"도메인이 어느 정도 운영된 이력이 있습니다. (생성: {days}일 전)"]
-        return [f"오래 운영된 도메인입니다. (생성: {days}일 전)"]
+            return [
+                f"이 도메인은 생성된 지 {days}일 되어 어느 정도 운영 이력이 확인됩니다.\n"
+                "  다만 다른 위험 신호가 함께 나타나는 경우에는 추가 확인이 필요합니다."
+            ]
+        return [
+            f"이 도메인은 생성된 지 {days}일 된 오래 운영된 도메인입니다.\n"
+            "  도메인 나이만 보면 비교적 안정적인 편이지만, 다른 검증 결과와 함께 판단해야 합니다."
+        ]
 
     # 안전한 기본값: 상태 정보가 불충분한 경우에도 1줄 보장
-    return ["도메인 등록 정보를 확인할 수 없습니다."]
+    return [
+        "이 도메인의 등록 정보를 확인하지 못했습니다.\n"
+        "  일시적인 조회 실패일 수 있지만, 신뢰할 수 있는 운영 이력을 확인할 수 없으므로 주의가 필요합니다."
+    ]
 
 def build_ssl_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
     reasons: List[str] = []
@@ -2637,24 +2688,50 @@ def build_ssl_explanations(url: str, feat_map: Dict[str, float], probability: fl
     # CASE 1/2: 인증서 미발급 vs 조회 실패 구분
     if ssl_missing >= 1.0:
         if ssl_status_no_cert >= 1.0:
-            return ["SSL 인증서를 발급 받지 못했습니다."]
-        return ["SSL 인증서 정보를 확인할 수 없습니다."]
+            return [
+                "이 사이트는 보안 연결(SSL 인증서)이 정상적으로 설정되어 있지 않습니다.\n"
+                "  개인정보 입력 시 보안 위험이 발생할 수 있습니다."
+            ]
+        return [
+            "이 사이트의 보안 인증서 정보를 확인하지 못했습니다.\n"
+            "  일시적인 네트워크 문제일 수 있지만, 안전한 연결 여부를 확인할 수 없어 주의가 필요합니다."
+        ]
 
-    # CASE 3: 정상 조회 시 수치 기반 기본 설명(항상 출력)
+    # CASE 3: 정상 조회 시 수치 기반 설명
+    # - 기본 수치 문장과 추가 설명이 같은 값을 중복 출력하지 않도록,
+    #   추가 설명이 적용되는 경우 해당 문장만 출력하고
+    #   추가 설명이 없을 때에만 기본 수치 문장을 출력한다.
     valid_days_i = max(0, int(ssl_valid_days))
     remaining_days_i = max(0, int(ssl_remaining_days))
     age_days_i = max(0, int(ssl_age_days))
-    reasons.append(f"SSL 인증서 유효기간: {valid_days_i}일 / 남은 기간: {remaining_days_i}일")
 
-    # 추가 설명은 우선순위 기준 1개만 출력
     if remaining_days_i <= 7:
-        reasons.append("SSL 인증서가 매우 곧 만료될 예정입니다.")
+        reasons.append(
+            f"이 사이트의 보안 인증서가 매우 곧 만료될 예정입니다. (남은 기간: {remaining_days_i}일)\n"
+            "  관리가 제대로 되지 않는 사이트이거나 임시로 운영되는 사이트일 가능성이 있습니다."
+        )
     elif remaining_days_i <= 30:
-        reasons.append("SSL 인증서가 곧 만료될 예정입니다.")
+        reasons.append(
+            f"이 사이트의 보안 인증서 만료일이 가까워지고 있습니다. (남은 기간: {remaining_days_i}일)\n"
+            "  인증서 관리 상태가 불안정할 수 있으므로 주의가 필요합니다."
+        )
     elif valid_days_i <= 90:
-        reasons.append("SSL 인증서 유효기간이 비정상적으로 짧습니다.")
+        reasons.append(
+            f"이 사이트는 보안 인증서 사용 기간이 매우 짧아 신뢰도가 낮을 수 있습니다. "
+            f"(인증서 유효기간: {valid_days_i}일 / 남은 기간: {remaining_days_i}일)\n"
+            "  최근 급하게 생성된 피싱 사이트에서 자주 나타나는 패턴입니다."
+        )
     elif age_days_i <= 7:
-        reasons.append("SSL 인증서가 최근에 발급되었습니다.")
+        reasons.append(
+            f"이 사이트의 보안 인증서는 최근에 발급되었습니다. (발급 후 경과: {age_days_i}일)\n"
+            "  최근 만들어진 사이트에서 자주 나타나는 특징이므로 다른 위험 신호와 함께 확인해야 합니다."
+        )
+    else:
+        reasons.append(
+            f"이 사이트의 보안 인증서 상태를 확인했습니다. "
+            f"(인증서 유효기간: {valid_days_i}일 / 남은 기간: {remaining_days_i}일)\n"
+            "  인증서 기간은 사이트의 보안 설정 상태를 판단하는 참고 자료로 사용됩니다."
+        )
 
     return reasons
 
@@ -2662,7 +2739,10 @@ def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probabil
     reasons: List[str] = []
 
     if float(dom_feature_map.get("dom_fetch_failed", 0.0)) >= 1.0:
-        return ["페이지 구조 정보를 가져오지 못했습니다."]
+        return [
+            "이 사이트의 페이지 구조 정보를 가져오지 못했습니다.\n"
+            "  일시적인 접속 문제일 수 있지만, 페이지 내부 구조를 확인할 수 없어 주의가 필요합니다."
+        ]
 
     dom_max_depth = float(dom_feature_map.get("dom_max_depth", 0.0))
     dead_link_ratio = float(dom_feature_map.get("dead_link_ratio", 0.0))
@@ -2681,8 +2761,8 @@ def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probabil
         evidence.append(
             (
                 1,
-                "외부 폼 전송 여부(suspicious_form_action): 있음\n"
-                "→ 사용자가 입력한 정보가 현재 사이트가 아닌 외부 도메인으로 전송될 가능성이 있습니다.",
+                "이 사이트는 사용자가 입력한 정보가 외부 도메인으로 전송될 가능성이 있습니다. (외부 폼 전송 감지)\n"
+                "  로그인 정보나 개인정보 입력을 요구하는 경우 특히 주의해야 합니다.",
             )
         )
 
@@ -2690,16 +2770,16 @@ def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probabil
         evidence.append(
             (
                 2,
-                f"숨겨진 요소 수(hidden_tags_count): {hidden_i}개\n"
-                "→ 사용자에게 보이지 않는 요소가 다수 포함되어 있어, 위장 요소나 숨겨진 코드가 존재할 가능성이 있습니다.",
+                f"이 사이트에는 사용자에게 보이지 않는 숨겨진 요소가 많이 포함되어 있습니다. (숨겨진 요소: {hidden_i}개)\n"
+                "  악성 스크립트, 추적 코드, 위장 입력값을 숨기기 위해 사용되는 경우가 있습니다.",
             )
         )
     elif hidden_i > 5:
         evidence.append(
             (
                 2,
-                f"숨겨진 요소 수(hidden_tags_count): {hidden_i}개\n"
-                "→ 일부 숨겨진 요소가 포함되어 있습니다.",
+                f"이 사이트에는 일부 숨겨진 요소가 포함되어 있습니다. (숨겨진 요소: {hidden_i}개)\n"
+                "  정상 사이트에서도 사용될 수 있지만, 다른 위험 신호와 함께 나타나면 주의가 필요합니다.",
             )
         )
 
@@ -2707,16 +2787,16 @@ def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probabil
         evidence.append(
             (
                 3,
-                f"죽은 링크 비율(dead_link_ratio): {ratio_f:.2f}%\n"
-                "→ 실제 이동되지 않는 링크가 많아, 겉모습만 구성된 피싱 페이지일 가능성이 있습니다.",
+                f"이 사이트는 실제로 동작하지 않는 링크 비율이 매우 높습니다. (죽은 링크 비율: {ratio_f:.2f}%)\n"
+                "  정상 서비스처럼 보이기 위해 화면만 급하게 구성된 피싱 페이지에서 자주 나타나는 특징입니다.",
             )
         )
     elif ratio_f > 5.0:
         evidence.append(
             (
                 3,
-                f"죽은 링크 비율(dead_link_ratio): {ratio_f:.2f}%\n"
-                "→ 일부 링크가 정상적으로 동작하지 않아 페이지 신뢰도가 낮을 수 있습니다.",
+                f"이 사이트에는 정상적으로 이동되지 않는 링크가 일부 포함되어 있습니다. (죽은 링크 비율: {ratio_f:.2f}%)\n"
+                "  사이트 완성도가 낮거나 임시로 구성된 페이지일 가능성이 있습니다.",
             )
         )
 
@@ -2724,16 +2804,16 @@ def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probabil
         evidence.append(
             (
                 4,
-                f"DOM 최대 깊이(dom_max_depth): {depth_i}\n"
-                "→ 페이지 구조가 비정상적으로 깊고 복잡하여, 정상적인 웹페이지보다 조작된 화면일 가능성이 있습니다.",
+                f"이 사이트는 페이지 구조가 비정상적으로 깊고 복잡하게 구성되어 있습니다. (DOM 깊이: {depth_i})\n"
+                "  악성 스크립트나 위장 화면을 숨기기 위해 구조를 과도하게 늘리는 경우가 있습니다.",
             )
         )
     elif depth_i > 10:
         evidence.append(
             (
                 4,
-                f"DOM 최대 깊이(dom_max_depth): {depth_i}\n"
-                "→ 페이지 구조가 다소 복잡하여 일반적인 페이지보다 구조가 깊은 편입니다.",
+                f"이 사이트는 일반적인 페이지보다 구조가 다소 복잡한 편입니다. (DOM 깊이: {depth_i})\n"
+                "  단독으로 악성이라고 보기는 어렵지만, 다른 위험 신호와 함께 확인할 필요가 있습니다.",
             )
         )
 
@@ -2741,6 +2821,353 @@ def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probabil
         reasons.append(text)
 
     return reasons
+
+
+def _compose_final_explanations(
+    url: str,
+    typo_feat_map: Dict[str, float],
+    typo_probability: float,
+    domain_feat_map: Dict[str, float],
+    domain_probability: float,
+    dom_feature_map: Dict[str, float],
+    dom_probability: float,
+) -> List[str]:
+    """
+    URL·도메인·SSL·DOM 신호를 나열하지 않고 짧은 상황 설명 1~2문단으로 합성한다.
+    (판단 임계·피처 정의는 build_* 계열과 동일 조건을 유지한다.)
+    """
+    out: List[str] = []
+
+    def _narrative_typo_clause() -> Optional[Tuple[int, str]]:
+        host, _path, sld = _split_url_for_analysis(url)
+        if not sld or not BRAND_DICTIONARY:
+            return None
+
+        brand = _closest_brand(sld)
+        lev = _levenshtein(sld, brand) if brand else 999
+
+        feat_map = typo_feat_map
+        has_brand_similarity = (
+            float(feat_map.get("host_contains_brand_token", 0.0)) >= 1.0
+            or float(feat_map.get("brand_token_in_subdomain", 0.0)) >= 1.0
+            or float(feat_map.get("sld_3gram_jaccard_closest_brand", 0.0)) >= 0.6
+            or float(feat_map.get("sld_damerau_levenshtein_closest_brand", 999.0)) <= 2.0
+            or float(feat_map.get("sld_normalized_edit_distance", 1.0)) <= 0.35
+        )
+
+        typo_context = (
+            has_brand_similarity
+            or typo_probability >= 0.5
+            or float(feat_map.get("domain_homoglyph_ratio", 0.0)) >= 0.05
+            or float(feat_map.get("domain_vowel_like_digit_count", 0.0)) >= 1.0
+            or float(feat_map.get("brand_hyphen_compound", 0.0)) >= 1.0
+            or float(feat_map.get("brand_target_action_pattern", 0.0)) >= 1.0
+            or float(feat_map.get("brand_plus_keyword_pattern", 0.0)) >= 1.0
+        )
+        if not typo_context:
+            return None
+
+        brand_keyword_impersonation = float(feat_map.get("brand_plus_keyword_pattern", 0.0)) >= 1.0
+        homoglyph_feat = float(feat_map.get("domain_homoglyph_ratio", 0.0)) >= 0.05 or float(
+            feat_map.get("domain_vowel_like_digit_count", 0.0)
+        ) >= 1.0
+        hyphen_feat = float(feat_map.get("brand_hyphen_compound", 0.0)) >= 1.0
+        subdomain_brand_feat = float(feat_map.get("brand_token_in_subdomain", 0.0)) >= 1.0
+        target_action_feat = float(feat_map.get("brand_target_action_pattern", 0.0)) >= 1.0
+        pairs = _extract_homoglyph_changes(sld, brand) if brand else []
+
+        shown_impersonation = False
+        if brand and brand_keyword_impersonation and brand in sld.lower():
+            shown_impersonation = True
+            return (10, f"{brand} 이름을 끼워 넣어 공식 사이트처럼 보이게 꾸민 주소")
+        if (
+            brand
+            and 1 <= lev <= 2
+            and float(feat_map.get("sld_damerau_levenshtein_closest_brand", 999.0)) <= 2.0
+            and (has_brand_similarity or typo_probability >= 0.5)
+        ):
+            return (11, f"{brand}와 매우 유사한 철자를 쓰는 주소")
+        if brand and homoglyph_feat and pairs:
+            return (12, "숫자·기호로 글자를 바꿔 정상 주소처럼 보이게 조작한 주소")
+
+        kws = _get_suspicious_keywords_in_host(host)
+        if (
+            kws
+            and not shown_impersonation
+            and (
+                target_action_feat
+                or float(feat_map.get("brand_plus_keyword_pattern", 0.0)) >= 1.0
+                or (float(feat_map.get("host_contains_brand_token", 0.0)) >= 1.0 and has_brand_similarity)
+            )
+        ):
+            pick = kws[0]
+            return (
+                13,
+                f'"{pick}" 같은 표현으로 로그인·계정 확인을 유도하는 주소 구성',
+            )
+        if hyphen_feat:
+            return (14, "브랜드와 단어를 하이픈으로 이어 공식 주소처럼 보이게 만든 구조")
+        if subdomain_brand_feat:
+            return (15, "브랜드명을 서브도메인에 올려 공식 서비스처럼 보이게 배치한 주소")
+        return None
+
+    def _narrative_url_structure_clause() -> Optional[Tuple[int, str]]:
+        feat_map = typo_feat_map
+        added = set()
+
+        def _add(prio: int, text: str) -> Optional[Tuple[int, str]]:
+            if text in added:
+                return None
+            added.add(text)
+            return prio, text
+
+        host_len_raw = float(feat_map.get("host_len", 0.0))
+        host_len_scaled = float(feat_map.get("host_length", 0.0))
+        host_len = host_len_raw if host_len_raw > 0.0 else host_len_scaled * 50.0
+        url_len = float(feat_map.get("url_length", 0.0))
+        num_hyphens = float(feat_map.get("num_hyphens", 0.0))
+        num_subdomains = float(feat_map.get("num_subdomains", 0.0))
+
+        if host_len > 45.0 or url_len > 100.0:
+            hit = _add(40, "일반적인 사이트보다 지나치게 길고 복잡한 주소 구조")
+            if hit:
+                return hit
+        if host_len > 0.0 and host_len < 6.0:
+            hit = _add(41, "도메인 이름이 지나치게 짧은 형태의 주소")
+            if hit:
+                return hit
+        if num_hyphens >= 2.0:
+            hit = _add(42, "하이픈이 여러 번 끼어든 도메인 구조")
+            if hit:
+                return hit
+        if num_subdomains >= 3.0:
+            hit = _add(43, "서브도메인이 여러 단계로 겹쳐 실제 도메인을 가리기 어려운 구성")
+            if hit:
+                return hit
+        if typo_probability >= 0.5:
+            hit = _add(44, "정상 서비스와는 다르게 어색한 주소 구조")
+            if hit:
+                return hit
+        return None
+
+    def _narrative_registration_ssl_clause() -> Optional[Tuple[int, str]]:
+        feat_map = domain_feat_map
+        rdap_status_ok = float(feat_map.get("rdap_status_ok", 0.0))
+        rdap_status_not_registered = float(feat_map.get("rdap_status_not_registered", 0.0))
+        rdap_status_lookup_failed = float(feat_map.get("rdap_status_lookup_failed", 0.0))
+        rdap_status_parse_failed = float(feat_map.get("rdap_status_parse_failed", 0.0))
+        domain_age_days = float(feat_map.get("domain_age_days", 0.0))
+
+        ssl_missing = float(feat_map.get("ssl_missing", 0.0))
+        ssl_valid_days = float(feat_map.get("ssl_valid_days", 0.0))
+        ssl_remaining_days = float(feat_map.get("ssl_remaining_days", 0.0))
+        ssl_age_days = float(feat_map.get("ssl_age_days", 0.0))
+        ssl_status_no_cert = float(feat_map.get("ssl_status_no_cert", 0.0))
+
+        valid_days_i = max(0, int(ssl_valid_days))
+        remaining_days_i = max(0, int(ssl_remaining_days))
+        age_days_i = max(0, int(ssl_age_days))
+        days = max(0, int(domain_age_days))
+
+        ssl_risky = False
+        ssl_mid = ""
+        if ssl_missing >= 1.0:
+            if ssl_status_no_cert >= 1.0:
+                return (2, "보안 연결(SSL)이 제대로 갖춰져 있지 않은 접속 환경")
+            return (3, "보안 인증서 정보를 확인하지 못한 채 이어지는 접속")
+
+        if remaining_days_i <= 30:
+            ssl_risky = True
+            if remaining_days_i <= 7:
+                ssl_mid = "만료가 임박한 보안 인증서"
+            else:
+                ssl_mid = "만료가 가까운 보안 인증서"
+        elif valid_days_i <= 90:
+            ssl_risky = True
+            ssl_mid = "유효 기간이 매우 짧은 보안 인증서"
+        elif age_days_i <= 7:
+            ssl_risky = True
+            ssl_mid = "최근에 막 발급된 보안 인증서"
+
+        if rdap_status_not_registered >= 1.0:
+            return (1, "정상 등록 도메인으로 확인되지 않은 주소")
+
+        if rdap_status_lookup_failed >= 1.0 or rdap_status_parse_failed >= 1.0:
+            if ssl_risky and ssl_mid:
+                return (
+                    28,
+                    f"등록 정보를 확인하지 못한 주소에 {ssl_mid}까지 겹쳐 붙어 있는 모습",
+                )
+            return (30, "도메인 등록 정보를 확인하지 못한 주소")
+
+        if rdap_status_ok >= 1.0:
+            dom_risky = days <= 365
+            if not dom_risky and not ssl_risky:
+                return None
+
+            if dom_risky and ssl_risky:
+                if days <= 30:
+                    dom_bits = "생성된 지 얼마 되지 않은 신규 도메인"
+                elif days <= 180:
+                    dom_bits = f"생성된 지 {days}일밖에 안 된 비교적 새 도메인"
+                else:
+                    dom_bits = f"운영 이력이 {days}일 수준으로 아직 길지 않은 도메인"
+                return (24, f"{dom_bits}에 {ssl_mid}까지 함께 묶인 등록·SSL 패턴")
+
+            if dom_risky:
+                if days <= 30:
+                    return (31, f"생성된 지 {days}일밖에 안 된 신규 도메인")
+                if days <= 180:
+                    return (32, f"생성된 지 {days}일밖에 안 된 비교적 새 도메인")
+                return (33, f"운영 이력이 {days}일 수준으로 짧은 도메인")
+
+            if ssl_risky and ssl_mid:
+                return (35, ssl_mid)
+
+        return None
+
+    def _narrative_dom_paragraph() -> Optional[str]:
+        if float(dom_feature_map.get("dom_fetch_failed", 0.0)) >= 1.0:
+            return (
+                "페이지 구조를 가져오지 못해 내부 위험을 확인하기 어렵습니다. "
+                "일시적 장애일 수 있어도 신중히 살펴보는 편이 좋습니다."
+            )
+
+        dom_max_depth = float(dom_feature_map.get("dom_max_depth", 0.0))
+        dead_link_ratio = float(dom_feature_map.get("dead_link_ratio", 0.0))
+        hidden_tags_count = float(dom_feature_map.get("hidden_tags_count", 0.0))
+        suspicious_form_action = float(dom_feature_map.get("suspicious_form_action", 0.0))
+
+        depth_i = max(0, int(dom_max_depth))
+        ratio_f = max(0.0, dead_link_ratio)
+        hidden_i = max(0, int(hidden_tags_count))
+        has_external_form = suspicious_form_action >= 1.0
+
+        evidence: List[Tuple[int, str]] = []
+
+        if has_external_form:
+            evidence.append((1, "form_external"))
+
+        if hidden_i > 15:
+            evidence.append((2, f"hidden_{hidden_i}"))
+        elif hidden_i > 5:
+            evidence.append((2, f"hidden_{hidden_i}"))
+
+        if ratio_f > 20.0:
+            evidence.append((3, f"dead_{ratio_f:.1f}"))
+        elif ratio_f > 5.0:
+            evidence.append((3, f"dead_{ratio_f:.1f}"))
+
+        if depth_i > 20:
+            evidence.append((4, f"depth_{depth_i}"))
+        elif depth_i > 10:
+            evidence.append((4, f"depth_{depth_i}"))
+
+        if not evidence:
+            return None
+
+        def _slot(tag: str) -> str:
+            if tag == "form_external":
+                return "사용자가 입력한 정보를 외부 도메인으로 전송할 가능성이 있는 화면 구성"
+            if tag.startswith("hidden_"):
+                n = tag.split("_", 1)[1]
+                hi = int(n)
+                if hi > 15:
+                    return f"사용자에게 잘 보이지 않는 숨겨진 요소가 많이 끼어 있는(DOM {hi}건)"
+                return f"숨겨진 요소가 다소 많이 포함된(DOM {hi}건)"
+            if tag.startswith("dead_"):
+                r = float(tag.split("_", 1)[1])
+                if r > 20.0:
+                    return f"실제로는 동작하지 않는 링크가 유독 많은(약 {r:.1f}%)"
+                return f"정상 이동이 어려운 링크가 섞인(약 {r:.1f}%)"
+            if tag.startswith("depth_"):
+                d = int(tag.split("_", 1)[1])
+                if d > 20:
+                    return f"페이지 구조가 비정상적으로 깊고 복잡하게 꼬인(DOM 깊이 {d})"
+                return f"일반 페이지보다 구조가 다소 복잡한(DOM 깊이 {d})"
+            return tag
+
+        top_ev = sorted(evidence, key=lambda x: x[0])[:2]
+        top = [_slot(t) for _, t in top_ev]
+
+        if len(top) == 1:
+            return (
+                f"이 사이트는 {top[0]} 점이 확인되어 "
+                "위장 화면이나 악성 스크립트가 포함되었을 가능성이 있습니다."
+            )
+        return (
+            f"이 사이트는 {top[0]} 점이 이어지고, {top[1]} 형태까지 겹쳐 있어 "
+            "위장 화면이나 악성 스크립트가 포함되었을 가능성이 있습니다."
+        )
+
+    typo_t = _narrative_typo_clause()
+    url_t = _narrative_url_structure_clause()
+    reg_t = _narrative_registration_ssl_clause()
+
+    meta_opts: List[Tuple[int, str]] = []
+    for t in (typo_t, url_t, reg_t):
+        if t is not None:
+            meta_opts.append(t)
+    meta_opts.sort(key=lambda x: x[0])
+
+    primary: List[str] = []
+    for _, clause in meta_opts[:2]:
+        c = clause.strip()
+        if c and c not in primary:
+            primary.append(c)
+
+    dom_text = _narrative_dom_paragraph()
+
+    if not primary and not dom_text:
+        return ["뚜렷한 악성 징후가 발견되지 않았습니다."]
+
+    def _meta_paragraph(parts: List[str]) -> str:
+        if not parts:
+            return ""
+        if len(parts) == 1:
+            p0 = parts[0]
+            if p0.startswith("정상 등록 도메인으로 확인되지 않은"):
+                return (
+                    "현재 이 도메인은 정상적으로 등록된 사이트로 확인되지 않았습니다. "
+                    "잘못된 주소이거나 임시로 만들어진 악성 주소일 가능성이 있습니다."
+                )
+            if "보안 연결(SSL)이 제대로 갖춰져 있지 않은" in p0:
+                return (
+                    "이 사이트는 보안 연결이 제대로 갖춰져 있지 않은 환경입니다. "
+                    "개인정보 입력 시 유출 위험이 커질 수 있습니다."
+                )
+            if "보안 인증서 정보를 확인하지 못한 채 이어지는" in p0:
+                return (
+                    "이 사이트는 안전한 연결 정보를 확인하지 못한 채 접속해야 하는 형태입니다. "
+                    "일시적 문제일 수 있어도 추가 확인이 필요합니다."
+                )
+            if "일반적인 사이트보다 지나치게 길고 복잡한 주소 구조" in p0:
+                return (
+                    "이 주소는 일반적인 사이트보다 지나치게 길고 복잡한 구조를 사용하고 있어 "
+                    "실제 접속 대상을 숨기려는 피싱 주소일 가능성이 있습니다."
+                )
+            return (
+                f"이 사이트는 {p0}에 해당하는 의심 신호가 보이며 "
+                "최근 피싱 사이트에서 자주 나타나는 특징과 유사합니다."
+            )
+
+        p0, p1 = parts[0], parts[1]
+        return (
+            f"이 사이트는 {p0}에 해당하는 의심 신호가 이어지는 한편 {p1}까지 겹쳐 있어 "
+            "최근 피싱 사이트에서 자주 나타나는 특징과 유사합니다."
+        )
+
+    mp = _meta_paragraph(primary)
+    if mp:
+        out.append(mp)
+    if dom_text:
+        out.append(dom_text)
+
+    if len(out) > 2:
+        out = out[:2]
+
+    return out
+
 
 def build_all_explanations(
     url: str,
@@ -2751,34 +3178,16 @@ def build_all_explanations(
     dom_feature_map: Dict[str, float],
     dom_probability: float,
 ) -> List[str]:
-    sections: List[str] = []
+    return _compose_final_explanations(
+        url=url,
+        typo_feat_map=typo_feat_map,
+        typo_probability=typo_probability,
+        domain_feat_map=domain_feat_map,
+        domain_probability=domain_probability,
+        dom_feature_map=dom_feature_map,
+        dom_probability=dom_probability,
+    )
 
-    typo_reasons = build_typo_explanations(url, typo_feat_map, typo_probability)
-    url_structure_reasons = build_url_structure_explanations(url, typo_feat_map, typo_probability)
-    domain_reasons = build_domain_explanations(url, domain_feat_map, domain_probability)
-    ssl_reasons = build_ssl_explanations(url, domain_feat_map, domain_probability)
-    dom_reasons = build_dom_explanations(url, dom_feature_map, dom_probability)
-
-    def _append_section(title: str, items: List[str]) -> None:
-        if not items:
-            return
-        sections.append(title)
-        for item in items:
-            sections.append(f"- {item}")
-        sections.append("")
-
-    _append_section("[타이포스쿼팅]", typo_reasons)
-    _append_section("[URL 구조]", url_structure_reasons)
-    _append_section("[도메인 나이]", domain_reasons)
-    _append_section("[SSL 인증서]", ssl_reasons)
-    _append_section("[DOM 구조]", dom_reasons)
-
-    while sections and sections[-1] == "":
-        sections.pop()
-
-    if not sections:
-        return ["뚜렷한 악성 징후가 발견되지 않았습니다."]
-    return sections
 
 def _validate_single_input_url(url: str) -> str:
     value = (url or "").strip()
