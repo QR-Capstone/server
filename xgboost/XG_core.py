@@ -76,6 +76,29 @@ def _count_substring(s: str, sub: str) -> int:
         return 0
     return s.count(sub)
 
+
+def xgboost_ensemble_verdict_label(
+    prob_typo: float, prob_domain: float, prob_dom: float
+) -> int:
+    """Malicious/ben label from typo, domain-age, and DOM head probabilities (CLI + API)."""
+    if (
+        prob_typo >= 0.90
+        or prob_domain >= 0.85
+        or prob_dom >= 0.85
+    ):
+        return 1
+    if (
+        (prob_typo >= 0.50 and prob_domain >= 0.45)
+        or (prob_typo >= 0.45 and prob_domain >= 0.50)
+        or (prob_typo >= 0.50 and prob_dom >= 0.45)
+        or (prob_typo >= 0.45 and prob_dom >= 0.50)
+        or (prob_domain >= 0.50 and prob_dom >= 0.45)
+        or (prob_domain >= 0.45 and prob_dom >= 0.50)
+    ):
+        return 1
+    return 0
+
+
 COMMON_MULTI_TLDS = {
     "co.uk", "gov.uk", "ac.uk",
     "co.kr", "go.kr", "or.kr",
@@ -1005,6 +1028,7 @@ _DOM_MODEL_FEATURE_NAMES: List[str] = [
     "dead_link_ratio",
     "hidden_tags_count",
     "suspicious_form_action",
+    "dom_fetch_failed"
 ]
 _DOM_FEATURE_CACHE: Dict[str, Dict[str, float]] = {}
 
