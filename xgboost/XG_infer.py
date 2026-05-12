@@ -69,6 +69,8 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
         domain_probability=prob_domain,
         dom_feature_map=dom_feature_map,
         dom_probability=prob_dom,
+        verdict_label=verdict_label,
+        threshold=args.threshold,
     )
 
     print("[Input URL]")

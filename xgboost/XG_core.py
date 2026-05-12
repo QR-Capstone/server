@@ -11,6 +11,7 @@ import random
 import re
 import socket
 import ssl
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -498,11 +499,13 @@ def extract_length_features(url: str) -> Dict[str, float]:
 # ============================================================
 
 _RDAP_LOOKUP_TIMEOUT_SECONDS = 3.0
+_RDAP_RETRY_SLEEP_SECONDS = 0.5
+_RDAP_MAX_ATTEMPTS = 3  # initial request + up to 2 retries
 _DOMAIN_AGE_MAX_DAYS = 36500.0
 _DOMAIN_AGE_LOOKUP_FAILED = {
     "domain_age_days": 0.0,
     "domain_age_log_days": 0.0,
-    "domain_age_missing": 1.0,
+    "domain_age_missing": 0.0,
     "rdap_status_ok": 0.0,
     "rdap_status_not_registered": 0.0,
     "rdap_status_lookup_failed": 1.0,
@@ -626,9 +629,7 @@ def _get_registered_domain_for_rdap(url_or_host: str) -> str:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:])
 
-def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]], str]:
-    if not registered_domain:
-        return None, "lookup_failed"
+def _fetch_rdap_payload_attempt(registered_domain: str) -> Tuple[Optional[Dict[str, Any]], str]:
     request = Request(
         f"https://rdap.org/domain/{registered_domain}",
         headers={
@@ -661,6 +662,20 @@ def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]
     if not isinstance(parsed, dict):
         return None, "lookup_failed"
     return parsed, "ok"
+
+
+def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    if not registered_domain:
+        return None, "lookup_failed"
+    last: Tuple[Optional[Dict[str, Any]], str] = (None, "lookup_failed")
+    for attempt in range(_RDAP_MAX_ATTEMPTS):
+        payload, status = _fetch_rdap_payload_attempt(registered_domain)
+        last = (payload, status)
+        if status != "lookup_failed":
+            return payload, status
+        if attempt + 1 < _RDAP_MAX_ATTEMPTS:
+            time.sleep(_RDAP_RETRY_SLEEP_SECONDS)
+    return last
 
 def _parse_rdap_datetime(value: str) -> Optional[datetime]:
     text = (value or "").strip()
@@ -917,8 +932,12 @@ def get_ssl_features_for_mode(url: str, enable_ssl: bool) -> Dict[str, float]:
         return dict(_SSL_FALLBACK)
     return extract_ssl_features(url)
 
-def _bucketize_domain_age_features(domain_age_days: float, domain_age_missing: float) -> Dict[str, float]:
-    if domain_age_missing >= 1.0:
+def _bucketize_domain_age_features(
+    domain_age_days: float,
+    domain_age_missing: float,
+    rdap_status_lookup_failed: float = 0.0,
+) -> Dict[str, float]:
+    if domain_age_missing >= 1.0 or rdap_status_lookup_failed >= 1.0:
         return {
             "domain_is_very_new": 0.0,
             "domain_is_new": 0.0,
@@ -944,21 +963,15 @@ def _bucketize_ssl_features(
             "ssl_is_short_lived": 0.0,
             "ssl_is_normal_lived": 0.0,
             "ssl_is_long_lived": 0.0,
-            "ssl_expires_very_soon": 0.0,
-            "ssl_expires_soon": 0.0,
-            "ssl_expires_far": 0.0,
             "ssl_is_very_new": 0.0,
             "ssl_is_recent": 0.0,
             "ssl_is_mature": 0.0,
         }
 
     return {
-        "ssl_is_short_lived": 1.0 if ssl_valid_days <= 90.0 else 0.0,
-        "ssl_is_normal_lived": 1.0 if 90.0 < ssl_valid_days <= 398.0 else 0.0,
+        "ssl_is_short_lived": 1.0 if ssl_valid_days <= 30.0 else 0.0,
+        "ssl_is_normal_lived": 1.0 if 30.0 < ssl_valid_days <= 398.0 else 0.0,
         "ssl_is_long_lived": 1.0 if ssl_valid_days > 398.0 else 0.0,
-        "ssl_expires_very_soon": 1.0 if ssl_remaining_days <= 7.0 else 0.0,
-        "ssl_expires_soon": 1.0 if 7.0 < ssl_remaining_days <= 30.0 else 0.0,
-        "ssl_expires_far": 1.0 if ssl_remaining_days > 30.0 else 0.0,
         "ssl_is_very_new": 1.0 if ssl_age_days <= 7.0 else 0.0,
         "ssl_is_recent": 1.0 if 7.0 < ssl_age_days <= 30.0 else 0.0,
         "ssl_is_mature": 1.0 if ssl_age_days > 30.0 else 0.0,
@@ -974,6 +987,7 @@ def extract_domain_only_features(
         _bucketize_domain_age_features(
             float(features.get("domain_age_days", 0.0)),
             float(features.get("domain_age_missing", 1.0)),
+            float(features.get("rdap_status_lookup_failed", 0.0)),
         )
     )
     ssl_features = get_ssl_features_for_mode(url, enable_ssl)
@@ -1752,9 +1766,6 @@ FEATURE_NAMES: List[str] = [
     "ssl_is_short_lived",
     "ssl_is_normal_lived",
     "ssl_is_long_lived",
-    "ssl_expires_very_soon",
-    "ssl_expires_soon",
-    "ssl_expires_far",
     "ssl_is_very_new",
     "ssl_is_recent",
     "ssl_is_mature",
@@ -1882,6 +1893,7 @@ def extract_features(
     domain_age_bucket_feats = _bucketize_domain_age_features(
         float(domain_age_feats["domain_age_days"]),
         float(domain_age_feats["domain_age_missing"]),
+        float(domain_age_feats.get("rdap_status_lookup_failed", 0.0)),
     )
     ssl_bucket_feats = _bucketize_ssl_features(
         float(ssl_feats["ssl_valid_days"]),
@@ -1999,9 +2011,6 @@ def extract_features(
             float(ssl_bucket_feats["ssl_is_short_lived"]),
             float(ssl_bucket_feats["ssl_is_normal_lived"]),
             float(ssl_bucket_feats["ssl_is_long_lived"]),
-            float(ssl_bucket_feats["ssl_expires_very_soon"]),
-            float(ssl_bucket_feats["ssl_expires_soon"]),
-            float(ssl_bucket_feats["ssl_expires_far"]),
             float(ssl_bucket_feats["ssl_is_very_new"]),
             float(ssl_bucket_feats["ssl_is_recent"]),
             float(ssl_bucket_feats["ssl_is_mature"]),
@@ -2641,11 +2650,15 @@ def build_domain_explanations(url: str, feat_map: Dict[str, float], probability:
             "  잘못된 주소이거나 임시로 생성된 악성 주소일 가능성이 있습니다."
         ]
 
-    # CASE 2: RDAP 조회 실패/파싱 실패 (중립 상태)
-    if rdap_status_lookup_failed >= 1.0 or rdap_status_parse_failed >= 1.0:
+    # CASE 2a: RDAP 조회 실패(네트워크/타임아웃 등) — 모델·판정에서는 중립, 도메인 근거 문장은 생략
+    if rdap_status_lookup_failed >= 1.0:
+        return []
+
+    # CASE 2b: RDAP 파싱 실패 — 조회는 되었으나 등록일 해석 실패(비악성 톤)
+    if rdap_status_parse_failed >= 1.0:
         return [
-            "이 도메인의 등록 정보를 확인하지 못했습니다.\n"
-            "  일시적인 조회 실패일 수 있지만, 신뢰할 수 있는 운영 이력을 확인할 수 없으므로 주의가 필요합니다."
+            "이 도메인은 RDAP에서 응답을 받았지만, 등록일 정보를 안정적으로 해석하지 못했습니다.\n"
+            "  레지스트리·부트스트랩 서버 응답 형식 차이 등으로 발생할 수 있는 기술적 한계에 해당할 수 있습니다."
         ]
 
     # CASE 3: 정상 조회 (수치 기반 설명)
@@ -2671,10 +2684,10 @@ def build_domain_explanations(url: str, feat_map: Dict[str, float], probability:
             "  도메인 나이만 보면 비교적 안정적인 편이지만, 다른 검증 결과와 함께 판단해야 합니다."
         ]
 
-    # 안전한 기본값: 상태 정보가 불충분한 경우에도 1줄 보장
+    # 상태 플래그가 비어 있는 등 설명 불가 시에도 lookup_failed 톤의 문장은 쓰지 않음
     return [
-        "이 도메인의 등록 정보를 확인하지 못했습니다.\n"
-        "  일시적인 조회 실패일 수 있지만, 신뢰할 수 있는 운영 이력을 확인할 수 없으므로 주의가 필요합니다."
+        "이 도메인에 대한 RDAP 기반 등록일 설명을 추가로 생성하지 못했습니다.\n"
+        "  다른 특징(주소 구조·브랜드 유사도 등)과 함께 종합적으로 판단하는 편이 좋습니다."
     ]
 
 def build_ssl_explanations(url: str, feat_map: Dict[str, float], probability: float) -> List[str]:
@@ -2715,7 +2728,7 @@ def build_ssl_explanations(url: str, feat_map: Dict[str, float], probability: fl
             f"이 사이트의 보안 인증서 만료일이 가까워지고 있습니다. (남은 기간: {remaining_days_i}일)\n"
             "  인증서 관리 상태가 불안정할 수 있으므로 주의가 필요합니다."
         )
-    elif valid_days_i <= 90:
+    elif valid_days_i <= 30:
         reasons.append(
             f"이 사이트는 보안 인증서 사용 기간이 매우 짧아 신뢰도가 낮을 수 있습니다. "
             f"(인증서 유효기간: {valid_days_i}일 / 남은 기간: {remaining_days_i}일)\n"
@@ -2823,6 +2836,97 @@ def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probabil
     return reasons
 
 
+def _domain_rdap_ssl_no_immediate_risk(feat_map: Dict[str, float]) -> bool:
+    """등록·SSL을 살펴볼 때 '즉각적인 위험'을 단정하지 않아도 되는지 여부."""
+    if float(feat_map.get("ssl_missing", 0.0)) >= 1.0:
+        return False
+    if float(feat_map.get("ssl_status_no_cert", 0.0)) >= 1.0:
+        return False
+    if float(feat_map.get("rdap_status_not_registered", 0.0)) >= 1.0:
+        return False
+
+    if float(feat_map.get("rdap_status_lookup_failed", 0.0)) >= 1.0:
+        return False
+
+    rdap_status_ok = float(feat_map.get("rdap_status_ok", 0.0))
+    rdap_status_parse_failed = float(feat_map.get("rdap_status_parse_failed", 0.0))
+    domain_age_days = float(feat_map.get("domain_age_days", 0.0))
+
+    ssl_valid_days = float(feat_map.get("ssl_valid_days", 0.0))
+    ssl_remaining_days = float(feat_map.get("ssl_remaining_days", 0.0))
+    ssl_age_days = float(feat_map.get("ssl_age_days", 0.0))
+
+    valid_days_i = max(0, int(ssl_valid_days))
+    remaining_days_i = max(0, int(ssl_remaining_days))
+    age_days_i = max(0, int(ssl_age_days))
+    days = max(0, int(domain_age_days))
+
+    ssl_risky = False
+    if remaining_days_i <= 30:
+        ssl_risky = True
+    elif valid_days_i <= 30:
+        ssl_risky = True
+    elif age_days_i <= 7:
+        ssl_risky = True
+
+    if rdap_status_parse_failed >= 1.0:
+        return not ssl_risky
+
+    if rdap_status_ok >= 1.0:
+        dom_risky = days <= 365
+        return not dom_risky and not ssl_risky
+
+    return not ssl_risky
+
+
+def _compose_benign_explanations(
+    typo_probability: float,
+    domain_feat_map: Dict[str, float],
+    domain_probability: float,
+    dom_probability: float,
+    threshold: float = 0.5,
+) -> List[str]:
+    """정상 판정용 상세 근거(최대 2문장, 악성·의심 톤 없음)."""
+    out: List[str] = []
+    low_typo = typo_probability < threshold
+    low_domain = domain_probability < threshold
+    low_dom = dom_probability < threshold
+    reg_ssl_ok = _domain_rdap_ssl_no_immediate_risk(domain_feat_map)
+
+    typo_clause = low_typo
+    domain_clause = low_domain and reg_ssl_ok
+
+    if typo_clause and domain_clause:
+        out.append(
+            "이 사이트는 브랜드 사칭이나 철자 조작으로 볼 만한 뚜렷한 패턴이 발견되지 않았고, "
+            "도메인 등록 정보와 보안 연결에서도 즉각적인 위험 신호가 확인되지 않았습니다."
+        )
+    elif typo_clause:
+        out.append(
+            "이 사이트는 브랜드 사칭이나 철자 조작으로 볼 만한 뚜렷한 패턴이 발견되지 않았습니다."
+        )
+    elif domain_clause:
+        out.append(
+            "이 사이트는 도메인 등록 정보와 보안 연결에서 즉각적인 위험 신호가 확인되지 않았습니다."
+        )
+
+    if low_dom and len(out) < 2:
+        out.append(
+            "페이지 구조에서도 위장 화면이나 비정상적인 링크 패턴이 강하게 나타나지 않아 "
+            "정상 사이트로 판단되었습니다."
+        )
+
+    if not out:
+        out.append(
+            "뚜렷한 위험 신호가 확인되지 않아 정상 사이트로 판단되었습니다."
+        )
+
+    if len(out) > 2:
+        out = out[:2]
+
+    return out
+
+
 def _compose_final_explanations(
     url: str,
     typo_feat_map: Dict[str, float],
@@ -2831,11 +2935,22 @@ def _compose_final_explanations(
     domain_probability: float,
     dom_feature_map: Dict[str, float],
     dom_probability: float,
+    verdict_label: Optional[int] = None,
+    threshold: float = 0.5,
 ) -> List[str]:
     """
     URL·도메인·SSL·DOM 신호를 나열하지 않고 짧은 상황 설명 1~2문단으로 합성한다.
     (판단 임계·피처 정의는 build_* 계열과 동일 조건을 유지한다.)
     """
+    if verdict_label == 0:
+        return _compose_benign_explanations(
+            typo_probability=typo_probability,
+            domain_feat_map=domain_feat_map,
+            domain_probability=domain_probability,
+            dom_probability=dom_probability,
+            threshold=threshold,
+        )
+
     out: List[str] = []
 
     def _narrative_typo_clause() -> Optional[Tuple[int, str]]:
@@ -2982,7 +3097,7 @@ def _compose_final_explanations(
                 ssl_mid = "만료가 임박한 보안 인증서"
             else:
                 ssl_mid = "만료가 가까운 보안 인증서"
-        elif valid_days_i <= 90:
+        elif valid_days_i <= 30:
             ssl_risky = True
             ssl_mid = "유효 기간이 매우 짧은 보안 인증서"
         elif age_days_i <= 7:
@@ -2992,13 +3107,18 @@ def _compose_final_explanations(
         if rdap_status_not_registered >= 1.0:
             return (1, "정상 등록 도메인으로 확인되지 않은 주소")
 
-        if rdap_status_lookup_failed >= 1.0 or rdap_status_parse_failed >= 1.0:
+        if rdap_status_lookup_failed >= 1.0:
+            if ssl_risky and ssl_mid:
+                return (35, ssl_mid)
+            return None
+
+        if rdap_status_parse_failed >= 1.0:
             if ssl_risky and ssl_mid:
                 return (
                     28,
-                    f"등록 정보를 확인하지 못한 주소에 {ssl_mid}까지 겹쳐 붙어 있는 모습",
+                    f"등록일 정보 해석에 실패한 상태에 {ssl_mid}까지 겹쳐 붙어 있는 모습",
                 )
-            return (30, "도메인 등록 정보를 확인하지 못한 주소")
+            return (30, "도메인 등록일 정보를 해석하지 못한 상태")
 
         if rdap_status_ok >= 1.0:
             dom_risky = days <= 365
@@ -3177,6 +3297,8 @@ def build_all_explanations(
     domain_probability: float,
     dom_feature_map: Dict[str, float],
     dom_probability: float,
+    verdict_label: Optional[int] = None,
+    threshold: float = 0.5,
 ) -> List[str]:
     return _compose_final_explanations(
         url=url,
@@ -3186,6 +3308,8 @@ def build_all_explanations(
         domain_probability=domain_probability,
         dom_feature_map=dom_feature_map,
         dom_probability=dom_probability,
+        verdict_label=verdict_label,
+        threshold=threshold,
     )
 
 
