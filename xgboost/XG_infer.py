@@ -12,6 +12,7 @@ from XG_core import (
     load_bundle,
     predict_url,
     predict_url_dom,
+    xgboost_ensemble_verdict_label,
 )
 
 def predict_url_domain(bundle, url: str):
@@ -50,16 +51,9 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
     _, prob_domain, domain_feature_map = predict_url_domain(bundle_domain, url)
     _, prob_dom, dom_feature_map = predict_url_dom(bundle_dom, url)
     final_probability = max(prob_typo, prob_domain, prob_dom)
-    if prob_typo >= 0.90 or prob_domain >= 0.90:
-        verdict_label = 1
-    elif (
-        (prob_typo >= 0.5 and prob_domain >= 0.5)
-        or (prob_typo >= 0.5 and prob_dom >= 0.5)
-        or (prob_domain >= 0.5 and prob_dom >= 0.5)
-    ):
-        verdict_label = 1
-    else:
-        verdict_label = 0
+    verdict_label = xgboost_ensemble_verdict_label(
+        prob_typo, prob_domain, prob_dom
+    )
     verdict = "malicious" if verdict_label == 1 else "benign"
     explanations = build_all_explanations(
         url=url,

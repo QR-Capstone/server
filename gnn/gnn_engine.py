@@ -100,7 +100,18 @@ BRAND_WORDS = {
     "naver",
     "netflix",
     "paypal",
+    "ledger",
+    "allegro",
+    "chase",
+    "crypto",
+    "trezor",
+    "youtube",  
+    "amazon",   
+    "twitter",  
+    "samsung",  
 }
+
+SUSPICIOUS_TLDS = {".pro", ".top", ".xyz", ".icu", ".club", ".vip", ".live", ".click", ".cfd", ".ng", ".site",}
 
 BRAND_DOMAIN_ALIASES = {
     "naver": {"naver", "pstatic"},
@@ -108,6 +119,13 @@ BRAND_DOMAIN_ALIASES = {
     "google": {"google", "gstatic", "googleusercontent"},
     "microsoft": {"microsoft", "live", "office", "windows"},
     "apple": {"apple", "icloud"},
+    "chase": {"chase"},
+     "crypto": {"crypto"},   
+    "trezor": {"trezor"},
+    "youtube": {"youtube", "youtu"},
+    "amazon": {"amazon", "amazonaws"},
+    "twitter": {"twitter", "twimg"},
+    "samsung": {"samsung"},
 }
 
 COMMON_SECOND_LEVEL_SUFFIXES = {
@@ -287,6 +305,8 @@ def _lexical_features(url: str) -> Dict[str, float]:
         "token_count": _cap(len(tokens), 24.0),
         "phish_word_ratio": _safe_ratio(phish_hits, len(tokens)),
         "brand_word_ratio": _safe_ratio(brand_hits, len(tokens)),
+        "brand_word_ratio": _safe_ratio(brand_hits, len(tokens)),
+        "suspicious_tld": 1.0 if any(host.endswith(tld) for tld in SUSPICIOUS_TLDS) else 0.0,
     }
 
 
@@ -854,7 +874,7 @@ def _structure_features(graph: WebGraph) -> Dict[str, float]:
     suspicious_input_ratio = _safe_ratio(counts.get("suspicious_input", 0), input_count)
     form_count = _cap(counts.get("form", 0), 8.0)
     external_form_ratio = _safe_ratio(counts.get("submits_to_external", 0), total_forms)
-    credential_surface = min(1.0, max(password_input_ratio, suspicious_input_ratio) + 0.35 * form_count)
+    credential_surface = min(1.0, max(password_input_ratio, suspicious_input_ratio) + 0.10 * form_count)
     brand_capture_mismatch = brand_mismatch * credential_surface
     external_submission_risk = external_form_ratio * max(password_input_ratio, suspicious_input_ratio, form_count)
 
@@ -949,6 +969,7 @@ def _structure_prior_logit(features: Dict[str, float]) -> float:
     risk += 0.35 * features.get("final_domain_changed", 0.0)
     risk += 0.30 * features.get("iframe_ratio", 0.0)
     risk += 0.20 * features.get("fetch_failed", 0.0)
+    risk += 0.60 * features.get("suspicious_tld", 0.0)
     risk -= 0.45 * features.get("internal_link_ratio", 0.0)
     risk -= 0.20 * features.get("is_https", 0.0)
     return max(-1.25, min(1.25, risk - 0.65))
@@ -1444,7 +1465,7 @@ def train_web_structure_gnn_model_from_samples(
     epochs: int = 120,
     learning_rate: float = 0.003,
     l2: float = 0.001,
-    threshold: float = 0.5,
+    threshold: float = 0.65,
     metadata_extra: Optional[Dict[str, Any]] = None,
 ) -> WebStructureGNNModel:
     _require_torch()
@@ -1532,103 +1553,53 @@ def _explain_gnn_load_error(exc: Exception) -> str:
         f"{MODEL_KIND} bundle. Detail: {type(exc).__name__}: {exc}"
     )
 
+def build_explanation(
+    evidence: Dict[str, Any],
+    features: Optional[Dict[str, float]] = None,
+    prob: float = 0.0,
+) -> str:
 
-def build_explanation(evidence: Dict[str, Any], features: Optional[Dict[str, float]] = None, prob: float = 0.0) -> str:
     if not evidence:
-        return "No evidence available."
+        return "보안 분석 정보를 불러오지 못했습니다."
 
     lines = []
-
-    # =========================
-    # 1. 전체 위험도
-    # =========================
-    if prob >= 0.8:
-        lines.append(f"🚨 매우 높은 위험 ({prob:.2f}) → 피싱 가능성 매우 큼")
-    elif prob >= 0.6:
-        lines.append(f"⚠️ 높은 위험 ({prob:.2f}) → 의심 사이트")
-    elif prob >= 0.4:
-        lines.append(f"🔍 중간 위험 ({prob:.2f}) → 추가 확인 필요")
-    else:
-        lines.append(f"✅ 낮은 위험 ({prob:.2f})")
-
-    # =========================
-    # 2. 상태 정보
-    # =========================
-    status = evidence.get("status")
-    if status and status >= 400:
-        lines.append(f"⚠️ 비정상 HTTP 상태코드: {status}")
-
-    if evidence.get("fetch_error"):
-        lines.append("⚠️ 페이지 로딩 실패 → 숨김/차단 가능성")
-
-    # =========================
-    # 3. 구조 기반
-    # =========================
     counts = evidence.get("counts", {})
+    password_count = counts.get("password_input", 0)
+    form_count = counts.get("form", 0)
+    iframe_count = counts.get("iframe", 0)
+    external_links = counts.get("links_to_external", 0)
+    internal_links = counts.get("links_to_internal", 0)
 
-    # 🔥 추가한 부분
-    final_url = evidence.get("final_url", "")
-    if "pages.dev" in final_url:
-        lines.append("🚨 무료 호스팅(pages.dev) 사용 → 피싱 악용 빈번")
+    # =========================================================
+    # 1. 최종 판정
+    # =========================================================
+    
+    if prob >= 0.85:
+        lines.append("🚨 매우 위험한 사이트입니다.")
+    elif prob >= 0.60:
+        lines.append("⚠️ 위험한 사이트입니다.")
+    elif prob >= 0.35:
+        lines.append("🟡 수상한 사이트입니다.")
+    else:
+        return "✅ 안전한 사이트입니다. 위험한 요소가 발견되지 않았습니다."
 
-    if evidence.get("nodes", 0) <= 3:
-        lines.append("⚠️ 페이지 구조가 비정상적으로 단순 → 가짜 페이지 가능성")
-
-    if counts.get("script", 0) > 0 and counts.get("link", 0) == 0:
-        lines.append("⚠️ 링크 없이 스크립트만 존재 → 동적 피싱 페이지 의심")
-
-    if counts.get("form", 0) > 0:
-        lines.append(f"🔑 사용자 입력 폼 존재 ({counts['form']}개)")
-
-    if counts.get("password_input", 0) > 0:
-        lines.append("🚨 비밀번호 입력 필드 존재 → 계정 탈취 위험")
-
-    if counts.get("iframe", 0) > 0:
-        lines.append("⚠️ iframe 사용 → 외부 페이지 삽입 가능성")
-
-    if counts.get("script", 0) > 10:
-        lines.append(f"⚠️ 스크립트 과다 ({counts['script']}개) → 악성 코드 가능성")
-
-    # =========================
-    # 4. Feature 기반
-    # =========================
     if features:
-        if features.get("external_form_ratio", 0) > 0.5:
-            lines.append("🚨 외부 서버로 데이터 전송 → 정보 탈취 위험")
-
-        if features.get("credential_surface", 0) > 0.5:
-            lines.append("🚨 로그인/결제 정보 수집 구조 감지")
-
         if features.get("brand_domain_mismatch", 0) > 0:
-            lines.append("🚨 브랜드 위장 (도메인 불일치)")
+            lines.append("AI 구조 분석 결과, 유명 브랜드 이름을 도용하고 있지만 실제 공식 주소와 일치하지 않는 가짜 사이트로 확인되었습니다.")
+        elif features.get("external_form_ratio", 0) > 0.4:
+            lines.append("AI 구조 분석 결과, 이 사이트에 입력한 정보가 전혀 관계없는 외부 서버로 전송되는 구조가 확인되었습니다.")
+        elif features.get("final_domain_changed", 0) > 0:
+            lines.append("AI 구조 분석 결과, 접속 과정에서 전혀 다른 주소로 자동 이동되는 피싱 수법이 감지되었습니다.")
+        elif iframe_count > 0:
+            lines.append("AI 구조 분석 결과, 사용자 눈에 보이지 않는 숨겨진 화면이 포함되어 있어 악성 사이트와 유사한 구조로 판단되었습니다.")
+        elif counts.get("script", 0) > 5:
+            lines.append("AI 구조 분석 결과, 외부에서 불러온 수상한 프로그램 코드가 다수 실행되고 있어 피싱 사이트와 유사한 패턴으로 판단되었습니다.")
+        elif external_links > 2:
+            lines.append("AI 구조 분석 결과, 정상 사이트에 비해 수상한 외부 주소와의 연결이 과도하게 많아 위험한 사이트로 판단되었습니다.")
+        else:
+            lines.append("AI 구조 분석 결과, 사이트 전체 연결 구조와 동작 패턴이 알려진 피싱 사이트와 유사하여 위험한 사이트로 판단되었습니다.")
+        return " ".join(lines)
 
-        if features.get("relation_weighted_risk", 0) > 0.5:
-            lines.append("⚠️ 페이지 구성 요소 간 위험 연결 높음")
-
-        if features.get("external_resource_ratio", 0) > 0.5:
-            lines.append("⚠️ 외부 리소스 과다 → 신뢰도 낮음")
-
-    # =========================
-    # 5. GNN 노드
-    # =========================
-    top_nodes = evidence.get("top_risk_nodes", [])
-    if top_nodes:
-        lines.append("\n🔥 GNN 주요 위험 요소:")
-        for node in top_nodes[:5]:
-            lines.append(f" - {node['node']} (risk={node['risk']})")
-
-    # =========================
-    # 6. 공격 유형
-    # =========================
-    if features:
-        if features.get("credential_surface", 0) > 0.5:
-            lines.append("\n🎯 공격 유형: 계정 탈취형 피싱")
-        elif features.get("external_form_ratio", 0) > 0.5:
-            lines.append("\n🎯 공격 유형: 정보 유출형 사이트")
-        elif features.get("brand_domain_mismatch", 0) > 0:
-            lines.append("\n🎯 공격 유형: 브랜드 사칭 피싱")
-
-    return "\n".join(lines)
 
 def predict_gnn(
     model: WebStructureGNNModel,
@@ -1639,7 +1610,13 @@ def predict_gnn(
     fetch = os.getenv("GNN_FETCH_PAGE", "1") != "0"
     sample, graph = graph_sample_for_url(url, fetch=fetch)
     prob_mal = float(model.predict_proba_from_sample(sample))
-    label = 1 if prob_mal >= model.threshold else 0
+    fmap_tmp = feature_map_from_graph(graph) if fetch else {}
+    
+    if fmap_tmp.get("suspicious_tld", 0.0) > 0:
+        prob_mal = min(1.0, prob_mal + 0.40)
+        label = 1
+    else:
+        label = 1 if prob_mal >= model.threshold else 0
     out = {
         "url": url,
         "probability": round(prob_mal, 6),
@@ -1650,6 +1627,20 @@ def predict_gnn(
     if fetch:
         evidence = model.evidence_from_graph(graph)
         out["graph_evidence"] = evidence
+
+                # 시각화용 그래프 데이터 생성
+        out["graph_visual"] = {
+            "nodes": list(graph.nodes),
+            "edges": [
+                {
+                    "source": src,
+                    "relation": rel,
+                    "target": dst
+                }
+                for src, rel, dst in graph.edges
+            ]
+        }
+
         fmap = feature_map_from_graph(graph)
         out["explanation"] = build_explanation(evidence, fmap, prob_mal)
     return out

@@ -65,7 +65,9 @@ class AsyncPlaywrightPool:
             viewport={'width': 390, 'height': 844}, # iPhone 14 해상도
             is_mobile=True,  # 모바일 브라우저 특성 활성화
             has_touch=True,  # 터치스크린 이벤트 활성화
-            accept_downloads=False
+            accept_downloads=False,
+            locale="ko-KR", 
+            extra_http_headers={"Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"}
         )
         page = await context.new_page()
         
@@ -100,13 +102,25 @@ class AsyncPlaywrightPool:
                 await page.wait_for_timeout(250)
                 wait_time += 0.25
 
-            # 🌟 [해결책 2] 해커의 함정 강제 발동 (Auto-Clicker)
+            # 🌟 [해결책 2] 방해물(앱 유도 팝업) 제거 및 해커의 함정 강제 발동
             try:
-                # 피싱 사이트가 주로 유도하는 '간편결제', 'N Pay' 관련 버튼을 강제로 클릭해봅니다.
+                # 1. 모바일 앱 설치 유도 팝업 강제 닫기 (번개장터, 당근마켓 등 우회)
+                close_targets = await page.locator("text=/괜찮아요, 모바일 웹에서 볼게요|웹에서 보기|다음에 하기|닫기|오늘 하루 보지 않기/i").all()
+                for target in close_targets[:2]: # 최대 2개까지만 찔러봄
+                    try:
+                        await target.click(timeout=800, force=True)
+                        await page.wait_for_timeout(500) # 팝업이 걷히는 시간 0.5초 대기
+                    except Exception:
+                        pass
+                
+                # 2. 피싱 사이트가 주로 유도하는 '결제' 관련 버튼 강제 클릭
                 click_targets = await page.locator("text=/간편결제|N Pay|Npay/i").all()
-                for target in click_targets[:2]: # 브라우저 지연 방지를 위해 최대 2개만 찔러봄
-                    await target.click(timeout=800, force=True)
-                    await page.wait_for_timeout(400) # 클릭 후 팝업(모달)이 뜰 때까지 0.4초 대기
+                for target in click_targets[:2]:
+                    try:
+                        await target.click(timeout=800, force=True)
+                        await page.wait_for_timeout(400) # 클릭 후 모달이 뜰 때까지 0.4초 대기
+                    except Exception:
+                        pass
             except Exception:
                 pass # 버튼이 없거나 클릭 불가능하면 부드럽게 패스
 
@@ -249,7 +263,10 @@ def extract_with_requests_and_raw_html(url: str):
     else:
         try:
             timeout = float(os.getenv("KOBERT_HTTP_TIMEOUT", "1.2")) 
-            response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
+            ko_headers = {
+                "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+            }
+            response = curl_requests.get(url, headers=ko_headers, impersonate="chrome116", timeout=timeout)
             raw_bytes = response.content
             
             try: 
@@ -369,9 +386,9 @@ def predict_phishing_result(target_url):
 
     is_http_vulnerable = target_url.lower().startswith("http://")
 
-    safe_tlds = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+    safe_tlds = [".go.kr", "ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     safe_official_domains = [
-        "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com",
+        "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com", "kebhana.com",
         "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", 
     ]
     legal_gambling_domains = [
@@ -441,44 +458,6 @@ def predict_phishing_result(target_url):
     print("\n▶ [1-Depth 메인 페이지 분석]")
     processed_text, raw_html = extract_with_requests_and_raw_html(target_url)
 
-    # 🌟 [신규 추가] 'Not Found' 페이지 감지 및 즉결 심판 로직
-    # 공백과 대소문자를 무시하고 핵심 텍스트만 비교합니다.
-    check_text = processed_text.lower().replace(" ", "").strip()
-    if check_text in ["notfound", "404notfound", "404", "404 Not Found"]:
-        print("  🚨 [즉결 심판] 존재하지 않는 페이지(Not Found)입니다! (단속을 피해 폐쇄된 피싱 사이트 의심)")
-        
-        ai_reason = "페이지가 삭제되었거나 존재하지 않습니다. 피싱 조직이 신고를 받고 도메인을 버렸거나, 추적을 피하기 위해 사이트를 임시로 폐쇄한 전형적인 '치고 빠지기' 상태로 판단되어 위험 사이트로 분류 및 차단합니다."
-        
-        final_json_report = {
-            "url": target_url,
-            "judgment": "unnormal",
-            "riskLevel": "HIGH",
-            "threat_score": 99.0,
-            "threat_type": "은닉/폐쇄된 피싱 사이트",
-            "site_category": "접속 불가",
-            "evidence": {
-                "heuristic_evidence": {
-                    "detected_actions": ["페이지 폐쇄/숨김"],
-                    "rule_trigger": "Not Found 에러 페이지 감지"
-                },
-                "ai_semantic_evidence": {
-                    "suspect_sentence": "Not Found", 
-                    "ai_inference_logic": ai_reason
-                }
-            }
-        }
-        
-        # 앱 UI 콘솔 출력
-        print("\n" + "■"*60)
-        print("📱 [Quishing Defender UI 미리보기]")
-        print("-" * 60)
-        print("🚨 [접속 차단됨] 은닉/폐쇄된 피싱 사이트!")
-        print(f"💬 {ai_reason}\n")
-        print("■"*60 + "\n")
-        
-        return final_json_report
-    # ====================================================
-
     if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
         print("  🚨 [즉결 심판] Cloudflare에서 이미 차단된 피싱 사이트입니다! (AI 검사 생략)")
         
@@ -497,6 +476,52 @@ def predict_phishing_result(target_url):
     if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
         print("  ❌ [오류] 사이트 접속 불가 (Timeout 등)")
         return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "detectedUrl": target_url}
+
+        # ====================================================
+    # 🌟 [위치 이동됨!] 'Not Found' 페이지 감지 및 즉결 심판 로직
+    # ====================================================
+    processed_text_lower = processed_text.lower()
+    error_keywords = ["not found", "404 not found", "404", "페이지를 찾을 수 없습니다", "페이지가 삭제"]
+
+    # 💡 에러 키워드 중 텍스트에 포함된 '첫 번째 단어'를 잡아냅니다.
+    matched_keyword = next((keyword for keyword in error_keywords if keyword in processed_text_lower), None)
+
+    if matched_keyword:
+        print(f"  🚨 [즉결 심판] 존재하지 않는 페이지({matched_keyword})입니다! (단속을 피해 폐쇄된 피싱 사이트 의심)")
+        
+        # 💡 작성자님이 원하신 대로 감지된 키워드를 ai_reason에 동적으로 삽입합니다!
+        ai_reason = f"분석 중 '{matched_keyword}' 문구가 감지되어, 페이지가 삭제되었거나 존재하지 않는다는 것을 확인하였습니다. 피싱 조직이 신고를 받고 도메인을 버렸거나, 추적을 피하기 위해 사이트를 임시로 폐쇄한 전형적인 '치고 빠지기' 상태로 판단되어 위험 사이트로 분류 및 차단합니다."
+        
+        final_json_report = {
+            "url": target_url,
+            "judgment": "unnormal",
+            "riskLevel": "HIGH",
+            "threat_score": 99.0,
+            "threat_type": "은닉/폐쇄된 피싱 사이트",
+            "site_category": "접속 불가",
+            "evidence": {
+                "heuristic_evidence": {
+                    "detected_actions": ["페이지 폐쇄/숨김"],
+                    "rule_trigger": f"에러 페이지 감지 ({matched_keyword})" # 증거에도 걸린 단어 추가
+                },
+                "ai_semantic_evidence": {
+                    "suspect_sentence": f"감지된 에러 텍스트: '{matched_keyword}'", 
+                    "ai_inference_logic": ai_reason
+                }
+            }
+        }
+        
+        # 앱 UI 콘솔 출력
+        print("\n" + "■"*60)
+        print("📱 [Quishing Defender UI 미리보기]")
+        print("-" * 60)
+        print("🚨 [접속 차단됨] 은닉/폐쇄된 피싱 사이트!")
+        print(f"💬 {ai_reason}\n")
+        print("■"*60 + "\n")
+        
+        return final_json_report
+    # ====================================================
+    # ====================================================
 
     # ====================================================
     # 🌟 [신규 추가] Form Action 무단 유출 즉결 심판 (메신저 API 등)
