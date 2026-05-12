@@ -561,7 +561,7 @@ _DOMAIN_AGE_DISABLED = {
     "rdap_status_lookup_failed": 0.0,
     "rdap_status_parse_failed": 0.0,
 }
-_DOMAIN_AGE_CACHE: Dict[str, Dict[str, float]] = {}
+_DOMAIN_AGE_CACHE: Dict[str, Dict[str, Any]] = {}
 _NETWORK_CACHE: Dict[str, Dict[str, Any]] = {}
 
 def normalize_host_for_network(url: str) -> Dict[str, Any]:
@@ -762,7 +762,7 @@ def _compute_domain_age_days(created_at: datetime, now: Optional[datetime] = Non
     age_days = max(0.0, (reference_time - created_at).total_seconds() / 86400.0)
     return float(min(age_days, _DOMAIN_AGE_MAX_DAYS))
 
-def extract_domain_age_features(url: str) -> Dict[str, float]:
+def extract_domain_age_features(url: str) -> Dict[str, Any]:
     network_info = normalize_host_for_network(url)
     registered_domain = str(network_info.get("ascii_registered_domain", "") or "")
     print(f"[DOMAIN DEBUG] url={url}")
@@ -802,7 +802,11 @@ def extract_domain_age_features(url: str) -> Dict[str, float]:
 
     domain_age_days = _compute_domain_age_days(created_at)
     print(f"[DOMAIN DEBUG] domain_age_days={domain_age_days}")
-    features = {
+    created_ref = created_at
+    if getattr(created_ref, "tzinfo", None) is not None:
+        created_ref = created_ref.astimezone(timezone.utc)
+    rdap_creation_date_iso = created_ref.date().isoformat()
+    features: Dict[str, Any] = {
         "domain_age_days": float(domain_age_days),
         "domain_age_log_days": float(math.log1p(domain_age_days)),
         "domain_age_missing": 0.0,
@@ -810,11 +814,12 @@ def extract_domain_age_features(url: str) -> Dict[str, float]:
         "rdap_status_not_registered": 0.0,
         "rdap_status_lookup_failed": 0.0,
         "rdap_status_parse_failed": 0.0,
+        "rdap_creation_date_iso": rdap_creation_date_iso,
     }
     _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
     return dict(features)
 
-def get_domain_age_features_for_mode(url: str, enable_domain_age: bool) -> Dict[str, float]:
+def get_domain_age_features_for_mode(url: str, enable_domain_age: bool) -> Dict[str, Any]:
     if not enable_domain_age:
         return dict(_DOMAIN_AGE_DISABLED)
     return extract_domain_age_features(url)
@@ -981,6 +986,13 @@ def _bucketize_ssl_features(
     ssl_age_days: float,
     ssl_missing: float,
 ) -> Dict[str, float]:
+    # Legacy bundle slots (54-feature models): keep names for schema alignment;
+    # do not derive from ssl_remaining_days — always neutral for inference.
+    _ssl_expires_placeholders = {
+        "ssl_expires_very_soon": 0.0,
+        "ssl_expires_soon": 0.0,
+        "ssl_expires_far": 0.0,
+    }
     if ssl_missing >= 1.0:
         return {
             "ssl_is_short_lived": 0.0,
@@ -989,6 +1001,7 @@ def _bucketize_ssl_features(
             "ssl_is_very_new": 0.0,
             "ssl_is_recent": 0.0,
             "ssl_is_mature": 0.0,
+            **_ssl_expires_placeholders,
         }
 
     return {
@@ -998,13 +1011,14 @@ def _bucketize_ssl_features(
         "ssl_is_very_new": 1.0 if ssl_age_days <= 7.0 else 0.0,
         "ssl_is_recent": 1.0 if 7.0 < ssl_age_days <= 30.0 else 0.0,
         "ssl_is_mature": 1.0 if ssl_age_days > 30.0 else 0.0,
+        **_ssl_expires_placeholders,
     }
 
 def extract_domain_only_features(
     url: str,
     enable_domain_age: bool,
     enable_ssl: bool = False,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     features = get_domain_age_features_for_mode(url, enable_domain_age)
     features.update(
         _bucketize_domain_age_features(
@@ -1793,6 +1807,10 @@ FEATURE_NAMES: List[str] = [
     "ssl_is_very_new",
     "ssl_is_recent",
     "ssl_is_mature",
+    # Legacy SSL expiry buckets (fixed 0.0 at inference; see _bucketize_ssl_features)
+    "ssl_expires_very_soon",
+    "ssl_expires_soon",
+    "ssl_expires_far",
 ]
 
 _FEATURE_LABELS_KO: Dict[str, str] = {
@@ -2038,6 +2056,9 @@ def extract_features(
             float(ssl_bucket_feats["ssl_is_very_new"]),
             float(ssl_bucket_feats["ssl_is_recent"]),
             float(ssl_bucket_feats["ssl_is_mature"]),
+            float(ssl_bucket_feats["ssl_expires_very_soon"]),
+            float(ssl_bucket_feats["ssl_expires_soon"]),
+            float(ssl_bucket_feats["ssl_expires_far"]),
         ],
         dtype=np.float32,
     )
@@ -2326,7 +2347,7 @@ def predict_url(
     enable_domain_age: Optional[bool] = None,
     enable_ssl: Optional[bool] = None,
     domain_only: Optional[bool] = None,
-) -> Tuple[int, float, Dict[str, float]]:
+) -> Tuple[int, float, Dict[str, Any]]:
     if enable_domain_age is None:
         enable_domain_age = bool(bundle.meta.get("enable_domain_age", False))
     if enable_ssl is None:
@@ -2351,7 +2372,7 @@ def predict_url(
         feats = feats[:base_n]
     proba = float(predict_proba(bundle.model, X)[0])
     label = 1 if proba >= 0.5 else 0
-    feat_map = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
+    feat_map: Dict[str, Any] = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
     domain_age_meta = get_domain_age_features_for_mode(url, bool(enable_domain_age))
     for key in (
         "rdap_status_ok",
@@ -2361,6 +2382,13 @@ def predict_url(
     ):
         if key in domain_age_meta:
             feat_map[key] = float(domain_age_meta[key])
+    iso = domain_age_meta.get("rdap_creation_date_iso")
+    if isinstance(iso, str) and iso.strip():
+        feat_map["rdap_creation_date_iso"] = iso.strip()
+    ssl_meta = get_ssl_features_for_mode(url, bool(enable_ssl))
+    for key in ("ssl_status_no_cert", "ssl_status_lookup_failed"):
+        if key in ssl_meta:
+            feat_map[key] = float(ssl_meta[key])
     return label, proba, feat_map
 
 def predict_url_dom(
@@ -2903,52 +2931,154 @@ def _domain_rdap_ssl_no_immediate_risk(feat_map: Dict[str, float]) -> bool:
     return not ssl_risky
 
 
-def _compose_benign_explanations(
+def _coalesce_host_len_from_typo_map(feat_map: Dict[str, Any]) -> float:
+    host_len_raw = float(feat_map.get("host_len", 0.0))
+    host_len_scaled = float(feat_map.get("host_length", 0.0))
+    return host_len_raw if host_len_raw > 0.0 else host_len_scaled * 50.0
+
+
+def _typo_features_support_benign_line(feat_map: Dict[str, Any]) -> bool:
+    """타이포·주소 구조 피처가 '강한 의심' 구간에 들어가지 않을 때만 True."""
+    if float(feat_map.get("has_ip_host", 0.0)) >= 1.0:
+        return False
+    host_len = _coalesce_host_len_from_typo_map(feat_map)
+    if host_len > 45.0:
+        return False
+    if host_len > 0.0 and host_len < 6.0:
+        return False
+    if float(feat_map.get("num_hyphens", 0.0)) >= 2.0:
+        return False
+    if float(feat_map.get("num_subdomains", 0.0)) >= 3.0:
+        return False
+    if float(feat_map.get("domain_homoglyph_ratio", 0.0)) >= 0.05:
+        return False
+    if float(feat_map.get("domain_vowel_like_digit_count", 0.0)) >= 1.0:
+        return False
+    if float(feat_map.get("host_contains_brand_token", 0.0)) >= 1.0:
+        return False
+    if float(feat_map.get("brand_token_in_subdomain", 0.0)) >= 1.0:
+        return False
+    if float(feat_map.get("brand_plus_keyword_pattern", 0.0)) >= 1.0:
+        return False
+    if float(feat_map.get("brand_hyphen_compound", 0.0)) >= 1.0:
+        return False
+    if float(feat_map.get("brand_target_action_pattern", 0.0)) >= 1.0:
+        return False
+    if float(feat_map.get("sld_3gram_jaccard_closest_brand", 0.0)) >= 0.6:
+        return False
+    if float(feat_map.get("sld_damerau_levenshtein_closest_brand", 999.0)) <= 2.0:
+        return False
+    if float(feat_map.get("sld_normalized_edit_distance", 1.0)) <= 0.35:
+        return False
+    return True
+
+
+def _benign_typo_explanation_line(
+    typo_feat_map: Dict[str, Any],
     typo_probability: float,
-    domain_feat_map: Dict[str, float],
-    domain_probability: float,
-    dom_probability: float,
+    threshold: float,
+) -> Optional[str]:
+    if typo_probability >= threshold:
+        return None
+    if not _typo_features_support_benign_line(typo_feat_map):
+        return None
+    return (
+        "이 주소는 일반적인 사이트 주소 형태와 크게 다르지 않은 것으로 확인되었고, "
+        "브랜드를 흉내 내거나 철자를 교묘하게 바꾼 듯한 강한 의심 패턴은 보이지 않으며, "
+        "과도하게 긴 서브도메인이나 숫자·특수문자가 섞인 비정상적인 구성도 두드러지지 않습니다."
+    )
+
+
+def _benign_domain_age_explanation_line(domain_feat_map: Dict[str, Any]) -> Optional[str]:
+    if float(domain_feat_map.get("rdap_status_not_registered", 0.0)) >= 1.0:
+        return None
+    if float(domain_feat_map.get("rdap_status_lookup_failed", 0.0)) >= 1.0:
+        return None
+    if float(domain_feat_map.get("rdap_status_parse_failed", 0.0)) >= 1.0:
+        return None
+    if float(domain_feat_map.get("rdap_status_ok", 0.0)) < 1.0:
+        return None
+    days = float(domain_feat_map.get("domain_age_days", 0.0))
+    if days <= 365.0:
+        return None
+    iso = domain_feat_map.get("rdap_creation_date_iso")
+    if isinstance(iso, str) and len(iso.strip()) >= 10:
+        d = iso.strip()[:10]
+        return (
+            f"이 주소의 도메인은 {d}에 등록된 오래된 도메인으로 확인되었고, "
+            "오랫동안 운영된 주소로 기본적인 신뢰 조건을 만족합니다."
+        )
+    return (
+        "이 주소의 도메인은 등록 이력이 오랜 편으로 확인되었고, "
+        "오랫동안 운영된 주소로 기본적인 신뢰 조건을 만족합니다."
+    )
+
+
+def _benign_ssl_explanation_line(domain_feat_map: Dict[str, Any]) -> Optional[str]:
+    if float(domain_feat_map.get("ssl_missing", 1.0)) >= 1.0:
+        return None
+    if float(domain_feat_map.get("ssl_status_no_cert", 0.0)) >= 1.0:
+        return None
+    if float(domain_feat_map.get("ssl_status_lookup_failed", 0.0)) >= 1.0:
+        return None
+    valid_days_i = max(0, int(float(domain_feat_map.get("ssl_valid_days", 0.0))))
+    remaining_days_i = max(0, int(float(domain_feat_map.get("ssl_remaining_days", 0.0))))
+    age_days_i = max(0, int(float(domain_feat_map.get("ssl_age_days", 0.0))))
+    if remaining_days_i <= 30 or valid_days_i <= 30 or age_days_i <= 7:
+        return None
+    return (
+        "보안 인증서가 정상적으로 확인되었으며, "
+        "현재 안전한 보안 연결로 이용되는 것으로 보입니다."
+    )
+
+
+def _benign_dom_explanation_line(dom_feature_map: Dict[str, Any]) -> Optional[str]:
+    if float(dom_feature_map.get("dom_fetch_failed", 1.0)) >= 1.0:
+        return None
+    if float(dom_feature_map.get("suspicious_form_action", 0.0)) >= 1.0:
+        return None
+    if int(float(dom_feature_map.get("hidden_tags_count", 0.0))) > 5:
+        return None
+    if float(dom_feature_map.get("dead_link_ratio", 0.0)) > 5.0:
+        return None
+    return (
+        "페이지 내부에서 개인정보 입력을 다른 곳으로 몰래 보내는 듯한 강한 의심 동작은 확인되지 않았고, "
+        "화면을 숨기거나 속이려는 비정상적인 구조도 뚜렷하지 않으며, "
+        "페이지 연결 구조에서도 즉각적인 위험 신호는 보이지 않습니다."
+    )
+
+
+def _compose_benign_explanations(
+    typo_feat_map: Dict[str, Any],
+    typo_probability: float,
+    domain_feat_map: Dict[str, Any],
+    _domain_probability: float,
+    dom_feature_map: Dict[str, Any],
+    _dom_probability: float,
     threshold: float = 0.5,
 ) -> List[str]:
-    """정상 판정용 상세 근거(최대 2문장, 악성·의심 톤 없음)."""
+    """
+    정상(verdict benign) 전용 상세 근거. 실제로 확인된 조건만 1~3줄로 담는다.
+    (_domain_probability·_dom_probability는 호출부 호환용이며 근거 생성에는 사용하지 않는다.)
+    """
     out: List[str] = []
-    low_typo = typo_probability < threshold
-    low_domain = domain_probability < threshold
-    low_dom = dom_probability < threshold
-    reg_ssl_ok = _domain_rdap_ssl_no_immediate_risk(domain_feat_map)
-
-    typo_clause = low_typo
-    domain_clause = low_domain and reg_ssl_ok
-
-    if typo_clause and domain_clause:
-        out.append(
-            "이 사이트는 브랜드 사칭이나 철자 조작으로 볼 만한 뚜렷한 패턴이 발견되지 않았고, "
-            "도메인 등록 정보와 보안 연결에서도 즉각적인 위험 신호가 확인되지 않았습니다."
-        )
-    elif typo_clause:
-        out.append(
-            "이 사이트는 브랜드 사칭이나 철자 조작으로 볼 만한 뚜렷한 패턴이 발견되지 않았습니다."
-        )
-    elif domain_clause:
-        out.append(
-            "이 사이트는 도메인 등록 정보와 보안 연결에서 즉각적인 위험 신호가 확인되지 않았습니다."
-        )
-
-    if low_dom and len(out) < 2:
-        out.append(
-            "페이지 구조에서도 위장 화면이나 비정상적인 링크 패턴이 강하게 나타나지 않아 "
-            "정상 사이트로 판단되었습니다."
-        )
+    typo_line = _benign_typo_explanation_line(typo_feat_map, typo_probability, threshold)
+    if typo_line:
+        out.append(typo_line)
+    domain_line = _benign_domain_age_explanation_line(domain_feat_map)
+    if domain_line and len(out) < 3:
+        out.append(domain_line)
+    ssl_line = _benign_ssl_explanation_line(domain_feat_map)
+    if ssl_line and len(out) < 3:
+        out.append(ssl_line)
+    dom_line = _benign_dom_explanation_line(dom_feature_map)
+    if dom_line and len(out) < 3:
+        out.append(dom_line)
 
     if not out:
-        out.append(
-            "뚜렷한 위험 신호가 확인되지 않아 정상 사이트로 판단되었습니다."
-        )
+        out.append("뚜렷한 위험 신호가 확인되지 않아 정상으로 판단되었습니다.")
 
-    if len(out) > 2:
-        out = out[:2]
-
-    return out
+    return out[:3]
 
 
 def _compose_final_explanations(
@@ -2968,10 +3098,12 @@ def _compose_final_explanations(
     """
     if verdict_label == 0:
         return _compose_benign_explanations(
+            typo_feat_map=typo_feat_map,
             typo_probability=typo_probability,
             domain_feat_map=domain_feat_map,
-            domain_probability=domain_probability,
-            dom_probability=dom_probability,
+            _domain_probability=domain_probability,
+            dom_feature_map=dom_feature_map,
+            _dom_probability=dom_probability,
             threshold=threshold,
         )
 
