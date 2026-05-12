@@ -461,7 +461,7 @@ def predict_phishing_result(target_url):
     # 🌟 [신규 추가] 'Not Found' 페이지 감지 및 즉결 심판 로직
     # 공백과 대소문자를 무시하고 핵심 텍스트만 비교합니다.
     check_text = processed_text.lower().replace(" ", "").strip()
-    if check_text in ["notfound", "404notfound", "404", "404 Not Found"]:
+    if check_text in ["notfound", "404notfound", "404", "404 Not Found", "페이지를 찾을 수 없습니다","페이지가 삭제"]:
         print("  🚨 [즉결 심판] 존재하지 않는 페이지(Not Found)입니다! (단속을 피해 폐쇄된 피싱 사이트 의심)")
         
         ai_reason = "페이지가 삭제되었거나 존재하지 않습니다. 피싱 조직이 신고를 받고 도메인을 버렸거나, 추적을 피하기 위해 사이트를 임시로 폐쇄한 전형적인 '치고 빠지기' 상태로 판단되어 위험 사이트로 분류 및 차단합니다."
