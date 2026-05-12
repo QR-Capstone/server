@@ -458,10 +458,31 @@ def predict_phishing_result(target_url):
     print("\n▶ [1-Depth 메인 페이지 분석]")
     processed_text, raw_html = extract_with_requests_and_raw_html(target_url)
 
-    # 🌟 [신규 추가] 'Not Found' 페이지 감지 및 즉결 심판 로직
-    # 공백과 대소문자를 무시하고 핵심 텍스트만 비교합니다.
-    check_text = processed_text.lower().replace(" ", "").strip()
-    if check_text in ["notfound", "404notfound", "404", "404 Not Found", "페이지를 찾을 수 없습니다","페이지가 삭제"]:
+    if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
+        print("  🚨 [즉결 심판] Cloudflare에서 이미 차단된 피싱 사이트입니다! (AI 검사 생략)")
+        
+        evidence_dict = {
+            "suspect_sentence": "Cloudflare 악성 사이트 경고 화면",
+            "ai_reason": "글로벌 보안 네트워크(Cloudflare)에서 이미 악성 피싱 사이트로 블랙리스트에 등재되어 차단된 페이지입니다. AI 검사를 생략하고 즉시 접속을 원천 차단합니다."
+        }
+        return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url, "evidence": evidence_dict}
+    
+    if len(processed_text) < 150 or processed_text.startswith("[오류]"):
+        print("  ⚠️ [알림] 텍스트 부족/오류 감지! 메인 페이지 정밀 스캔(Playwright) 기동...")
+        if use_pw:
+            try: processed_text, raw_html = extract_with_playwright_and_raw_html(target_url, is_warmup=False)
+            except Exception: pass
+
+    if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
+        print("  ❌ [오류] 사이트 접속 불가 (Timeout 등)")
+        return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "detectedUrl": target_url}
+
+        # 🌟 [신규 추가] 'Not Found' 페이지 감지 및 즉결 심판 로직
+    # 소문자로 변환한 뒤, any() 함수를 이용해 핵심 키워드가 '포함'되어 있는지 검사합니다.
+    processed_text_lower = processed_text.lower()
+    error_keywords = ["not found", "404 not found", "404", "페이지를 찾을 수 없습니다", "페이지가 삭제"]
+    
+    if any(keyword in processed_text_lower for keyword in error_keywords):
         print("  🚨 [즉결 심판] 존재하지 않는 페이지(Not Found)입니다! (단속을 피해 폐쇄된 피싱 사이트 의심)")
         
         ai_reason = "페이지가 삭제되었거나 존재하지 않습니다. 피싱 조직이 신고를 받고 도메인을 버렸거나, 추적을 피하기 위해 사이트를 임시로 폐쇄한 전형적인 '치고 빠지기' 상태로 판단되어 위험 사이트로 분류 및 차단합니다."
@@ -495,25 +516,6 @@ def predict_phishing_result(target_url):
         
         return final_json_report
     # ====================================================
-
-    if "Suspected phishing site" in processed_text or "Cloudflare Ray ID" in processed_text:
-        print("  🚨 [즉결 심판] Cloudflare에서 이미 차단된 피싱 사이트입니다! (AI 검사 생략)")
-        
-        evidence_dict = {
-            "suspect_sentence": "Cloudflare 악성 사이트 경고 화면",
-            "ai_reason": "글로벌 보안 네트워크(Cloudflare)에서 이미 악성 피싱 사이트로 블랙리스트에 등재되어 차단된 페이지입니다. AI 검사를 생략하고 즉시 접속을 원천 차단합니다."
-        }
-        return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url, "evidence": evidence_dict}
-    
-    if len(processed_text) < 150 or processed_text.startswith("[오류]"):
-        print("  ⚠️ [알림] 텍스트 부족/오류 감지! 메인 페이지 정밀 스캔(Playwright) 기동...")
-        if use_pw:
-            try: processed_text, raw_html = extract_with_playwright_and_raw_html(target_url, is_warmup=False)
-            except Exception: pass
-
-    if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
-        print("  ❌ [오류] 사이트 접속 불가 (Timeout 등)")
-        return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "detectedUrl": target_url}
 
     # ====================================================
     # 🌟 [신규 추가] Form Action 무단 유출 즉결 심판 (메신저 API 등)
