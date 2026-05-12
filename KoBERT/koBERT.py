@@ -65,7 +65,9 @@ class AsyncPlaywrightPool:
             viewport={'width': 390, 'height': 844}, # iPhone 14 해상도
             is_mobile=True,  # 모바일 브라우저 특성 활성화
             has_touch=True,  # 터치스크린 이벤트 활성화
-            accept_downloads=False
+            accept_downloads=False,
+            locale="ko-KR", 
+            extra_http_headers={"Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"}
         )
         page = await context.new_page()
         
@@ -100,13 +102,25 @@ class AsyncPlaywrightPool:
                 await page.wait_for_timeout(250)
                 wait_time += 0.25
 
-            # 🌟 [해결책 2] 해커의 함정 강제 발동 (Auto-Clicker)
+            # 🌟 [해결책 2] 방해물(앱 유도 팝업) 제거 및 해커의 함정 강제 발동
             try:
-                # 피싱 사이트가 주로 유도하는 '간편결제', 'N Pay' 관련 버튼을 강제로 클릭해봅니다.
+                # 1. 모바일 앱 설치 유도 팝업 강제 닫기 (번개장터, 당근마켓 등 우회)
+                close_targets = await page.locator("text=/괜찮아요, 모바일 웹에서 볼게요|웹에서 보기|다음에 하기|닫기|오늘 하루 보지 않기/i").all()
+                for target in close_targets[:2]: # 최대 2개까지만 찔러봄
+                    try:
+                        await target.click(timeout=800, force=True)
+                        await page.wait_for_timeout(500) # 팝업이 걷히는 시간 0.5초 대기
+                    except Exception:
+                        pass
+                
+                # 2. 피싱 사이트가 주로 유도하는 '결제' 관련 버튼 강제 클릭
                 click_targets = await page.locator("text=/간편결제|N Pay|Npay/i").all()
-                for target in click_targets[:2]: # 브라우저 지연 방지를 위해 최대 2개만 찔러봄
-                    await target.click(timeout=800, force=True)
-                    await page.wait_for_timeout(400) # 클릭 후 팝업(모달)이 뜰 때까지 0.4초 대기
+                for target in click_targets[:2]:
+                    try:
+                        await target.click(timeout=800, force=True)
+                        await page.wait_for_timeout(400) # 클릭 후 모달이 뜰 때까지 0.4초 대기
+                    except Exception:
+                        pass
             except Exception:
                 pass # 버튼이 없거나 클릭 불가능하면 부드럽게 패스
 
@@ -249,7 +263,10 @@ def extract_with_requests_and_raw_html(url: str):
     else:
         try:
             timeout = float(os.getenv("KOBERT_HTTP_TIMEOUT", "1.2")) 
-            response = curl_requests.get(url, impersonate="chrome116", timeout=timeout)
+            ko_headers = {
+                "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+            }
+            response = curl_requests.get(url, headers=ko_headers, impersonate="chrome116", timeout=timeout)
             raw_bytes = response.content
             
             try: 
@@ -369,9 +386,9 @@ def predict_phishing_result(target_url):
 
     is_http_vulnerable = target_url.lower().startswith("http://")
 
-    safe_tlds = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+    safe_tlds = [".go.kr", "ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     safe_official_domains = [
-        "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com",
+        "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com", "kebhana.com",
         "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", 
     ]
     legal_gambling_domains = [
