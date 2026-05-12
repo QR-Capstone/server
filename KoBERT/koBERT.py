@@ -477,15 +477,20 @@ def predict_phishing_result(target_url):
         print("  ❌ [오류] 사이트 접속 불가 (Timeout 등)")
         return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "detectedUrl": target_url}
 
-        # 🌟 [신규 추가] 'Not Found' 페이지 감지 및 즉결 심판 로직
-    # 소문자로 변환한 뒤, any() 함수를 이용해 핵심 키워드가 '포함'되어 있는지 검사합니다.
+        # ====================================================
+    # 🌟 [위치 이동됨!] 'Not Found' 페이지 감지 및 즉결 심판 로직
+    # ====================================================
     processed_text_lower = processed_text.lower()
     error_keywords = ["not found", "404 not found", "404", "페이지를 찾을 수 없습니다", "페이지가 삭제"]
-    
-    if any(keyword in processed_text_lower for keyword in error_keywords):
-        print("  🚨 [즉결 심판] 존재하지 않는 페이지(Not Found)입니다! (단속을 피해 폐쇄된 피싱 사이트 의심)")
+
+    # 💡 에러 키워드 중 텍스트에 포함된 '첫 번째 단어'를 잡아냅니다.
+    matched_keyword = next((keyword for keyword in error_keywords if keyword in processed_text_lower), None)
+
+    if matched_keyword:
+        print(f"  🚨 [즉결 심판] 존재하지 않는 페이지({matched_keyword})입니다! (단속을 피해 폐쇄된 피싱 사이트 의심)")
         
-        ai_reason = "페이지가 삭제되었거나 존재하지 않습니다. 피싱 조직이 신고를 받고 도메인을 버렸거나, 추적을 피하기 위해 사이트를 임시로 폐쇄한 전형적인 '치고 빠지기' 상태로 판단되어 위험 사이트로 분류 및 차단합니다."
+        # 💡 작성자님이 원하신 대로 감지된 키워드를 ai_reason에 동적으로 삽입합니다!
+        ai_reason = f"분석 중 '{matched_keyword}' 문구가 감지되어, 페이지가 삭제되었거나 존재하지 않는다는 것을 확인하였습니다. 피싱 조직이 신고를 받고 도메인을 버렸거나, 추적을 피하기 위해 사이트를 임시로 폐쇄한 전형적인 '치고 빠지기' 상태로 판단되어 위험 사이트로 분류 및 차단합니다."
         
         final_json_report = {
             "url": target_url,
@@ -497,10 +502,10 @@ def predict_phishing_result(target_url):
             "evidence": {
                 "heuristic_evidence": {
                     "detected_actions": ["페이지 폐쇄/숨김"],
-                    "rule_trigger": "Not Found 에러 페이지 감지"
+                    "rule_trigger": f"에러 페이지 감지 ({matched_keyword})" # 증거에도 걸린 단어 추가
                 },
                 "ai_semantic_evidence": {
-                    "suspect_sentence": "Not Found", 
+                    "suspect_sentence": f"감지된 에러 텍스트: '{matched_keyword}'", 
                     "ai_inference_logic": ai_reason
                 }
             }
@@ -515,6 +520,7 @@ def predict_phishing_result(target_url):
         print("■"*60 + "\n")
         
         return final_json_report
+    # ====================================================
     # ====================================================
 
     # ====================================================
