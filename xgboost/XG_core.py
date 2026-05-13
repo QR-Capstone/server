@@ -522,8 +522,12 @@ def extract_length_features(url: str) -> Dict[str, float]:
 # ============================================================
 
 _RDAP_LOOKUP_TIMEOUT_SECONDS = 3.0
-_RDAP_RETRY_SLEEP_SECONDS = 0.5
-_RDAP_MAX_ATTEMPTS = 3  # initial request + up to 2 retries
+
+# 추론 시간이 길어져 기본값은 1회 조회로 제한합니다.
+# 필요 시 _RDAP_MAX_ATTEMPTS 값을 3으로 변경하면 최초 1회 + 재시도 2회 구조로 다시 사용할 수 있습니다.
+_RDAP_RETRY_SLEEP_SECONDS = 0.5  # 재시도 사이 간격 (_RDAP_MAX_ATTEMPTS > 1 일 때만 사용)
+_RDAP_MAX_ATTEMPTS = 1  # 기본 1회만 RDAP 호출 (과거 기본값: 3 → 최대 3회까지 조회 · 아래 루프 유지)
+# _RDAP_MAX_ATTEMPTS = 3  # timeout 대응 재시도를 다시 켤 때 위 줄을 주석 처리하고 이 값을 사용하세요.
 _DOMAIN_AGE_MAX_DAYS = 36500.0
 _DOMAIN_AGE_LOOKUP_FAILED = {
     "domain_age_days": 0.0,
@@ -688,6 +692,10 @@ def _fetch_rdap_payload_attempt(registered_domain: str) -> Tuple[Optional[Dict[s
 
 
 def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    # 현재는 실시간 검증 속도를 위해 RDAP를 _RDAP_MAX_ATTEMPTS회만 조회합니다(기본 1회).
+    # 과거에는 timeout 대응을 위해 최대 3회(최초 + 재시도 2회)까지 시도했지만,
+    # URL 1개 검증 시간이 길어지는 문제가 있어 기본 재시도 횟수는 비활성화했습니다.
+    # 재시도 루프 본체는 유지되어 있으며, _RDAP_MAX_ATTEMPTS 를 3으로 바꾸면 동일하게 동작합니다.
     if not registered_domain:
         return None, "lookup_failed"
     last: Tuple[Optional[Dict[str, Any]], str] = (None, "lookup_failed")
