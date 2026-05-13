@@ -20,6 +20,10 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import numpy as np
+import tldextract
+
+_TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=None)
+
 try:
     import requests
 except Exception:  # pragma: no cover
@@ -108,23 +112,34 @@ COMMON_MULTI_TLDS = {
 }
 
 def has_multi_level_tld(host: str) -> int:
-    host = host.lower()
-    return 1 if any(host.endswith("." + tld) or host == tld for tld in COMMON_MULTI_TLDS) else 0
+    host = (host or "").strip(".").lower()
+    if not host or _RE_IP.match(host):
+        return 0
+    ext = _TLD_EXTRACTOR(host)
+    suffix = ext.suffix or ""
+    return 1 if "." in suffix else 0
+
 
 COMMON_CCTLDS = {
     "uk", "cn", "kr", "jp", "de", "fr", "au", "ca"
 }
+
+COMMON_GENERIC_TLD_LABELS = frozenset({"com", "net", "org"})
 
 SAFE_SECOND_LEVEL_HINTS = {
     "gov", "co", "ac", "edu", "or", "go"
 }
 
 def has_country_code_tld(host: str) -> int:
-    host = host.lower().strip(".")
-    parts = host.split(".")
-    if not parts:
+    host = (host or "").strip(".").lower()
+    if not host or _RE_IP.match(host):
         return 0
-    return 1 if parts[-1] in COMMON_CCTLDS else 0
+    ext = _TLD_EXTRACTOR(host)
+    suffix = ext.suffix or ""
+    if not suffix:
+        return 0
+    last_label = suffix.split(".")[-1]
+    return 1 if len(last_label) == 2 and last_label.isalpha() else 0
 
 def has_safe_second_level_hint(host: str) -> int:
     host = host.lower().strip(".")
@@ -137,25 +152,27 @@ def _split_host_labels(host: str) -> List[str]:
     return [part for part in (host or "").lower().split(".") if part]
 
 def _get_tld(host: str) -> str:
-    parts = _split_host_labels(host)
-    return parts[-1] if parts else ""
-
-def _get_subdomain_labels(host: str) -> List[str]:
-    parts = _split_host_labels(host)
-    if len(parts) <= 2:
-        return []
-    return parts[:-2]
-
-def _get_sld(host: str) -> str:
-    """Extract second-level domain from host (e.g. google.com -> google, www.google.co.uk -> google)."""
-    host = host.strip(".").lower()
+    host = (host or "").strip(".").lower()
     if not host or _RE_IP.match(host):
         return ""
-    parts = [p for p in host.split(".") if p]
-    if len(parts) < 2:
-        return parts[0] if parts else ""
-    # Use second-to-last part as SLD (e.g. google.com -> google; www.google.co.uk -> google).
-    return parts[-2] if len(parts) >= 2 else parts[0]
+    ext = _TLD_EXTRACTOR(host)
+    return ext.suffix or ""
+
+def _get_subdomain_labels(host: str) -> List[str]:
+    host = (host or "").strip(".").lower()
+    if not host or _RE_IP.match(host):
+        return []
+    ext = _TLD_EXTRACTOR(host)
+    if not ext.subdomain:
+        return []
+    return [part for part in ext.subdomain.split(".") if part]
+
+def _get_sld(host: str) -> str:
+    host = (host or "").strip(".").lower()
+    if not host or _RE_IP.match(host):
+        return ""
+    ext = _TLD_EXTRACTOR(host)
+    return ext.domain or ""
 
 # ============================================================
 # 2. Typosquatting features (타이포스쿼팅 특징 추출)
@@ -163,7 +180,7 @@ def _get_sld(host: str) -> str:
 
 _DEFAULT_BRAND_DICTIONARY: List[str] = [
     "google", "facebook", "amazon", "paypal", "apple",
-    "microsoft", "netflix", "instagram", "twitter",
+    "microsoft", "netflix", "roblox", "instagram", "twitter",
     "linkedin", "github", "yahoo",
 ]
 
@@ -350,6 +367,36 @@ def _closest_brand(sld: str) -> Optional[str]:
     if not sld or not BRAND_DICTIONARY:
         return None
     return min(BRAND_DICTIONARY, key=lambda b: _levenshtein(sld, b))
+
+
+def brand_suffix_confusion(host: str) -> float:
+    """Suffix confusion / ccTLD impersonation: brand-like SLD + generic label + 2-letter cc in suffix."""
+    host = (host or "").strip(".").lower()
+    if not host or _RE_IP.match(host):
+        return 0.0
+    ext = _TLD_EXTRACTOR(host)
+    domain = ext.domain or ""
+    suffix = ext.suffix or ""
+    if not domain or not suffix:
+        return 0.0
+    suffix_parts = [part for part in suffix.split(".") if part]
+    if len(suffix_parts) < 2:
+        return 0.0
+    first_suffix = suffix_parts[0]
+    last_suffix = suffix_parts[-1]
+    if first_suffix not in COMMON_GENERIC_TLD_LABELS:
+        return 0.0
+    if not (len(last_suffix) == 2 and last_suffix.isalpha()):
+        return 0.0
+    closest = _closest_brand(domain)
+    if not closest:
+        return 0.0
+    if domain == closest:
+        return 1.0
+    if _damerau_levenshtein(domain, closest) <= 1:
+        return 1.0
+    return 0.0
+
 
 _HOMOGLYPH_CHARS = set("01!3$45689@")  # 0→o, 1→l/i, !→i, 3→e, $→s, 4→a, 5→s, 6→g, 8→b, 9→g, @→a
 
@@ -648,13 +695,13 @@ def _get_registered_domain_for_rdap(url_or_host: str) -> str:
     host = _extract_host_for_domain_age(url_or_host)
     if not host or _RE_IP.match(host):
         return ""
-    parts = [part for part in host.split(".") if part]
-    if len(parts) < 2:
+
+    ext = _TLD_EXTRACTOR(host)
+
+    if not ext.domain or not ext.suffix:
         return host
-    suffix = ".".join(parts[-2:])
-    if suffix in COMMON_MULTI_TLDS and len(parts) >= 3:
-        return ".".join(parts[-3:])
-    return ".".join(parts[-2:])
+
+    return f"{ext.domain}.{ext.suffix}"
 
 def _fetch_rdap_payload_attempt(registered_domain: str) -> Tuple[Optional[Dict[str, Any]], str]:
     request = Request(
@@ -1057,16 +1104,127 @@ _DOM_FETCH_FALLBACK = {
     "dead_link_ratio": 0.0,
     "hidden_tags_count": 0.0,
     "suspicious_form_action": 0.0,
-    "dom_fetch_failed": 1.0,
+    "dom_timeout": 0.0,
+    "dom_ssl_error": 0.0,
+    "dom_blocked": 0.0,
+    "dom_connection_error": 0.0,
+    "dom_connection_reset": 0.0,
+    "dom_dns_failed": 0.0,
+    "dom_connection_refused": 0.0,
 }
 _DOM_MODEL_FEATURE_NAMES: List[str] = [
     "dom_max_depth",
     "dead_link_ratio",
     "hidden_tags_count",
     "suspicious_form_action",
-    "dom_fetch_failed"
+    "dom_timeout",
+    "dom_ssl_error",
+    "dom_blocked",
+    "dom_connection_error",
+    "dom_connection_reset",
+    "dom_dns_failed",
+    "dom_connection_refused",
 ]
+DOM_MODEL_FEATURE_NAMES: Tuple[str, ...] = tuple(_DOM_MODEL_FEATURE_NAMES)
 _DOM_FEATURE_CACHE: Dict[str, Dict[str, float]] = {}
+
+def _debug_print_dom_feature_values(feature_values: Dict[str, float]) -> None:
+    print("[DOM FEATURE DEBUG]")
+    print(f"dom_max_depth={feature_values.get('dom_max_depth')}")
+    print(f"dead_link_ratio={feature_values.get('dead_link_ratio')}")
+    print(f"hidden_tags_count={feature_values.get('hidden_tags_count')}")
+    print(f"suspicious_form_action={feature_values.get('suspicious_form_action')}")
+    print(f"dom_timeout={feature_values.get('dom_timeout')}")
+    print(f"dom_ssl_error={feature_values.get('dom_ssl_error')}")
+    print(f"dom_blocked={feature_values.get('dom_blocked')}")
+    print(f"dom_connection_error={feature_values.get('dom_connection_error')}")
+    print(f"dom_connection_reset={feature_values.get('dom_connection_reset')}")
+    print(f"dom_dns_failed={feature_values.get('dom_dns_failed')}")
+    print(f"dom_connection_refused={feature_values.get('dom_connection_refused')}")
+
+def _make_dom_failure_features(failure_key: str) -> Dict[str, float]:
+    out = dict(_DOM_FETCH_FALLBACK)
+    if failure_key in out:
+        out[failure_key] = 1.0
+    return out
+
+def _dom_error_chain_text(error: BaseException) -> str:
+    parts: List[str] = []
+    cur: Optional[BaseException] = error
+    seen: Set[int] = set()
+    for _ in range(8):
+        if cur is None or id(cur) in seen:
+            break
+        seen.add(id(cur))
+        parts.append(type(cur).__name__)
+        parts.append(str(cur))
+        parts.append(repr(cur))
+        nxt = getattr(cur, "__cause__", None)
+        if nxt is None:
+            nxt = getattr(cur, "__context__", None)
+        cur = nxt
+    return _safe_lower(" ".join(parts))
+
+def classify_dom_requests_connection_failure(error: Exception) -> str:
+    """
+    Classify requests connection-related failures into DOM failure feature keys.
+    Order: DNS → connection reset → connection refused → generic connection error.
+    """
+    cur_exc: Optional[BaseException] = error
+    seen_ids: Set[int] = set()
+    for _ in range(8):
+        if cur_exc is None or id(cur_exc) in seen_ids:
+            break
+        seen_ids.add(id(cur_exc))
+        if isinstance(cur_exc, ConnectionResetError):
+            return "dom_connection_reset"
+        if getattr(cur_exc, "winerror", None) == 10054:
+            return "dom_connection_reset"
+        nxt = getattr(cur_exc, "__cause__", None)
+        if nxt is None:
+            nxt = getattr(cur_exc, "__context__", None)
+        cur_exc = nxt
+
+    text = _dom_error_chain_text(error)
+    if any(
+        token in text
+        for token in (
+            "name or service not known",
+            "temporary failure in name resolution",
+            "nodename nor servname provided",
+            "getaddrinfo failed",
+            "no address associated with hostname",
+            "host not found",
+            "nxdomain",
+        )
+    ):
+        return "dom_dns_failed"
+    if any(
+        token in text
+        for token in (
+            "connectionreseterror",
+            "connection reset",
+            "forcibly closed",
+            "10054",
+            "connection aborted",
+            "원격 호스트",
+        )
+    ):
+        return "dom_connection_reset"
+    if any(
+        token in text
+        for token in (
+            "connection refused",
+            "actively refused",
+            "winerror 10061",
+            "errno 111",
+        )
+    ):
+        return "dom_connection_refused"
+    return "dom_connection_error"
+
+def _classify_dom_connection_error(error: Exception) -> str:
+    return classify_dom_requests_connection_failure(error)
 
 def _normalize_url_for_dom_fetch(url: str) -> str:
     raw = (url or "").strip()
@@ -1086,16 +1244,16 @@ def _normalize_url_for_dom_fetch(url: str) -> str:
         print("[DOM DEBUG] normalize_failed: hostname missing")
     return normalized
 
-def _fetch_html_for_dom(url: str) -> Tuple[str, bool]:
+def _fetch_html_for_dom(url: str) -> Tuple[str, Optional[str]]:
     network_info = normalize_host_for_network(url)
     if not bool(network_info.get("dns_resolved", False)):
         print("[DOM DEBUG] skipped due to DNS failure")
-        return "", True
+        return "", "dom_dns_failed"
 
     target_url = _normalize_url_for_dom_fetch(url)
     if not target_url:
         print("[DOM DEBUG] normalize produced empty target_url")
-        return "", True
+        return "", "dom_connection_error"
     ascii_host = str(network_info.get("ascii_host", "") or "")
     if ascii_host:
         try:
@@ -1113,7 +1271,7 @@ def _fetch_html_for_dom(url: str) -> Tuple[str, bool]:
             pass
     if requests is None:
         print("[DOM DEBUG] requests library is not available")
-        return "", True
+        return "", "dom_connection_error"
     print(f"[DOM DEBUG] fetching_url={target_url}")
     try:
         response = requests.get(  # type: ignore[union-attr]
@@ -1123,27 +1281,29 @@ def _fetch_html_for_dom(url: str) -> Tuple[str, bool]:
         )
     except requests.exceptions.Timeout:
         print("[DOM DEBUG] FETCH TIMEOUT")
-        return "", True
+        return "", "dom_timeout"
     except requests.exceptions.SSLError as e:
         print(f"[DOM DEBUG] SSL ERROR: {e}")
-        return "", True
+        return "", "dom_ssl_error"
     except requests.exceptions.ConnectionError as e:
         print(f"[DOM DEBUG] CONNECTION ERROR: {e}")
-        return "", True
+        return "", _classify_dom_connection_error(e)
     except requests.exceptions.TooManyRedirects as e:
         print(f"[DOM DEBUG] TOO MANY REDIRECTS: {e}")
-        return "", True
+        return "", "dom_blocked"
     except Exception as e:
         print(f"[DOM DEBUG] UNKNOWN FETCH ERROR: {type(e).__name__}: {e}")
-        return "", True
+        return "", classify_dom_requests_connection_failure(e)
     print(f"[DOM DEBUG] status_code={response.status_code}")
     print(f"[DOM DEBUG] final_url={response.url}")
     print(f"[DOM DEBUG] content_type={response.headers.get('Content-Type')}")
     print(f"[DOM DEBUG] html_length={len(response.text or '')}")
     if not response.ok:
         print(f"[DOM DEBUG] RESPONSE NOT OK: status_code={response.status_code}")
-        return "", True
-    return response.text or "", False
+        if int(response.status_code) in {403, 429, 503}:
+            return "", "dom_blocked"
+        return "", "dom_connection_error"
+    return response.text or "", None
 
 def _parse_dom_soup(html: str) -> Optional[Any]:
     if BeautifulSoup is None:
@@ -1192,6 +1352,7 @@ def _extract_dom_features_from_html(html: str, current_url: str) -> Dict[str, fl
     soup = _parse_dom_soup(html)
     if soup is None:
         print("[DOM DEBUG] BeautifulSoup parsing failed")
+        _debug_print_dom_feature_values(dict(_DOM_FETCH_FALLBACK))
         return dict(_DOM_FETCH_FALLBACK)
 
     root_tags = [child for child in soup.children if getattr(child, "name", None)]
@@ -1213,29 +1374,40 @@ def _extract_dom_features_from_html(html: str, current_url: str) -> Dict[str, fl
             suspicious_form_action = 1.0
             break
 
-    return {
+    out = {
         "dom_max_depth": dom_max_depth,
         "dead_link_ratio": dead_link_ratio,
         "hidden_tags_count": hidden_tags_count,
         "suspicious_form_action": suspicious_form_action,
-        "dom_fetch_failed": 0.0,
+        "dom_timeout": 0.0,
+        "dom_ssl_error": 0.0,
+        "dom_blocked": 0.0,
+        "dom_connection_error": 0.0,
+        "dom_connection_reset": 0.0,
+        "dom_dns_failed": 0.0,
+        "dom_connection_refused": 0.0,
     }
+    _debug_print_dom_feature_values(out)
+    return out
 
 def extract_dom_features(url: str) -> Dict[str, float]:
     target_url = _normalize_url_for_dom_fetch(url)
     print(f"[DOM DEBUG] input_url={url}")
     print(f"[DOM DEBUG] normalized_url={target_url}")
     if not target_url:
+        _debug_print_dom_feature_values(dict(_DOM_FETCH_FALLBACK))
         return dict(_DOM_FETCH_FALLBACK)
 
     cached = _DOM_FEATURE_CACHE.get(target_url)
     if cached is not None:
         return dict(cached)
 
-    html, fetch_failed = _fetch_html_for_dom(target_url)
-    if fetch_failed:
-        _DOM_FEATURE_CACHE[target_url] = dict(_DOM_FETCH_FALLBACK)
-        return dict(_DOM_FETCH_FALLBACK)
+    html, failure_key = _fetch_html_for_dom(target_url)
+    if failure_key is not None:
+        failure_features = _make_dom_failure_features(failure_key)
+        _debug_print_dom_feature_values(failure_features)
+        _DOM_FEATURE_CACHE[target_url] = dict(failure_features)
+        return dict(failure_features)
 
     features = _extract_dom_features_from_html(html, target_url)
     _DOM_FEATURE_CACHE[target_url] = dict(features)
@@ -1788,6 +1960,7 @@ FEATURE_NAMES: List[str] = [
     "sld_keyboard_neighbor_substitution_count",
     "sld_homoglyph_reverse_score",
     "has_country_code_tld",
+    "brand_suffix_confusion",
     "has_safe_second_level_hint",
     "path_depth",
     "has_do_or_html_endpoint",
@@ -1831,6 +2004,7 @@ _FEATURE_LABELS_KO: Dict[str, str] = {
     "num_subdomains": "서브도메인 개수",
     "num_hyphens": "하이픈 개수",
     "has_country_code_tld": "국가 코드 TLD 포함 여부",
+    "brand_suffix_confusion": "브랜드+일반 TLD 라벨+국가코드 suffix 혼동형",
     "sld_keyboard_neighbor_substitution_count": "키보드 인접 치환 횟수",
     "has_hyphen": "하이픈 포함 여부",
     "domain_homoglyph_ratio": "유사 문자 비율",
@@ -1936,6 +2110,7 @@ def extract_features(
     url_lower = _safe_lower(u)
     multi_tld_flag = has_multi_level_tld(host)
     country_code_tld_flag = has_country_code_tld(host)
+    brand_suffix_confusion_score = brand_suffix_confusion(host)
     safe_second_level_hint_flag = has_safe_second_level_hint(host)
     length_feats = extract_length_features(url)
     domain_age_feats = get_domain_age_features_for_mode(url, enable_domain_age)
@@ -2037,6 +2212,7 @@ def extract_features(
             float(sld_kbd_count),
             float(sld_homoglyph_rev),
             float(country_code_tld_flag),
+            float(brand_suffix_confusion_score),
             float(safe_second_level_hint_flag),
             float(path_depth),
             float(has_do_or_html_endpoint),
@@ -2413,7 +2589,13 @@ def predict_url_dom(
         "dead_link_ratio": float(dom_features.get("dead_link_ratio", 0.0)),
         "hidden_tags_count": float(dom_features.get("hidden_tags_count", 0.0)),
         "suspicious_form_action": float(dom_features.get("suspicious_form_action", 0.0)),
-        "dom_fetch_failed": float(dom_features.get("dom_fetch_failed", 0.0)),
+        "dom_timeout": float(dom_features.get("dom_timeout", 0.0)),
+        "dom_ssl_error": float(dom_features.get("dom_ssl_error", 0.0)),
+        "dom_blocked": float(dom_features.get("dom_blocked", 0.0)),
+        "dom_connection_error": float(dom_features.get("dom_connection_error", 0.0)),
+        "dom_connection_reset": float(dom_features.get("dom_connection_reset", 0.0)),
+        "dom_dns_failed": float(dom_features.get("dom_dns_failed", 0.0)),
+        "dom_connection_refused": float(dom_features.get("dom_connection_refused", 0.0)),
     }
     return label, proba, dom_feature_map
 
@@ -2811,10 +2993,20 @@ def build_ssl_explanations(url: str, feat_map: Dict[str, float], probability: fl
 def build_dom_explanations(url: str, dom_feature_map: Dict[str, float], probability: float) -> List[str]:
     reasons: List[str] = []
 
-    if float(dom_feature_map.get("dom_fetch_failed", 0.0)) >= 1.0:
+    if float(dom_feature_map.get("dom_dns_failed", 0.0)) >= 1.0:
         return [
-            "이 사이트의 페이지 구조 정보를 가져오지 못했습니다.\n"
-            "  일시적인 접속 문제일 수 있지만, 페이지 내부 구조를 확인할 수 없어 주의가 필요합니다."
+            "이 사이트는 DNS 조회가 실패해 실제 서비스가 내려갔거나 도메인이 사라졌을 가능성이 있습니다.\n"
+            "  피싱 사이트가 폐쇄된 뒤 자주 나타나는 패턴일 수 있어 주의가 필요합니다."
+        ]
+    if float(dom_feature_map.get("dom_connection_reset", 0.0)) >= 1.0:
+        return [
+            "원격 서버가 연결을 강제로 끊어 페이지 구조를 가져오지 못했습니다.\n"
+            "  대규모 서비스·보안 정책·일시적 장애 등으로 발생할 수 있어, 단독으로 악성 여부를 단정하기는 어렵습니다."
+        ]
+    if float(dom_feature_map.get("dom_connection_refused", 0.0)) >= 1.0:
+        return [
+            "이 사이트는 서버가 연결을 거부하고 있습니다.\n"
+            "  반복적으로 관측되면 비정상 운영 또는 폐쇄 패턴일 가능성이 있어 주의가 필요합니다."
         ]
 
     dom_max_depth = float(dom_feature_map.get("dom_max_depth", 0.0))
@@ -3041,7 +3233,11 @@ def _benign_ssl_explanation_line(domain_feat_map: Dict[str, Any]) -> Optional[st
 
 
 def _benign_dom_explanation_line(dom_feature_map: Dict[str, Any]) -> Optional[str]:
-    if float(dom_feature_map.get("dom_fetch_failed", 1.0)) >= 1.0:
+    if float(dom_feature_map.get("dom_dns_failed", 0.0)) >= 1.0:
+        return None
+    if float(dom_feature_map.get("dom_connection_reset", 0.0)) >= 1.0:
+        return None
+    if float(dom_feature_map.get("dom_connection_refused", 0.0)) >= 1.0:
         return None
     if float(dom_feature_map.get("suspicious_form_action", 0.0)) >= 1.0:
         return None
@@ -3311,10 +3507,20 @@ def _compose_final_explanations(
         return None
 
     def _narrative_dom_paragraph() -> Optional[str]:
-        if float(dom_feature_map.get("dom_fetch_failed", 0.0)) >= 1.0:
+        if float(dom_feature_map.get("dom_dns_failed", 0.0)) >= 1.0:
             return (
-                "페이지 구조를 가져오지 못해 내부 위험을 확인하기 어렵습니다. "
-                "일시적 장애일 수 있어도 신중히 살펴보는 편이 좋습니다."
+                "DNS 조회가 실패해 도메인이 사라졌거나 사이트가 비활성화되었을 가능성이 있습니다. "
+                "피싱 사이트 폐쇄 패턴과 유사할 수 있어 주의가 필요합니다."
+            )
+        if float(dom_feature_map.get("dom_connection_reset", 0.0)) >= 1.0:
+            return (
+                "원격 호스트가 연결을 끊어 페이지 구조를 분석하지 못했습니다. "
+                "정상 사이트에서도 발생할 수 있어 다른 신호와 함께 판단하는 편이 좋습니다."
+            )
+        if float(dom_feature_map.get("dom_connection_refused", 0.0)) >= 1.0:
+            return (
+                "서버가 연결 자체를 거부해 페이지 구조를 확인하지 못했습니다. "
+                "반복 발생 시 비정상 운영 패턴일 수 있어 신중한 확인이 필요합니다."
             )
 
         dom_max_depth = float(dom_feature_map.get("dom_max_depth", 0.0))

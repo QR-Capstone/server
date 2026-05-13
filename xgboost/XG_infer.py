@@ -12,8 +12,19 @@ from XG_core import (
     load_bundle,
     predict_url,
     predict_url_dom,
-    xgboost_ensemble_verdict_label,
 )
+
+
+def _xgboost_weighted_ensemble_verdict_label(
+    prob_typo: float, prob_domain: float, prob_dom: float
+) -> tuple[float, int]:
+    """Weighted soft score + strong single-channel gates; returns (final_score, 1=malicious)."""
+    final_score = prob_typo * 0.50 + prob_domain * 0.35 + prob_dom * 0.15
+    if prob_typo >= 0.70 or prob_domain >= 0.80 or prob_dom >= 0.80:
+        return final_score, 1
+    if final_score >= 0.55:
+        return final_score, 1
+    return final_score, 0
 
 def predict_url_domain(bundle, url: str):
     return predict_url(
@@ -50,8 +61,7 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
     )
     _, prob_domain, domain_feature_map = predict_url_domain(bundle_domain, url)
     _, prob_dom, dom_feature_map = predict_url_dom(bundle_dom, url)
-    final_probability = max(prob_typo, prob_domain, prob_dom)
-    verdict_label = xgboost_ensemble_verdict_label(
+    final_probability, verdict_label = _xgboost_weighted_ensemble_verdict_label(
         prob_typo, prob_domain, prob_dom
     )
     verdict = "malicious" if verdict_label == 1 else "benign"
@@ -80,12 +90,26 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
     print(f"dom_probability: {prob_dom:.4f}")
     print(f"final_probability: {final_probability:.4f}")
     print()
+    print("[Typo Features]")
+    for key in sorted(typo_feature_map.keys()):
+        value = typo_feature_map[key]
+        if isinstance(value, float):
+            print(f"{key}: {value:.4f}")
+        else:
+            print(f"{key}: {value}")
+    print()
     print("[DOM Features]")
     print(f"dom_max_depth: {dom_feature_map['dom_max_depth']:.4f}")
     print(f"dead_link_ratio: {dom_feature_map['dead_link_ratio']:.4f}")
     print(f"hidden_tags_count: {dom_feature_map['hidden_tags_count']:.4f}")
     print(f"suspicious_form_action: {dom_feature_map['suspicious_form_action']:.4f}")
-    print(f"dom_fetch_failed: {dom_feature_map['dom_fetch_failed']:.4f}")
+    print(f"dom_timeout: {dom_feature_map['dom_timeout']:.4f}")
+    print(f"dom_ssl_error: {dom_feature_map['dom_ssl_error']:.4f}")
+    print(f"dom_blocked: {dom_feature_map['dom_blocked']:.4f}")
+    print(f"dom_connection_error: {dom_feature_map['dom_connection_error']:.4f}")
+    print(f"dom_connection_reset: {dom_feature_map['dom_connection_reset']:.4f}")
+    print(f"dom_dns_failed: {dom_feature_map['dom_dns_failed']:.4f}")
+    print(f"dom_connection_refused: {dom_feature_map['dom_connection_refused']:.4f}")
     print()
     print("[Prediction Result]")
     print(f"threshold: {args.threshold:.2f}")
@@ -118,7 +142,7 @@ def build_argparser() -> argparse.ArgumentParser:
         "--threshold",
         type=float,
         default=0.5,
-        help="Decision threshold for classifying as malicious.",
+        help="Threshold passed to detailed explanations (ensemble verdict uses weighted score and fixed gates).",
     )
     return p
 
