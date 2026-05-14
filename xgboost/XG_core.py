@@ -207,6 +207,23 @@ def _load_brand_dictionary(path: str = _DEFAULT_BRAND_DICTIONARY_PATH) -> List[s
 
 BRAND_DICTIONARY: List[str] = _load_brand_dictionary()
 
+# Public deploy platforms (eTLD+1): used only to flag brand tokens in subdomains
+# when the registrable domain is a shared host — not to mark the platform as malicious.
+PUBLIC_HOSTING_REGISTERED_DOMAINS = frozenset(
+    {
+        "vercel.app",
+        "netlify.app",
+        "github.io",
+        "pages.dev",
+        "web.app",
+        "firebaseapp.com",
+        "cloudfront.net",
+        "onrender.com",
+        "replit.app",
+        "glitch.me",
+    }
+)
+
 def _levenshtein(a: str, b: str) -> int:
     """Classic Levenshtein (insert, delete, substitute)."""
     a, b = a.lower(), b.lower()
@@ -481,6 +498,46 @@ def _brand_token_in_subdomain(host: str) -> float:
             if brand and brand in label:
                 return 1.0
     return 0.0
+
+
+def _is_public_hosting_registered_domain(host: str) -> float:
+    registered_domain = (_get_registered_domain_for_rdap(host) or "").strip().lower()
+    if not registered_domain:
+        return 0.0
+    return 1.0 if registered_domain in PUBLIC_HOSTING_REGISTERED_DOMAINS else 0.0
+
+
+def _brand_in_subdomain_on_public_hosting(host: str) -> float:
+    if _is_public_hosting_registered_domain(host) < 1.0:
+        return 0.0
+    for label in _get_subdomain_labels(host):
+        lab = (label or "").lower()
+        if not lab:
+            continue
+        for brand in BRAND_DICTIONARY:
+            if brand and brand in lab:
+                return 1.0
+    return 0.0
+
+
+def _brand_subdomain_registered_domain_mismatch(host: str) -> float:
+    host_n = (host or "").strip(".").lower()
+    if not host_n or _RE_IP.match(host_n):
+        return 0.0
+    matched = _get_brand_tokens_in_host(host_n)
+    if not matched:
+        return 0.0
+    registered = (_get_registered_domain_for_rdap(host_n) or "").strip().lower()
+    if not registered:
+        return 0.0
+    sld_reg = _get_sld(registered)
+    if not sld_reg:
+        return 0.0
+    for b in matched:
+        if sld_reg == b:
+            return 0.0
+    return 1.0
+
 
 def _brand_plus_keyword_pattern(host: str) -> float:
     host = (host or "").lower()
@@ -1348,11 +1405,14 @@ def _has_suspicious_form_action(current_url: str, action: str) -> bool:
         return False
     return current_registered_domain != action_registered_domain
 
-def _extract_dom_features_from_html(html: str, current_url: str) -> Dict[str, float]:
+def _extract_dom_features_from_html(
+    html: str, current_url: str, *, print_dom_feature_debug: bool = True
+) -> Dict[str, float]:
     soup = _parse_dom_soup(html)
     if soup is None:
         print("[DOM DEBUG] BeautifulSoup parsing failed")
-        _debug_print_dom_feature_values(dict(_DOM_FETCH_FALLBACK))
+        if print_dom_feature_debug:
+            _debug_print_dom_feature_values(dict(_DOM_FETCH_FALLBACK))
         return dict(_DOM_FETCH_FALLBACK)
 
     root_tags = [child for child in soup.children if getattr(child, "name", None)]
@@ -1387,15 +1447,17 @@ def _extract_dom_features_from_html(html: str, current_url: str) -> Dict[str, fl
         "dom_dns_failed": 0.0,
         "dom_connection_refused": 0.0,
     }
-    _debug_print_dom_feature_values(out)
+    if print_dom_feature_debug:
+        _debug_print_dom_feature_values(out)
     return out
 
-def extract_dom_features(url: str) -> Dict[str, float]:
+def extract_dom_features(url: str, *, print_dom_feature_debug: bool = True) -> Dict[str, float]:
     target_url = _normalize_url_for_dom_fetch(url)
     print(f"[DOM DEBUG] input_url={url}")
     print(f"[DOM DEBUG] normalized_url={target_url}")
     if not target_url:
-        _debug_print_dom_feature_values(dict(_DOM_FETCH_FALLBACK))
+        if print_dom_feature_debug:
+            _debug_print_dom_feature_values(dict(_DOM_FETCH_FALLBACK))
         return dict(_DOM_FETCH_FALLBACK)
 
     cached = _DOM_FEATURE_CACHE.get(target_url)
@@ -1405,11 +1467,14 @@ def extract_dom_features(url: str) -> Dict[str, float]:
     html, failure_key = _fetch_html_for_dom(target_url)
     if failure_key is not None:
         failure_features = _make_dom_failure_features(failure_key)
-        _debug_print_dom_feature_values(failure_features)
+        if print_dom_feature_debug:
+            _debug_print_dom_feature_values(failure_features)
         _DOM_FEATURE_CACHE[target_url] = dict(failure_features)
         return dict(failure_features)
 
-    features = _extract_dom_features_from_html(html, target_url)
+    features = _extract_dom_features_from_html(
+        html, target_url, print_dom_feature_debug=print_dom_feature_debug
+    )
     _DOM_FEATURE_CACHE[target_url] = dict(features)
     return dict(features)
 
@@ -1968,6 +2033,9 @@ FEATURE_NAMES: List[str] = [
     "host_length",
     "host_contains_brand_token",
     "brand_token_in_subdomain",
+    "is_public_hosting_platform",
+    "brand_in_subdomain_on_public_hosting",
+    "brand_subdomain_registered_domain_mismatch",
     "brand_plus_keyword_pattern",
     "brand_hyphen_compound",
     "brand_target_action_pattern",
@@ -2021,6 +2089,9 @@ _FEATURE_LABELS_KO: Dict[str, str] = {
     "host_length": "호스트 길이(스케일)",
     "host_contains_brand_token": "호스트 내 브랜드 토큰 포함 여부",
     "brand_token_in_subdomain": "서브도메인 내 브랜드 토큰 포함 여부",
+    "is_public_hosting_platform": "공용 배포 플랫폼 등록 도메인(eTLD+1) 여부",
+    "brand_in_subdomain_on_public_hosting": "공용 호스팅 서브도메인 내 브랜드 토큰 포함 여부",
+    "brand_subdomain_registered_domain_mismatch": "브랜드 토큰과 등록 도메인 SLD 불일치(위장) 여부",
     "brand_plus_keyword_pattern": "브랜드+의심 키워드 조합 여부",
     "brand_hyphen_compound": "브랜드 하이픈 결합형 여부",
     "brand_target_action_pattern": "브랜드+대상+행위 위장 패턴",
@@ -2172,6 +2243,9 @@ def extract_features(
         1.0 if brand_tokens_in_host and not is_simple_brand_host else 0.0
     )
     brand_token_in_subdomain = _brand_token_in_subdomain(host)
+    is_public_hosting_platform = _is_public_hosting_registered_domain(host)
+    brand_in_subdomain_on_public_hosting = _brand_in_subdomain_on_public_hosting(host)
+    brand_subdomain_registered_domain_mismatch = _brand_subdomain_registered_domain_mismatch(host)
     brand_plus_keyword_pattern = _brand_plus_keyword_pattern(host)
     brand_hyphen_compound = _brand_hyphen_compound(host)
     brand_target_action_pattern = _brand_target_action_pattern(host)
@@ -2220,6 +2294,9 @@ def extract_features(
             float(length_feats["host_length"]),
             float(host_contains_brand_token),
             float(brand_token_in_subdomain),
+            float(is_public_hosting_platform),
+            float(brand_in_subdomain_on_public_hosting),
+            float(brand_subdomain_registered_domain_mismatch),
             float(brand_plus_keyword_pattern),
             float(brand_hyphen_compound),
             float(brand_target_action_pattern),
@@ -2578,8 +2655,12 @@ def predict_url(
 def predict_url_dom(
     bundle: ModelBundle,
     url: str,
+    *,
+    print_dom_feature_debug: bool = True,
 ) -> Tuple[int, float, Dict[str, float]]:
-    dom_features = extract_dom_features(url)
+    dom_features = extract_dom_features(
+        url, print_dom_feature_debug=print_dom_feature_debug
+    )
     dom_feature_array = _dom_feature_dict_to_array(dom_features, feature_names=bundle.feature_names)
     X = dom_feature_array.reshape(1, -1)
     proba = float(predict_proba(bundle.model, X)[0])
