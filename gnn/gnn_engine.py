@@ -305,7 +305,6 @@ def _lexical_features(url: str) -> Dict[str, float]:
         "token_count": _cap(len(tokens), 24.0),
         "phish_word_ratio": _safe_ratio(phish_hits, len(tokens)),
         "brand_word_ratio": _safe_ratio(brand_hits, len(tokens)),
-        "brand_word_ratio": _safe_ratio(brand_hits, len(tokens)),
         "suspicious_tld": 1.0 if any(host.endswith(tld) for tld in SUSPICIOUS_TLDS) else 0.0,
     }
 
@@ -779,6 +778,7 @@ def build_web_graph(url: str, fetch: bool = True) -> WebGraph:
 
     password_inputs = 0
     suspicious_inputs = 0
+
     for inp in parser.inputs[:200]:
         blob = " ".join(inp.values())
         is_password = inp.get("type") == "password" or "password" in blob
@@ -789,6 +789,8 @@ def build_web_graph(url: str, fetch: bool = True) -> WebGraph:
             suspicious_inputs += 1
         risk = 0.75 if is_password else (0.45 if is_suspicious else 0.08)
         _add_edge(nodes, edges, node_risk, page, "has_input", f"input:{len(nodes)}", risk)
+
+
     counts["input"] = len(parser.inputs)
     counts["password_input"] = password_inputs
     counts["suspicious_input"] = suspicious_inputs
@@ -1574,31 +1576,82 @@ def build_explanation(
     # 1. 최종 판정
     # =========================================================
     
-    if prob >= 0.85:
-        lines.append("🚨 매우 위험한 사이트입니다.")
-    elif prob >= 0.60:
-        lines.append("⚠️ 위험한 사이트입니다.")
+    if prob >= 0.60:
+        lines.append("🚨 위험한 사이트입니다.")
     elif prob >= 0.35:
         lines.append("🟡 수상한 사이트입니다.")
     else:
-        return "✅ 안전한 사이트입니다. 위험한 요소가 발견되지 않았습니다."
+        lines.append("✅ 안전한 사이트입니다.")
 
     if features:
-        if features.get("brand_domain_mismatch", 0) > 0:
-            lines.append("AI 구조 분석 결과, 유명 브랜드 이름을 도용하고 있지만 실제 공식 주소와 일치하지 않는 가짜 사이트로 확인되었습니다.")
-        elif features.get("external_form_ratio", 0) > 0.4:
-            lines.append("AI 구조 분석 결과, 이 사이트에 입력한 정보가 전혀 관계없는 외부 서버로 전송되는 구조가 확인되었습니다.")
-        elif features.get("final_domain_changed", 0) > 0:
-            lines.append("AI 구조 분석 결과, 접속 과정에서 전혀 다른 주소로 자동 이동되는 피싱 수법이 감지되었습니다.")
-        elif iframe_count > 0:
-            lines.append("AI 구조 분석 결과, 사용자 눈에 보이지 않는 숨겨진 화면이 포함되어 있어 악성 사이트와 유사한 구조로 판단되었습니다.")
-        elif counts.get("script", 0) > 5:
-            lines.append("AI 구조 분석 결과, 외부에서 불러온 수상한 프로그램 코드가 다수 실행되고 있어 피싱 사이트와 유사한 패턴으로 판단되었습니다.")
-        elif external_links > 2:
-            lines.append("AI 구조 분석 결과, 정상 사이트에 비해 수상한 외부 주소와의 연결이 과도하게 많아 위험한 사이트로 판단되었습니다.")
-        else:
-            lines.append("AI 구조 분석 결과, 사이트 전체 연결 구조와 동작 패턴이 알려진 피싱 사이트와 유사하여 위험한 사이트로 판단되었습니다.")
-        return " ".join(lines)
+
+    # =========================
+    # 안전 사이트 근거
+    # =========================
+        if prob < 0.35:
+
+            if (
+            features.get("external_form_ratio", 0) == 0
+            and features.get("brand_domain_mismatch", 0) == 0
+            and features.get("credential_surface", 0) == 0
+            ):
+                lines.append(
+                "로그인 정보나 개인정보를 외부 서버로 전송하는 위험 요소가 발견되지 않았습니다."
+            )
+
+            if features.get("internal_link_ratio", 0) > 0.6:
+                lines.append(
+                "대부분의 연결이 동일한 공식 도메인 내부에서 이루어지고 있습니다."
+            )
+
+            if features.get("is_https", 0) > 0:
+                lines.append(
+                "HTTPS 보안 연결이 적용되어 있습니다."
+            )
+
+            if counts.get("iframe", 0) == 0:
+                lines.append(
+                "숨겨진 iframe 삽입과 같은 의심스러운 구조가 발견되지 않았습니다."
+            )
+
+            if counts.get("script", 0) <= 5:
+                lines.append(
+                "외부 스크립트 호출이 과도하지 않아 정상 사이트 패턴과 유사합니다."
+            )
+
+            if not lines:
+                lines.append(
+                "사이트 구조와 연결 관계가 일반적인 정상 웹사이트 패턴과 유사합니다."
+            )
+
+            return " ".join(lines)
+
+    # =========================
+    # 위험 사이트 근거
+    # =========================
+    
+    if features.get("brand_domain_mismatch", 0) > 0:
+        lines.append("유명 브랜드 이름을 도용하고 있지만 실제 공식 주소와 일치하지 않는 가짜 사이트로 확인되었습니다.")
+
+    elif features.get("external_form_ratio", 0) > 0.4:
+        lines.append("이 사이트에 입력한 정보가 전혀 관계없는 외부 서버로 전송되는 구조가 확인되었습니다.")
+
+    elif features.get("final_domain_changed", 0) > 0:
+        lines.append("접속 과정에서 전혀 다른 주소로 자동 이동되는 피싱 수법이 감지되었습니다.")
+
+    elif iframe_count > 0:
+        lines.append("사용자 눈에 보이지 않는 숨겨진 화면이 포함되어 있어 악성 사이트와 유사한 구조로 판단되었습니다.")
+
+    elif counts.get("script", 0) > 5:
+        lines.append("외부에서 불러온 수상한 프로그램 코드가 다수 실행되고 있어 피싱 사이트와 유사한 패턴으로 판단되었습니다.")
+
+    elif external_links > 2:
+        lines.append("정상 사이트에 비해 수상한 외부 주소와의 연결이 과도하게 많아 위험한 사이트로 판단되었습니다.")
+
+    else:
+        lines.append("사이트 전체 연결 구조와 동작 패턴이 알려진 피싱 사이트와 유사하여 위험한 사이트로 판단되었습니다.")
+
+    return " ".join(lines)
 
 
 def predict_gnn(
