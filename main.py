@@ -25,7 +25,13 @@ for _model_dir in MODEL_DIRS.values():
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import uvicorn
-from XG_core import build_all_explanations, load_bundle, predict_url, predict_url_dom
+from XG_core import (
+    build_all_explanations,
+    load_bundle,
+    predict_url,
+    predict_url_dom,
+    xgboost_weighted_ensemble_verdict,
+)
 from gnn_engine import GNN_Engine, predict_gnn
 
 app = FastAPI(title="Phishing Detection API")
@@ -137,19 +143,14 @@ def _run_xgboost_inference(raw_url: str):
     typo_prob = float(output.get("typo_probability", 0.0))
     domain_prob = float(output.get("domain_probability", 0.0))
     dom_prob = float(output.get("dom_probability", 0.0))
-    final_prob = max(typo_prob, domain_prob, dom_prob)
-    output["final_probability"] = round(final_prob, 6)
-    if typo_prob >= 0.90 or domain_prob >= 0.90:
-        output["label"] = 1
-    elif (
-        (typo_prob >= 0.5 and domain_prob >= 0.5)
-        or (typo_prob >= 0.5 and dom_prob >= 0.5)
-        or (domain_prob >= 0.5 and dom_prob >= 0.5)
-    ):
-        output["label"] = 1
-    else:
-        output["label"] = 0
-    output["verdict"] = "malicious" if output["label"] == 1 else "benign"
+    # CLI(XG_infer)와 동일한 가중치·게이트 (XG_core.xgboost_weighted_ensemble_verdict)
+    final_prob, verdict_label = xgboost_weighted_ensemble_verdict(
+        typo_prob, domain_prob, dom_prob
+    )
+    output["final_probability"] = round(float(final_prob), 6)
+    output["label"] = int(verdict_label)
+    output["verdict"] = "malicious" if verdict_label == 1 else "benign"
+    explain_threshold = float(os.getenv("XG_EXPLAIN_THRESHOLD", "0.5"))
     output["explanations"] = build_all_explanations(
         url=url,
         typo_feat_map=typo_feature_map,
@@ -158,6 +159,8 @@ def _run_xgboost_inference(raw_url: str):
         domain_probability=domain_prob if domain_bundle is not None else 0.0,
         dom_feature_map=dom_feature_map,
         dom_probability=dom_prob if dom_bundle is not None else 0.0,
+        verdict_label=int(verdict_label),
+        threshold=explain_threshold,
     )
     return output
 
