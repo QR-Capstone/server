@@ -82,26 +82,42 @@ def _count_substring(s: str, sub: str) -> int:
     return s.count(sub)
 
 
+def xgboost_weighted_ensemble_verdict(
+    prob_typo: float,
+    prob_domain: float,
+    prob_dom: float,
+) -> tuple[float, int]:
+    """
+    Shared XGBoost final decision logic for CLI and API.
+
+    Returns:
+        final_score: weighted final probability
+        verdict_label: 1=malicious, 0=benign
+    """
+    final_score = prob_typo * 0.50 + prob_domain * 0.35 + prob_dom * 0.15
+
+    if prob_typo >= 0.70 or prob_domain >= 0.80 or prob_dom >= 0.80:
+        return final_score, 1
+
+    if final_score >= 0.55:
+        return final_score, 1
+
+    return final_score, 0
+
+
 def xgboost_ensemble_verdict_label(
-    prob_typo: float, prob_domain: float, prob_dom: float
+    prob_typo: float,
+    prob_domain: float,
+    prob_dom: float,
 ) -> int:
-    """Malicious/ben label from typo, domain-age, and DOM head probabilities (CLI + API)."""
-    if (
-        prob_typo >= 0.90
-        or prob_domain >= 0.85
-        or prob_dom >= 0.85
-    ):
-        return 1
-    if (
-        (prob_typo >= 0.50 and prob_domain >= 0.45)
-        or (prob_typo >= 0.45 and prob_domain >= 0.50)
-        or (prob_typo >= 0.50 and prob_dom >= 0.45)
-        or (prob_typo >= 0.45 and prob_dom >= 0.50)
-        or (prob_domain >= 0.50 and prob_dom >= 0.45)
-        or (prob_domain >= 0.45 and prob_dom >= 0.50)
-    ):
-        return 1
-    return 0
+    """
+    Backward-compatible wrapper.
+    Use xgboost_weighted_ensemble_verdict() when final_score is also needed.
+    """
+    _, verdict_label = xgboost_weighted_ensemble_verdict(
+        prob_typo, prob_domain, prob_dom
+    )
+    return verdict_label
 
 
 COMMON_MULTI_TLDS = {

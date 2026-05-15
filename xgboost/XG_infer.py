@@ -12,6 +12,7 @@ from XG_core import (
     load_bundle,
     predict_url,
     predict_url_dom,
+    xgboost_weighted_ensemble_verdict,
 )
 
 _TYPO_FEATURE_INCLUDE_PREFIXES: Sequence[str] = ("brand_", "sld_")
@@ -139,18 +140,6 @@ def _print_feature_subset(
     _print_sorted_feature_map(subset)
 
 
-def _xgboost_weighted_ensemble_verdict_label(
-    prob_typo: float, prob_domain: float, prob_dom: float
-) -> tuple[float, int]:
-    """Weighted soft score + strong single-channel gates; returns (final_score, 1=malicious)."""
-    final_score = prob_typo * 0.50 + prob_domain * 0.35 + prob_dom * 0.15
-    if prob_typo >= 0.70 or prob_domain >= 0.80 or prob_dom >= 0.80:
-        return final_score, 1
-    if final_score >= 0.55:
-        return final_score, 1
-    return final_score, 0
-
-
 def predict_url_domain(bundle, url: str):
     return predict_url(
         bundle,
@@ -188,7 +177,7 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
     _, prob_dom, dom_feature_map = predict_url_dom(
         bundle_dom, url, print_dom_feature_debug=False
     )
-    final_probability, verdict_label = _xgboost_weighted_ensemble_verdict_label(
+    final_probability, verdict_label = xgboost_weighted_ensemble_verdict(
         prob_typo, prob_domain, prob_dom
     )
     verdict = "malicious" if verdict_label == 1 else "benign"
