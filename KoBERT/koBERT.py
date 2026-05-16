@@ -386,7 +386,7 @@ def predict_phishing_result(target_url):
 
     is_http_vulnerable = target_url.lower().startswith("http://")
 
-    safe_tlds = [".go.kr", "ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+    safe_tlds = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     safe_official_domains = [
         "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com", "kebhana.com",
         "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", 
@@ -449,7 +449,7 @@ def predict_phishing_result(target_url):
     use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
     max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
     
-    high_risk_keywords = ["통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "네이버pay 사용이 불가능", "결제시스템 불안정화", "급등주", "무료 리딩", "VVIP 정보", "세력주", "손실 복구", "무료 체험"]
+    high_risk_keywords = ["통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "네이버pay 사용이 불가능", "결제시스템 불안정화", "급등주", "무료 리딩", "VVIP 정보", "세력주", "손실 복구", "무료 체험", ]
     action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호"]
 
     # ----------------------------------------------------
@@ -680,8 +680,8 @@ def predict_phishing_result(target_url):
     # 🔥 [3단계] 점수 보정 
     boost_weight_1 = 0.0
     if is_http_vulnerable: 
-        boost_weight_1 += 0.50
-        print("  🔓 [보안 취약] HTTP 프로토콜 감지! (위험 가중치 +50% 부여)")
+        boost_weight_1 += 0.45
+        print("  🔓 [보안 취약] HTTP 프로토콜 감지! (위험 가중치 +45% 부여)")
     if found_high_risk: boost_weight_1 += 0.50
     if found_actions: boost_weight_1 += 0.15
     boost_weight_1 = min(boost_weight_1, 0.85)
@@ -826,8 +826,10 @@ def predict_phishing_result(target_url):
         input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
         
         with torch.no_grad():
-            outputs = model(input_ids, attention_mask=attention_mask)
+            # 🌟 1. XAI를 위해 output_attentions=True 옵션 추가!
+            outputs = model(input_ids, attention_mask=attention_mask, output_attentions=True) 
             probs = F.softmax(outputs.logits, dim=-1)
+            attentions_batch = outputs.attentions # 배치(Batch) 전체의 어텐션 맵 가져오기
             
         for i, url in enumerate(valid_urls):
             current_text = valid_texts[i]
@@ -847,11 +849,47 @@ def predict_phishing_result(target_url):
                 print(f"  🚨 [2-Depth 결과] 악성 감지! URL: {url} (최종 확률 {prob_phishing_2:.2f}%)")
                 print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
                 
+                # ====================================================
+                # 🌟 2. [2-Depth 전용 XAI 로직] AI가 집중한 문장 직접 뽑아내기
+                # ====================================================
+                try:
+                    last_layer_attn = attentions_batch[-1][i] # 현재 i번째 텍스트의 어텐션만 추출
+                    avg_attn = torch.mean(last_layer_attn, dim=0) 
+                    cls_attn = avg_attn[0] 
+                    
+                    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', current_text) if s.strip()]
+                    sentence_scores = []
+                    token_idx = 1 
+                    max_tokens = len(cls_attn) - 1 
+                    
+                    for sentence in sentences:
+                        if token_idx >= max_tokens: break
+                        sub_tokens = tokenizer.tokenize(sentence)
+                        sub_len = len(sub_tokens)
+                        
+                        end_idx = min(token_idx + sub_len, max_tokens)
+                        total_score = sum([cls_attn[j].item() * 100 for j in range(token_idx, end_idx)])
+                        score = total_score / sub_len if sub_len > 0 else 0
+                        
+                        if len(sentence) > 5: 
+                            sentence_scores.append((sentence, score))
+                        token_idx += sub_len 
+                        
+                    sentence_scores.sort(key=lambda x: x[1], reverse=True)
+                    top_sent_2depth = sentence_scores[0][0] if sentence_scores else "분석된 문맥이 없습니다."
+                except Exception as e:
+                    print(f"  ❌ [2-Depth XAI 에러]: {e}")
+                    top_sent_2depth = "XAI 추출 실패"
+                # ====================================================
+
                 final_json_report["url"] = url
                 final_json_report["judgment"] = "unnormal"
                 final_json_report["riskLevel"] = "HIGH"
                 final_json_report["threat_score"] = round(prob_phishing_2, 1)
                 final_json_report["threat_type"] = "은닉된 하위 페이지 피싱"
+                
+                # 🌟 3. XAI가 찾아낸 진짜 증거 문장을 리포트에 삽입!
+                final_json_report["evidence"]["ai_semantic_evidence"]["suspect_sentence"] = f"감지된 하위 링크 위험 문구: '{top_sent_2depth}'"
                 
                 # 2-Depth 사유도 HTTP 여부에 따라 분기 처리
                 if url.lower().startswith("http://"):
@@ -861,6 +899,4 @@ def predict_phishing_result(target_url):
                 return final_json_report
 
     print(f"\n✅ 모든 스캔 완료. 특이사항 없음! (총 소요 시간: {time.time() - start_time:.2f}초)")
-    
-    # 🔥 [수정] 2-Depth 정상 완료 후 과거의 옛날 포맷 딕셔너리 대신 최신 포맷(final_json_report) 반환!
     return final_json_report
