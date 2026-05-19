@@ -93,11 +93,13 @@ class AsyncPlaywrightPool:
             except Exception:
                 pass 
 
+            await page.wait_for_timeout(1500)
+
             wait_time = 0
             while wait_time < wait_sec:
                 current_html = await page.content()
                 soup_test = BeautifulSoup(current_html, "html.parser")
-                if len(soup_test.get_text(strip=True)) > 150: 
+                if len(soup_test.get_text(strip=True)) > 400: 
                     break
                 await page.wait_for_timeout(250)
                 wait_time += 0.25
@@ -109,7 +111,7 @@ class AsyncPlaywrightPool:
                 for target in close_targets[:2]: # 최대 2개까지만 찔러봄
                     try:
                         await target.click(timeout=800, force=True)
-                        await page.wait_for_timeout(500) # 팝업이 걷히는 시간 0.5초 대기
+                        await page.wait_for_timeout(1500) # 팝업이 걷히는 시간 1.5초 대기
                     except Exception:
                         pass
                 
@@ -209,7 +211,8 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     short_text_count = 0
     
     # 🌟 [추가됨] 한국어 폼 관련 필수 수집 키워드
-    vital_kws = ["이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청", "결제", "일반결제"]
+    vital_kws = ["이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청", "결제", "일반결제",
+                "재가입", "본인확인", "계정 정지", "비정상적인", "차단 해제", "안전한 사용", "유출"]
 
     for text in soup.stripped_strings:
         if any(bad_word in text for bad_word in blacklist_words): continue
@@ -386,7 +389,7 @@ def predict_phishing_result(target_url):
 
     is_http_vulnerable = target_url.lower().startswith("http://")
 
-    safe_tlds = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+    safe_tlds = ["go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     safe_official_domains = [
         "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com", "kebhana.com",
         "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", 
@@ -449,7 +452,19 @@ def predict_phishing_result(target_url):
     use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
     max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
     
-    high_risk_keywords = ["통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "네이버pay 사용이 불가능", "결제시스템 불안정화", "급등주", "무료 리딩", "VVIP 정보", "세력주", "손실 복구", "무료 체험", ]
+    high_risk_keywords = [
+        # 기존 대출/투자 관련
+        "통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "결제시스템 불안정화", "급등주", "무료 리딩", "VVIP 정보", "세력주", "손실 복구", "무료 체험", 
+        
+        # 포털/보안 협박
+        "재가입이 필요", "이용자 확인", "계정 정지", "비정상적인 접근", "차단 해제", "비밀번호 변경", "해외 IP 로그인", "계정 보호 조치", "비밀번호 오류", "안전보안설정", "계정 잠금", "장기 미접속",
+        
+        # 결제/공공/택배 위장
+        "결제 승인", "자동이체 예정", "대출 승인", "신용카드 발급", "지원금 대상자", "소상공인 지원", "환불 처리", "미납 요금", "통장 압류", "과태료 부과", "건강보험료 미납", "도로교통법 위반", "택배 반송", "배송지 오류", "배송지 주소 오류", "통관 번호", "민원 접수 완료",
+        
+        # 가상화폐 위장
+        "코인 상장", "무료 코인 지급", "에어드랍", "사전 판매", "지갑 연동"
+    ]
     action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호"]
 
     # ----------------------------------------------------
@@ -467,11 +482,13 @@ def predict_phishing_result(target_url):
         }
         return {"judgment": "unnormal", "riskLevel": "HIGH", "risklevel": "HIGH", "detectedUrl": target_url, "evidence": evidence_dict}
     
-    if len(processed_text) < 150 or processed_text.startswith("[오류]"):
-        print("  ⚠️ [알림] 텍스트 부족/오류 감지! 메인 페이지 정밀 스캔(Playwright) 기동...")
+    if len(processed_text) < 400 or processed_text.startswith("[오류]") or processed_text.count(" ") < 10:
+        print("  ⚠️ [알림] 텍스트 부족 또는 동적 렌더링(JS) 은닉 의심! 메인 페이지 정밀 스캔(Playwright) 기동...")
         if use_pw:
-            try: processed_text, raw_html = extract_with_playwright_and_raw_html(target_url, is_warmup=False)
-            except Exception: pass
+            try: 
+                processed_text, raw_html = extract_with_playwright_and_raw_html(target_url, is_warmup=False)
+            except Exception: 
+                pass
 
     if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
         print("  ❌ [오류] 사이트 접속 불가 (Timeout 등)")
@@ -578,6 +595,18 @@ def predict_phishing_result(target_url):
 
     print(f"  📝 [추출 텍스트]: {processed_text[:1000]}... (총 {len(processed_text)}자)")
 
+    # 🌟 [신규 추가] AI 어텐션(시선) 강제 유도 로직 (Pre-processing Guide)
+    focus_sentence = ""
+    for sentence in re.split(r'(?<=[.!?])\s+', processed_text):
+        if any(kw in sentence for kw in high_risk_keywords):
+            focus_sentence = sentence
+            break
+            
+    if focus_sentence:
+        # AI가 가장 먼저 읽도록 핵심 문장을 텍스트 맨 앞에 강제로 박아버림!
+        processed_text = f"{focus_sentence} {processed_text}"
+        print(f"  🧠 [AI 시선 유도] 핵심 위협 문장을 최상단에 전진 배치합니다: {focus_sentence[:40]}...")
+
     inputs = tokenizer(processed_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
     
@@ -624,7 +653,11 @@ def predict_phishing_result(target_url):
 
     # --- 안드로이드 앱 전송용 데이터 (Evidence) 준비 ---
     top_sent = top_sentences[0][0] if top_sentences else "분석된 문맥이 없습니다."
-    top_score = top_sentences[0][1] if top_sentences else 0.0
+    for sent, _ in sentence_scores:
+        if any(kw in sent for kw in high_risk_keywords):
+            top_sent = sent
+            print(f"  🎯 [XAI 보정] 고위험 문장 강제 타겟팅: {top_sent}")
+            break
     
     detected_reqs = []
     if any(k in processed_text for k in action_keywords): detected_reqs.append("행동(로그인/인증) 요구")
@@ -677,13 +710,40 @@ def predict_phishing_result(target_url):
     elif is_translated:
         scam_type = "해외 기계 번역(번역투) 피싱"
 
-    # 🔥 [3단계] 점수 보정 
+    # 🔥 [3단계] 점수 보정 (문맥 및 도메인 인식형 스마트 가중치)
     boost_weight_1 = 0.0
-    if is_http_vulnerable: 
-        boost_weight_1 += 0.45
-        print("  🔓 [보안 취약] HTTP 프로토콜 감지! (위험 가중치 +45% 부여)")
-    if found_high_risk: boost_weight_1 += 0.50
-    if found_actions: boost_weight_1 += 0.15
+    
+    # 🌟 [기존 로직] HTTP 취약점 보정
+    if is_http_vulnerable:
+        if found_high_risk:
+            boost_weight_1 += 0.40
+            print("  🔓 [보안 취약] HTTP + 고위험 범죄 키워드 동시 감지! (가중치 +40%)")
+        elif found_actions and base_prob_1 >= 15.0:
+            boost_weight_1 += 0.20
+            print("  🔓 [보안 취약] HTTP 환경에서 정보 입력 요구 감지. (가중치 +20%)")
+        else:
+            print("  🔓 [참고] HTTP 접근이나, 문맥이 안전하여 피싱 가중치 제외.")
+
+    # 🌟 [신규 로직] 도메인 불일치 + 고유식별정보(주민번호 등) 요구 즉결 심판!
+    current_domain = urlparse(target_url).netloc.lower()
+    safe_tlds_list = ["go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+    is_official_domain = any(current_domain.endswith(tld) for tld in safe_tlds_list)
+    
+    is_jumin_demanded = any(kw in processed_text for kw in ["주민번호", "주민등록번호"])
+
+    if not is_official_domain and is_jumin_demanded:
+        boost_weight_1 += 0.60 # 가중치 폭탄 투하! (+60%)
+        scam_type = "정부/공공기관 사칭 피싱"
+        print(f"  🚨 [룰베이스 개입] 비인가 도메인({current_domain})에서 주민등록번호 요구 감지!")
+
+    # 🌟 [가중치 합산]
+    if found_high_risk: 
+        boost_weight_1 += 0.50
+        
+    # 일반 행동(로그인 등) 요구 가중치 (단, 사칭 피싱으로 걸린 '주민번호' 건은 중복 적용 방지)
+    if found_actions and not (not is_official_domain and is_jumin_demanded): 
+        boost_weight_1 += 0.15
+        
     boost_weight_1 = min(boost_weight_1, 0.85)
     
     if boost_weight_1 > 0:
@@ -705,9 +765,9 @@ def predict_phishing_result(target_url):
         if is_fake_gambling:
             ai_reason = f"룰베이스 엔진 교차 검증 결과, '{detected_gambling_str}' 관련 복권/사행성 텍스트가 확인되었으나 접속 도메인({target_url})이 국가 공인 합법 도메인이 아닙니다. 전형적인 사칭 및 불법 사설 도박장으로 판별되어 접속을 강력히 차단합니다."
         elif found_high_risk:
-            ai_reason = f"명백한 불법 키워드({high_risk_str})가 탐지되었으며, AI가 이와 연관된 문맥을 정밀 분석한 결과 {demand_str}를 탈취하려는 '{scam_type}' 목적이 확실시되어 접속을 차단합니다."
+            ai_reason = f"명백한 불법 키워드({high_risk_str})가 탐지되었으며, AI가 이와 연관된 문맥을 정밀 분석한 결과 {demand_str}를 탈취하려는 '{scam_type}' 목적이 확인되어 악성이라고 판정하였습니다."
         elif is_translated:
-            ai_reason = f"AI 분석 결과, \"{top_sent[:30]}...\" 해당 문구들이 부자연스러운 기계 번역투 및 어색한 띄어쓰기로 작성된 것이 확인되었습니다. 이는 해외 기반의 양산형 사기 사이트의 전형적인 특징이므로 최종 악성으로 판별 및 차단합니다."
+            ai_reason = f"AI 분석 결과, \"{top_sent[:30]}...\" 해당 문구들이 부자연스러운 기계 번역투 및 어색한 띄어쓰기로 작성된 것이 확인되었습니다. 이는 해외 기반의 양산형 사기 사이트의 전형적인 특징이므로 최종 악성으로 판정합니다."
         elif demand_parts and base_prob_1 >= 60.0:
             ai_reason = f"AI 엔진이 \"{top_sent[:30]}...\" 문장에 내포된 기만적 의도를 정확히 포착했습니다. 이는 불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되었습니다."
         elif demand_parts and boost_weight_1 > 0:
