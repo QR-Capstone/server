@@ -154,8 +154,9 @@ _RE_PHONE = re.compile(r"\b\d{2,3}[-\s]?\d{3,4}[-\s]?\d{4}\b")
 _RE_EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 
 def redact_pii(text: str) -> str:
-    text = _RE_PHONE.sub("[전화번호]", text)
-    text = _RE_EMAIL.sub("[이메일]", text)
+    # 🌟 '전화번호', '이메일' 단어가 룰베이스에 걸리지 않도록 우회 단어로 변경!
+    text = _RE_PHONE.sub("[고객센터_연락처]", text)
+    text = _RE_EMAIL.sub("[고객센터_Email]", text)
     text = re.sub(r"\b[\d\s]*\*{2,}[\d\s]*\b", "[카드번호_형태]", text)
     text = re.sub(r"\b\d{9,}\b", "[장문숫자]", text)
     text = re.sub(r"http[s]?://(?:bit\.ly|vo\.la|t\.ly|cutt\.ly|url\.kr|ko\.gl|han\.gl|buly\.kr)/[a-zA-Z0-9]+", "[링크]", text)
@@ -299,8 +300,19 @@ def extract_with_playwright_and_raw_html(url, is_warmup=False):
 
 def extract_deep_links(raw_html, base_url, max_links=2): 
     soup = BeautifulSoup(raw_html, "html.parser")
-    priority_links, normal_links = [], []
-    target_keywords = ["로그인", "login", "회원가입", "가입", "sign in", "sign up", "본인인증", "인증", "비밀번호", "내정보"]
+    
+    # 🌟 [신규] 크롤러 수집 우선순위를 4단계로 초정밀 세분화!
+    internal_priority = [] # 1순위: 같은 도메인(내부) + 핵심 키워드 (해커의 진짜 폼 확률 99%)
+    external_priority = [] # 2순위: 외부 도메인 + 핵심 키워드 (위장용일 확률 높음)
+    internal_normal = []   # 3순위: 같은 도메인 + 일반 링크
+    external_normal = []   # 4순위: 외부 도메인 + 일반 링크
+    
+    target_keywords = [
+        "로그인", "login", "회원가입", "가입", "sign in", "sign up", "본인인증", "인증", "비밀번호", "내정보",
+        "조회", "검색", "신청", "확인", "배송", "결제", "민원", "납부", "환급"
+    ]
+    
+    base_domain = urlparse(base_url).netloc.lower()
     
     for a_tag in soup.find_all("a", href=True):
         href = a_tag["href"].strip()
@@ -313,25 +325,33 @@ def extract_deep_links(raw_html, base_url, max_links=2):
             
         if full_url == base_url or full_url == base_url + "/": continue
             
+        # 🌟 링크가 내부(같은 도메인)인지 외부인지 판별
+        current_domain = urlparse(full_url).netloc.lower()
+        is_internal = (current_domain == base_domain)
+            
         link_text = a_tag.get_text(strip=True).lower()
         href_lower = href.lower()
         
         is_priority = any(kw in link_text or kw in href_lower for kw in target_keywords)
                 
-        if is_priority:
-            if full_url not in priority_links: priority_links.append(full_url)
+        # 🌟 그룹별 꼼꼼한 분류
+        if is_priority and is_internal:
+            if full_url not in internal_priority: internal_priority.append(full_url)
+        elif is_priority and not is_internal:
+            if full_url not in external_priority: external_priority.append(full_url)
+        elif not is_priority and is_internal:
+            if full_url not in internal_normal: internal_normal.append(full_url)
         else:
-            if full_url not in normal_links: normal_links.append(full_url)
+            if full_url not in external_normal: external_normal.append(full_url)
 
+    # 🌟 최종 추출 (1순위 그룹부터 싹쓸이하여 max_links 채우기)
     final_links = []
-    for link in priority_links:
-        if link not in final_links:
-            final_links.append(link)
-            if len(final_links) >= max_links: return final_links
-    for link in normal_links:
-        if link not in final_links:
-            final_links.append(link)
-            if len(final_links) >= max_links: return final_links
+    for link_group in [internal_priority, external_priority, internal_normal, external_normal]:
+        for link in link_group:
+            if link not in final_links:
+                final_links.append(link)
+                if len(final_links) >= max_links: return final_links
+                
     return final_links
 
 # ==========================================
@@ -391,8 +411,19 @@ def predict_phishing_result(target_url):
 
     safe_tlds = ["go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     safe_official_domains = [
+        # 기존 금융/공공 기관 및 인프라
         "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com", "kebhana.com",
         "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", 
+        
+        # 🌟 글로벌 IT 기업 및 공식 대형 포털 (자매 도메인 포함)
+        "google.com", "withgoogle.com", "youtube.com", "youtu.be", "gstatic.com", # 구글 라인
+        "naver.com", "navercorp.com", "pstatic.net",                           # 네이버 라인
+        "daum.net", "kakao.com", "kakaocorp.com",                               # 카카오/다음 라인
+        "apple.com", "icloud.com", "microsoft.com", "office.com", 
+        "github.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
+        
+        # 주요 게임사 및 공인 서비스
+        "nexon.com", "ncsoft.com", "netmarble.net", "smilegate.com"
     ]
     legal_gambling_domains = [
        "dhlottery.co.kr", "www.dhlottery.co.kr", "m.dhlottery.co.kr",
@@ -712,7 +743,16 @@ def predict_phishing_result(target_url):
 
     # 🔥 [3단계] 점수 보정 (문맥 및 도메인 인식형 스마트 가중치)
     boost_weight_1 = 0.0
+    discount_weight = 0.0 # 🌟 [신규] 오탐 방지용 점수 할인 변수
     
+    # 🌟 [신규 로직] 정상 기업 사이트(사업자등록번호 등) 오탐 방지 (점수 대폭 할인)
+    # 회사 사이트 하단에 필수로 들어가는 키워드가 있고, 고위험 협박 키워드가 없다면 정상 기업으로 간주
+    is_corporate_site = any(kw in processed_text.replace(" ", "") for kw in ["사업자등록번호", "사업자번호", "대표이사", "대표:"])
+    
+    if is_corporate_site and not found_high_risk:
+        discount_weight = 0.80 # 위협 점수를 80% 깎아버림 (1/5 토막)
+        print("  🛡️ [오탐 방지] 정상적인 기업 정보(사업자등록번호 등) 감지! (위협 점수 80% 할인)")
+
     # 🌟 [기존 로직] HTTP 취약점 보정
     if is_http_vulnerable:
         if found_high_risk:
@@ -724,31 +764,33 @@ def predict_phishing_result(target_url):
         else:
             print("  🔓 [참고] HTTP 접근이나, 문맥이 안전하여 피싱 가중치 제외.")
 
-    # 🌟 [신규 로직] 도메인 불일치 + 고유식별정보(주민번호 등) 요구 즉결 심판!
+    # 🌟 [기존 로직] 도메인 불일치 + 주민번호 요구 즉결 심판
     current_domain = urlparse(target_url).netloc.lower()
-    safe_tlds_list = ["go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+    safe_tlds_list = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     is_official_domain = any(current_domain.endswith(tld) for tld in safe_tlds_list)
-    
     is_jumin_demanded = any(kw in processed_text for kw in ["주민번호", "주민등록번호"])
 
     if not is_official_domain and is_jumin_demanded:
-        boost_weight_1 += 0.60 # 가중치 폭탄 투하! (+60%)
+        boost_weight_1 += 0.60 
         scam_type = "정부/공공기관 사칭 피싱"
         print(f"  🚨 [룰베이스 개입] 비인가 도메인({current_domain})에서 주민등록번호 요구 감지!")
 
-    # 🌟 [가중치 합산]
+    # 🌟 [가중치 합산 및 적용]
     if found_high_risk: 
         boost_weight_1 += 0.50
-        
-    # 일반 행동(로그인 등) 요구 가중치 (단, 사칭 피싱으로 걸린 '주민번호' 건은 중복 적용 방지)
     if found_actions and not (not is_official_domain and is_jumin_demanded): 
         boost_weight_1 += 0.15
-        
     boost_weight_1 = min(boost_weight_1, 0.85)
-    
+
+    # 1. 먼저 위험 가중치를 더해줌
     if boost_weight_1 > 0:
         prob_phishing += (100 - prob_phishing) * boost_weight_1
-        print(f"  📈 [점수 보정] 위험/요구 키워드 탐지! KoBERT({base_prob_1:.1f}%) ➡️ 보정 후({prob_phishing:.1f}%)")
+        print(f"  📈 [점수 보정] 위험/요구 키워드 탐지! 보정 후({prob_phishing:.1f}%)")
+        
+    # 2. 기업 사이트면 점수를 시원하게 깎아줌 (최종 방어선)
+    if discount_weight > 0:
+        prob_phishing = prob_phishing * (1.0 - discount_weight)
+        print(f"  📉 [점수 할인] 기업 사이트 오탐 방지 발동! 최종 보정 후({prob_phishing:.1f}%)")
         
     # 🔥 [4단계] AI 주도형(AI-Driven) 초정밀 판단 사유 생성
     if prob_phishing <= 50.0:
@@ -840,6 +882,11 @@ def predict_phishing_result(target_url):
 
     if deep_links:
         print(f"\n▶ [2-Depth 하위 링크 탐색 ({len(deep_links)}개 발견)]")
+        
+        # 🌟 [디버깅용 신규 추가] 크롤러가 물어온 URL 3개가 무엇인지 확인!
+        for idx, link in enumerate(deep_links, 1):
+            print(f"  🔗 [타겟 URL {idx}]: {link}")
+            
         def fetch_url_task(url):
             text, _ = extract_with_requests_and_raw_html(url)
             return url, text
@@ -897,23 +944,70 @@ def predict_phishing_result(target_url):
             prob_phishing_2 = base_prob_2
             
             boost_weight_2 = 0.0
-            if url.lower().startswith("http://"): boost_weight_2 += 0.40
-            if any(kw in current_text for kw in high_risk_keywords): boost_weight_2 += 0.40
-            if any(kw in current_text for kw in action_keywords): boost_weight_2 += 0.15
+            discount_weight_2 = 0.0 
+            
+            current_domain_2 = urlparse(url).netloc.lower()
+            target_domain_1 = urlparse(target_url).netloc.lower()
+            is_same_domain = (current_domain_2 == target_domain_1)
+            
+            is_corporate_2 = any(kw in current_text.replace(" ", "") for kw in ["사업자등록번호", "사업자번호", "대표이사", "대표:"])
+            has_high_risk_2 = any(kw in current_text for kw in high_risk_keywords)
+            has_actions_2 = any(kw in current_text for kw in action_keywords)
+            
+            # =========================================================
+            # 🌟 [1-Depth 완벽 이식] 공공기관 사칭 즉결 심판 로직
+            # =========================================================
+            safe_tlds_list = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+            is_official_domain_2 = any(current_domain_2.endswith(tld) for tld in safe_tlds_list)
+            is_jumin_demanded_2 = any(kw in current_text for kw in ["주민번호", "주민등록번호"])
+            
+            scam_type_2 = "은닉된 하위 페이지 피싱" # 2-Depth 기본 범죄 유형
+            
+            if not is_official_domain_2 and is_jumin_demanded_2:
+                boost_weight_2 += 0.60 # 가중치 폭탄 투하 (+60%)
+                scam_type_2 = "정부/공공기관 사칭 피싱" # 1-Depth와 동일하게 범죄 유형 지정
+                print(f"  🚨 [2-Depth 룰베이스 개입] 비인가 도메인({current_domain_2})에서 주민등록번호 요구 감지!")
+            # =========================================================
+
+            # 🌟 스마트 제로 트러스트 브레이크
+            has_sensitive_2 = any(kw in current_text for kw in ["주민번호", "주민등록번호", "계좌번호", "카드번호", "보안카드"])
+            is_hacked_suspicion = has_sensitive_2 or (not is_same_domain and has_actions_2 and base_prob_2 >= 70.0)
+
+            # 신뢰도 상속 조건
+            if (is_corporate_2 or (is_corporate_site and is_same_domain)) and not has_high_risk_2 and not is_hacked_suspicion:
+                discount_weight_2 = 0.80
+                print(f"  🛡️ [2-Depth 오탐 방지] 부모 페이지의 정상 기업 신뢰도 상속! ({current_domain_2})")
+            elif (is_corporate_site and is_same_domain) and is_hacked_suspicion:
+                print(f"  ⚠️ [상속 거부] 1-Depth는 정상이나 2-Depth에서 치명적인 탈취 폼 감지! (해킹된 경유지 의심)")
+
+            # 2-Depth 가중치 부여
+            if url.lower().startswith("http://"): 
+                if has_high_risk_2: boost_weight_2 += 0.40
+                elif has_actions_2 and base_prob_2 >= 15.0: boost_weight_2 += 0.20
+                
+            if has_high_risk_2: boost_weight_2 += 0.40
+            
+            # 일반 행동 가중치는 사칭(주민번호)으로 안 걸렸을 때만 15% 추가 (중복 방지)
+            if has_actions_2 and not (not is_official_domain_2 and is_jumin_demanded_2): 
+                boost_weight_2 += 0.15
+                
             boost_weight_2 = min(boost_weight_2, 0.85)
             
+            # 🌟 [최종 점수 계산]
             if boost_weight_2 > 0:
                 prob_phishing_2 += (100 - prob_phishing_2) * boost_weight_2
+                
+            if discount_weight_2 > 0:
+                prob_phishing_2 = prob_phishing_2 * (1.0 - discount_weight_2)
             
             if prob_phishing_2 > 50:
                 print(f"  🚨 [2-Depth 결과] 악성 감지! URL: {url} (최종 확률 {prob_phishing_2:.2f}%)")
-                print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
                 
                 # ====================================================
-                # 🌟 2. [2-Depth 전용 XAI 로직] AI가 집중한 문장 직접 뽑아내기
+                # 🌟 [복구됨] 2-Depth 전용 XAI 로직 (top_sent_2depth 추출)
                 # ====================================================
                 try:
-                    last_layer_attn = attentions_batch[-1][i] # 현재 i번째 텍스트의 어텐션만 추출
+                    last_layer_attn = attentions_batch[-1][i] 
                     avg_attn = torch.mean(last_layer_attn, dim=0) 
                     cls_attn = avg_attn[0] 
                     
@@ -941,21 +1035,22 @@ def predict_phishing_result(target_url):
                     print(f"  ❌ [2-Depth XAI 에러]: {e}")
                     top_sent_2depth = "XAI 추출 실패"
                 # ====================================================
-
+                
+                print(f"✅ 최종 결과 리포트 반환")
+                
                 final_json_report["url"] = url
                 final_json_report["judgment"] = "unnormal"
                 final_json_report["riskLevel"] = "HIGH"
                 final_json_report["threat_score"] = round(prob_phishing_2, 1)
-                final_json_report["threat_type"] = "은닉된 하위 페이지 피싱"
+                final_json_report["threat_type"] = scam_type_2 
                 
-                # 🌟 3. XAI가 찾아낸 진짜 증거 문장을 리포트에 삽입!
                 final_json_report["evidence"]["ai_semantic_evidence"]["suspect_sentence"] = f"감지된 하위 링크 위험 문구: '{top_sent_2depth}'"
                 
-                # 2-Depth 사유도 HTTP 여부에 따라 분기 처리
                 if url.lower().startswith("http://"):
-                    final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = "해당 하위 링크는 보안이 취약한 링크(HTTP)이며, 정보 탈취용 악성 패턴이 감지되어 원천 차단합니다."
+                    final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = f"해당 하위 링크는 보안이 취약(HTTP)하며, 딥러닝-룰베이스 교차 검증을 통해 최종 악성('{scam_type_2}')으로 차단합니다."
                 else:
-                    final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = "메인 페이지는 정상으로 판별되었으나, 내부에 연결된 하위 링크에서 정보 탈취용 악성 패턴이 감지되어 원천 차단합니다."
+                    final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = f"메인 페이지 뒤에 은닉된 하위 링크에서 정보 탈취용 악성 패턴이 감지되어 최종 악성('{scam_type_2}')으로 차단합니다."
+                
                 return final_json_report
 
     print(f"\n✅ 모든 스캔 완료. 특이사항 없음! (총 소요 시간: {time.time() - start_time:.2f}초)")
