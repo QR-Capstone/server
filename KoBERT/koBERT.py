@@ -212,9 +212,23 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     short_text_count = 0
     
     # 🌟 [추가됨] 한국어 폼 관련 필수 수집 키워드
-    vital_kws = ["이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청", "결제", "일반결제",
-                "재가입", "본인확인", "계정 정지", "비정상적인", "차단 해제", "안전한 사용", "유출"]
-
+    vital_kws = [
+        # 1. [작성자님 오리지널] 기존 핵심 단어 (완벽한 기초 뼈대)
+        "이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청", "결제", "일반결제", 
+        "재가입", "본인확인", "계정 정지", "비정상적인", "차단 해제", "안전한 사용", "유출",
+        
+        # 2. 초민감 정보 & 금융
+        "주민번호", "주민등록번호", "생년월일", "인증번호", "아이디", "ID", "카드번호", "CVC", "보안카드", "환급금",
+        
+        # 3. 큐싱(QR 피싱) & 악성 앱 유도
+        "앱 다운로드", "APK", "설치", "주차", "요금정산", "대여", "업데이트",
+        
+        # 4. 택배/공공기관 사칭 미끼
+        "택배", "송장", "송장번호", "통관", "과태료", "범칙금", "통지서", "조회",
+        
+        # 5. 필수 행동 버튼
+        "로그인", "login", "다운로드", "동의", "제출"
+    ]
     for text in soup.stripped_strings:
         if any(bad_word in text for bad_word in blacklist_words): continue
         if number_pattern.match(text): continue
@@ -712,10 +726,11 @@ def predict_phishing_result(target_url):
     invest_kws = ["비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "급등주", "VVIP 정보", "세력주", "무료 리딩"]
     trans_kws = ["상륙 하 다", "상륙하 다", "서명 하 다", "지불 하 다", "제출 하 다", "얻 다", "이 긴 다", "청소 하 라", "계 좌", "비 밀 번 호", "제시 하 다", "갱 신 하 다"]
     gambling_kws = ["로또6/45", "동행복권", "연금복권", "파워볼", "프로토", "스포츠토토", "드림게임", "카지노"]
-    adult_kws = ["성인용품", "오피", "조건만남", "비아그라", "밤알바", "19금", "리얼돌"] 
+    adult_kws = ["성인용품", "출장안마", "조건만남", "비아그라", "밤알바", "19금", "리얼돌"] 
 
     site_category = "일반"
-    if any(kw in processed_text for kw in adult_kws):
+    temp_text_for_adult = processed_text.replace("오피스", "").replace("오피셜", "")
+    if any(kw in temp_text_for_adult for kw in adult_kws) or " 오피 " in temp_text_for_adult:
         site_category = "성인 사이트"
     elif any(kw in processed_text for kw in gambling_kws):
         site_category = "도박/복권"
@@ -766,6 +781,17 @@ def predict_phishing_result(target_url):
 
     # 🌟 [기존 로직] 도메인 불일치 + 주민번호 요구 즉결 심판
     current_domain = urlparse(target_url).netloc.lower()
+
+    free_hosting_domains = ["amazonaws.com", "firebaseapp.com", "web.app", "pages.dev", "vercel.app", "netlify.app", "github.io", "workers.dev"]
+    is_free_hosting = any(current_domain.endswith(tld) for tld in free_hosting_domains)
+    
+    # "정상적인 회사는 AWS S3 원본 주소나 무료 도메인에서 고객의 로그인을 받지 않는다!"
+    if is_free_hosting and found_actions:
+        boost_weight_1 += 0.60 # 가중치 60% 폭탄!
+        scam_type = "클라우드 호스팅 악용 피싱"
+        print(f"  🚨 [룰베이스 개입] 무료 클라우드 도메인({current_domain})에서 로그인/정보 요구 감지!")
+
+        
     safe_tlds_list = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
     is_official_domain = any(current_domain.endswith(tld) for tld in safe_tlds_list)
     is_jumin_demanded = any(kw in processed_text for kw in ["주민번호", "주민등록번호"])
