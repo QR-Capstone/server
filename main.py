@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import functools
 import os
@@ -361,18 +363,26 @@ def _clean_xgboost_explanations(explanations: list[Any]) -> list[str]:
 def _clean_gnn_explanations(explanation: Any) -> list[str]:
     if not explanation:
         return []
+    # build_explanation 이 List[str] 을 반환하므로 그대로 정리
+    if isinstance(explanation, list):
+        items = [str(x) for x in explanation]
+    else:
+        # 과거 호환: 단일 문자열이면 줄 단위 분할
+        items = str(explanation).splitlines()
+
     cleaned = []
-    for raw_line in str(explanation).splitlines():
-        line = raw_line.strip()
-        if not line:
+    for raw in items:
+        text = str(raw).strip()
+        if not text:
             continue
-        if line.startswith(("🔥", "🎯")):
-            continue
-        if line.startswith("- "):
-            line = line[2:].strip()
-        line = line.replace("🚨 ", "").replace("⚠️ ", "").replace("🔍 ", "").replace("✅ ", "")
-        if line:
-            cleaned.append(line)
+        if text.startswith("- "):
+            text = text[2:].strip()
+        # 과거 emoji 접두 제거 (안전망)
+        for emoji in ("🚨 ", "⚠️ ", "🔍 ", "✅ ", "🟡 ", "🔥 ", "🎯 "):
+            if text.startswith(emoji):
+                text = text[len(emoji):]
+        if text:
+            cleaned.append(text)
     return cleaned
 
 

@@ -1559,99 +1559,196 @@ def build_explanation(
     evidence: Dict[str, Any],
     features: Optional[Dict[str, float]] = None,
     prob: float = 0.0,
-) -> str:
+) -> List[str]:
+    """그래프 구조 기반 근거를 자연 문장 List 로 반환(XGBoost / KoBERT 스타일).
+
+    각 항목은 "관찰된 사실 + 공격자 패턴 보충"의 2줄 형태로 구성된다.
+    """
 
     if not evidence:
-        return "보안 분석 정보를 불러오지 못했습니다."
+        return ["사이트 구조를 분석할 수 있는 정보를 가져오지 못했습니다."]
 
-    lines = []
-    counts = evidence.get("counts", {})
-    password_count = counts.get("password_input", 0)
-    form_count = counts.get("form", 0)
-    iframe_count = counts.get("iframe", 0)
-    external_links = counts.get("links_to_external", 0)
-    internal_links = counts.get("links_to_internal", 0)
+    features = features or {}
+    counts = evidence.get("counts", {}) or {}
+
+    reasons: List[str] = []
+    added: Set[str] = set()
+    MAX_ITEMS = 4
+
+    def _add(text: str) -> None:
+        if text and text not in added:
+            reasons.append(text)
+            added.add(text)
+
+    # 자주 쓰는 수치 (피처값/카운트)
+    brand_mismatch         = float(features.get("brand_domain_mismatch", 0.0))
+    external_form_ratio    = float(features.get("external_form_ratio", 0.0))
+    final_domain_changed   = float(features.get("final_domain_changed", 0.0))
+    credential_surface     = float(features.get("credential_surface", 0.0))
+    password_input_ratio   = float(features.get("password_input_ratio", 0.0))
+    suspicious_input_ratio = float(features.get("suspicious_input_ratio", 0.0))
+    external_link_ratio    = float(features.get("external_link_ratio", 0.0))
+    internal_link_ratio    = float(features.get("internal_link_ratio", 0.0))
+    iframe_ratio           = float(features.get("iframe_ratio", 0.0))
+    script_ratio           = float(features.get("script_ratio", 0.0))
+    risky_edge_ratio       = float(features.get("risky_edge_ratio", 0.0))
+    relation_weighted_risk = float(features.get("relation_weighted_risk", 0.0))
+    page_risk_after_mp     = float(features.get("page_risk_after_mp", 0.0))
+    domain_diversity       = float(features.get("domain_diversity", 0.0))
+    is_https               = float(features.get("is_https", 0.0))
+    fetch_failed           = float(features.get("fetch_failed", 0.0))
+
+    password_count  = int(counts.get("password_input", 0))
+    form_count      = int(counts.get("form", 0))
+    iframe_count    = int(counts.get("iframe", 0))
+    script_count    = int(counts.get("script", 0))
+    external_links  = int(counts.get("links_to_external", 0))
+    submits_ext     = int(counts.get("submits_to_external", 0))
 
     # =========================================================
-    # 1. 최종 판정
+    # 1) 페이지 수집 실패 → 단일 사유로 종료
     # =========================================================
-    
-    if prob >= 0.60:
-        lines.append("🚨 위험한 사이트입니다.")
-    elif prob >= 0.35:
-        lines.append("🟡 수상한 사이트입니다.")
-    else:
-        lines.append("✅ 안전한 사이트입니다.")
+    if fetch_failed >= 1.0:
+        _add(
+            "사이트의 실제 페이지 내용을 가져오지 못해 그래프 기반 분석이 제한되었습니다.\n"
+            "  접속이 되지 않는 사이트는 비정상 종료된 피싱 페이지이거나 짧은 기간만 운영되는 일회성 주소일 수 있습니다."
+        )
+        return reasons[:MAX_ITEMS]
 
-    if features:
-
-    # =========================
-    # 안전 사이트 근거
-    # =========================
-        if prob < 0.35:
-
-            if (
-            features.get("external_form_ratio", 0) == 0
-            and features.get("brand_domain_mismatch", 0) == 0
-            and features.get("credential_surface", 0) == 0
-            ):
-                lines.append(
-                "로그인 정보나 개인정보를 외부 서버로 전송하는 위험 요소가 발견되지 않았습니다."
+    # =========================================================
+    # 2) 안전 판정 사유 (prob < 0.35)
+    # =========================================================
+    if prob < 0.35:
+        if (
+            external_form_ratio == 0
+            and brand_mismatch == 0
+            and credential_surface == 0
+        ):
+            _add(
+                "사용자 입력 정보를 외부 서버로 전송하거나 브랜드를 위장하는 구조가 발견되지 않았습니다.\n"
+                "  정보 탈취형 피싱 사이트에서 흔히 보이는 외부 폼 전송·브랜드 도용 패턴이 나타나지 않습니다."
             )
 
-            if features.get("internal_link_ratio", 0) > 0.6:
-                lines.append(
-                "대부분의 연결이 동일한 공식 도메인 내부에서 이루어지고 있습니다."
+        if internal_link_ratio > 0.6:
+            _add(
+                f"내부 도메인으로 연결되는 비율이 {internal_link_ratio*100:.0f}%로 높아 단일 공식 사이트 패턴에 가깝습니다.\n"
+                "  정상 운영 사이트는 외부 도메인보다 자기 도메인 내부 페이지로의 이동이 압도적으로 많습니다."
             )
 
-            if features.get("is_https", 0) > 0:
-                lines.append(
-                "HTTPS 보안 연결이 적용되어 있습니다."
+        if is_https > 0:
+            _add(
+                "HTTPS 보안 연결이 적용되어 있어 통신 가로채기 위험은 낮은 편입니다.\n"
+                "  다만 HTTPS 적용만으로 정상 사이트임을 보장하지는 않으므로 다른 신호와 함께 종합 판단됩니다."
             )
 
-            if counts.get("iframe", 0) == 0:
-                lines.append(
-                "숨겨진 iframe 삽입과 같은 의심스러운 구조가 발견되지 않았습니다."
+        if iframe_count == 0 and script_count <= 5:
+            _add(
+                f"숨김 iframe 삽입이나 과도한 외부 스크립트 호출(스크립트 {script_count}개)이 발견되지 않았습니다.\n"
+                "  피싱 사이트는 사용자 모르게 외부 코드를 끌어와 정보를 탈취하는 경우가 많아 해당 신호가 핵심 지표입니다."
             )
 
-            if counts.get("script", 0) <= 5:
-                lines.append(
-                "외부 스크립트 호출이 과도하지 않아 정상 사이트 패턴과 유사합니다."
+        if not reasons:
+            _add(
+                "사이트 그래프의 연결 구조와 동작 패턴이 일반 정상 사이트와 유사하게 관찰되었습니다.\n"
+                "  외부 도메인 다양성, 위험 엣지 비율 등에서 알려진 피싱 사이트의 특징이 두드러지지 않습니다."
             )
 
-            if not lines:
-                lines.append(
-                "사이트 구조와 연결 관계가 일반적인 정상 웹사이트 패턴과 유사합니다."
-            )
+        return reasons[:MAX_ITEMS]
 
-            return " ".join(lines)
+    # =========================================================
+    # 3) 의심·악성 판정 사유 (prob >= 0.35)
+    # =========================================================
+    # ── 우선순위 1: 브랜드 도용 + 자격증명 입력 (가장 강한 신호)
+    if brand_mismatch > 0 and credential_surface > 0:
+        _add(
+            "유명 브랜드 이름이 노출되어 있지만 실제 도메인은 공식 주소와 일치하지 않으며, 동시에 로그인·개인정보 입력 화면이 함께 발견되었습니다.\n"
+            "  브랜드 위장 + 자격증명 수집의 조합은 정보 탈취형 피싱 사이트에서 가장 자주 사용되는 핵심 패턴입니다."
+        )
+    elif brand_mismatch > 0:
+        _add(
+            "페이지에 노출된 브랜드 이름과 실제 도메인이 일치하지 않아 공식 사이트로 위장한 정황이 확인되었습니다.\n"
+            "  피싱 공격자는 익숙한 브랜드명을 본문·로고에 노출시켜 사용자가 도메인을 의심하지 않도록 유도합니다."
+        )
 
-    # =========================
-    # 위험 사이트 근거
-    # =========================
-    
-    if features.get("brand_domain_mismatch", 0) > 0:
-        lines.append("유명 브랜드 이름을 도용하고 있지만 실제 공식 주소와 일치하지 않는 가짜 사이트로 확인되었습니다.")
+    if len(reasons) >= MAX_ITEMS:
+        return reasons[:MAX_ITEMS]
 
-    elif features.get("external_form_ratio", 0) > 0.4:
-        lines.append("이 사이트에 입력한 정보가 전혀 관계없는 외부 서버로 전송되는 구조가 확인되었습니다.")
+    # ── 우선순위 2: 외부 폼 전송 / 자격증명 수집
+    if external_form_ratio > 0.4 or submits_ext > 0:
+        ext_pct = external_form_ratio * 100 if external_form_ratio > 0 else 0
+        _add(
+            f"사용자가 입력한 정보가 현재 도메인이 아닌 외부 서버로 전송되는 구조가 확인되었습니다. (외부 제출 비율 {ext_pct:.0f}%)\n"
+            "  로그인 폼이 정상 사이트의 자체 서버가 아닌 제3의 도메인으로 향하는 것은 자격증명 탈취 시도의 대표적 신호입니다."
+        )
+    elif password_count > 0 and credential_surface >= 0.3:
+        _add(
+            f"비밀번호 입력 칸 등 자격증명 입력 표면이 노출되어 있습니다. (비밀번호 입력 {password_count}개, 자격증명 표면 지수 {credential_surface:.2f})\n"
+            "  의심스러운 도메인 위에서 비밀번호를 요구하는 화면은 피싱 사이트의 가장 흔한 형태입니다."
+        )
 
-    elif features.get("final_domain_changed", 0) > 0:
-        lines.append("접속 과정에서 전혀 다른 주소로 자동 이동되는 피싱 수법이 감지되었습니다.")
+    if len(reasons) >= MAX_ITEMS:
+        return reasons[:MAX_ITEMS]
 
-    elif iframe_count > 0:
-        lines.append("사용자 눈에 보이지 않는 숨겨진 화면이 포함되어 있어 악성 사이트와 유사한 구조로 판단되었습니다.")
+    # ── 우선순위 3: 리다이렉트 / 최종 도메인 변경
+    if final_domain_changed > 0:
+        _add(
+            "접속 과정에서 최초 입력한 주소와 전혀 다른 도메인으로 자동 이동되는 동작이 감지되었습니다.\n"
+            "  사용자가 직접 입력하거나 클릭한 도메인과 다른 곳으로 우회시키는 방식은 피싱·악성 광고 라우팅의 전형적인 수법입니다."
+        )
 
-    elif counts.get("script", 0) > 5:
-        lines.append("외부에서 불러온 수상한 프로그램 코드가 다수 실행되고 있어 피싱 사이트와 유사한 패턴으로 판단되었습니다.")
+    if len(reasons) >= MAX_ITEMS:
+        return reasons[:MAX_ITEMS]
 
-    elif external_links > 2:
-        lines.append("정상 사이트에 비해 수상한 외부 주소와의 연결이 과도하게 많아 위험한 사이트로 판단되었습니다.")
+    # ── 우선순위 4: 숨김 iframe / 외부 스크립트 과다
+    if iframe_count > 0 or iframe_ratio > 0.05:
+        _add(
+            f"눈에 보이지 않는 iframe이 포함되어 있어 사용자 모르게 외부 콘텐츠를 끌어오는 구조로 확인되었습니다. (iframe {iframe_count}개)\n"
+            "  은닉 iframe은 클릭재킹·드라이브바이 다운로드 등 악성 행위를 숨기는 통로로 자주 사용됩니다."
+        )
+    elif script_count > 8 or script_ratio > 0.35:
+        _add(
+            f"외부에서 끌어오는 스크립트가 과도하게 많이 실행되고 있습니다. (스크립트 {script_count}개)\n"
+            "  정체불명의 외부 스크립트가 다수 실행되는 페이지는 트래킹·정보 탈취·악성 리다이렉트 등 추가 위험을 동반할 수 있습니다."
+        )
 
-    else:
-        lines.append("사이트 전체 연결 구조와 동작 패턴이 알려진 피싱 사이트와 유사하여 위험한 사이트로 판단되었습니다.")
+    if len(reasons) >= MAX_ITEMS:
+        return reasons[:MAX_ITEMS]
 
-    return " ".join(lines)
+    # ── 우선순위 5: 외부 링크/도메인 다양성 (위험 엣지)
+    if risky_edge_ratio > 0.3 or relation_weighted_risk > 0.45:
+        _add(
+            f"사이트 그래프 내부에 위험도가 높은 연결(엣지)이 비정상적으로 많이 분포되어 있습니다. (위험 엣지 비율 {risky_edge_ratio*100:.0f}%)\n"
+            "  관계 가중치 기반 메시지 전파 결과, 이 페이지의 인접 노드들이 알려진 피싱 사이트의 위험 분포와 유사하게 나타났습니다."
+        )
+    elif external_links > 5 and external_link_ratio > 0.6:
+        _add(
+            f"내부 페이지보다 외부 도메인으로 빠지는 링크 비중이 지나치게 큽니다. (외부 링크 {external_links}개, 비율 {external_link_ratio*100:.0f}%)\n"
+            "  정상 사이트는 자기 도메인 내부 페이지로의 이동이 다수인데 반해, 외부로의 송출이 압도적인 패턴은 피싱 허브의 특징입니다."
+        )
+    elif domain_diversity >= 12:
+        _add(
+            f"페이지가 연결하는 외부 도메인의 종류가 비정상적으로 다양합니다. (서로 다른 도메인 {int(domain_diversity)}개)\n"
+            "  광고·트래픽 분산형 악성 페이지에서 자주 보이는 형태로, 다수의 외부 도메인을 끌어와 분석을 회피합니다."
+        )
+
+    if len(reasons) >= MAX_ITEMS:
+        return reasons[:MAX_ITEMS]
+
+    # ── 우선순위 6: 메시지 전파 후 페이지 위험도
+    if page_risk_after_mp > 0.5:
+        _add(
+            f"이웃 노드로부터 위험 신호가 누적된 결과, 페이지 자체의 위험도가 높게 산출되었습니다. (전파 후 위험도 {page_risk_after_mp:.2f})\n"
+            "  GNN 메시지 전파 단계에서 주변 자원·폼·iframe들의 위험도가 페이지 노드에 수렴되며 악성 패턴과 가까워졌습니다."
+        )
+
+    # 위 모든 신호가 약하지만 prob >= 0.35 인 경우 → 일반 사유
+    if not reasons:
+        _add(
+            "사이트 전체 연결 구조와 동작 패턴이 알려진 피싱 사이트의 그래프 분포와 유사한 형태로 관찰되었습니다.\n"
+            "  단일 결정적 신호는 약하지만, 여러 약한 신호가 누적되어 정상 사이트보다 위험한 쪽으로 기울었습니다."
+        )
+
+    return reasons[:MAX_ITEMS]
 
 
 def predict_gnn(
