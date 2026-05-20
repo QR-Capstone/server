@@ -3270,6 +3270,88 @@ def _typo_features_support_benign_line(feat_map: Dict[str, Any]) -> bool:
     return True
 
 
+def _benign_url_structure_has_impersonation_risk(feat_map: Dict[str, Any]) -> bool:
+    """브랜드 위장·피싱 유도 패턴이 있으면 정상 주소 구조 통합 문장을 허용하지 않는다."""
+    risk_keys = (
+        "host_contains_brand_token",
+        "brand_token_in_subdomain",
+        "brand_plus_keyword_pattern",
+        "brand_hyphen_compound",
+        "brand_target_action_pattern",
+        "brand_subdomain_registered_domain_mismatch",
+    )
+    return any(float(feat_map.get(key, 0.0)) >= 1.0 for key in risk_keys)
+
+
+def _benign_url_structure_basic_safe(feat_map: Dict[str, Any]) -> bool:
+    """IP·길이·하이픈·서브도메인·homoglyph 등 구조적 위험 및 위장 패턴이 없을 때 True."""
+    if float(feat_map.get("has_ip_host", 0.0)) >= 1.0:
+        return False
+    host_len = _coalesce_host_len_from_typo_map(feat_map)
+    if host_len > 45.0:
+        return False
+    if host_len > 0.0 and host_len < 6.0:
+        return False
+    if float(feat_map.get("num_hyphens", 0.0)) >= 2.0:
+        return False
+    if float(feat_map.get("num_subdomains", 0.0)) >= 3.0:
+        return False
+    if float(feat_map.get("domain_homoglyph_ratio", 0.0)) >= 0.05:
+        return False
+    if float(feat_map.get("domain_vowel_like_digit_count", 0.0)) >= 1.0:
+        return False
+    if _benign_url_structure_has_impersonation_risk(feat_map):
+        return False
+    return True
+
+
+def _is_exact_official_brand_sld_from_typo_features(feat_map: Dict[str, Any]) -> bool:
+    """SLD가 브랜드 사전 항목과 정확히 일치하는 공식 도메인 패턴(피처 기준)."""
+    if float(feat_map.get("sld_damerau_levenshtein_closest_brand", 999.0)) != 0.0:
+        return False
+    if float(feat_map.get("sld_normalized_edit_distance", 1.0)) != 0.0:
+        return False
+    if float(feat_map.get("sld_3gram_jaccard_closest_brand", 0.0)) < 0.99:
+        return False
+    return True
+
+
+def _is_official_brand_sld_from_url(url: Optional[str]) -> bool:
+    if not url or not BRAND_DICTIONARY:
+        return False
+    _host, _path, sld = _split_url_for_analysis(url)
+    if not sld:
+        return False
+    sld_lower = sld.lower()
+    return any(sld_lower == brand.lower() for brand in BRAND_DICTIONARY if brand)
+
+
+def _is_official_brand_domain(url: Optional[str], feat_map: Dict[str, Any]) -> bool:
+    if _is_official_brand_sld_from_url(url):
+        return True
+    return _is_exact_official_brand_sld_from_typo_features(feat_map)
+
+
+def _benign_url_structure_summary_allowed(
+    typo_feat_map: Dict[str, Any],
+    typo_probability: float,
+    threshold: float,
+    url: Optional[str] = None,
+) -> bool:
+    """
+    정상 판정 통합 문장에 '주소 구조' 설명을 넣을 수 있는지 판단한다.
+    공식 브랜드 도메인(google.com 등)은 브랜드 유사 피처만으로 막지 않고,
+    가짜 브랜드 유사 주소는 _typo_features_support_benign_line으로 계속 차단한다.
+    """
+    if typo_probability >= threshold:
+        return False
+    if not _benign_url_structure_basic_safe(typo_feat_map):
+        return False
+    if _is_official_brand_domain(url, typo_feat_map):
+        return True
+    return _typo_features_support_benign_line(typo_feat_map)
+
+
 def _benign_typo_explanation_line(
     typo_feat_map: Dict[str, Any],
     typo_probability: float,
@@ -3349,6 +3431,76 @@ def _benign_dom_explanation_line(dom_feature_map: Dict[str, Any]) -> Optional[st
     )
 
 
+def _benign_domain_creation_date_iso(domain_feat_map: Dict[str, Any]) -> Optional[str]:
+    iso = domain_feat_map.get("rdap_creation_date_iso")
+    if isinstance(iso, str) and len(iso.strip()) >= 10:
+        return iso.strip()[:10]
+    return None
+
+
+def _build_benign_unified_explanation(
+    has_typo: bool,
+    has_domain: bool,
+    has_ssl: bool,
+    domain_date: Optional[str],
+) -> Optional[str]:
+    """정상 판정 시 typo·domain·ssl 근거를 모바일 친화적인 단일 문장으로 합성한다."""
+    if has_typo:
+        if has_domain and has_ssl:
+            if domain_date:
+                return (
+                    "주소 구조에서 브랜드 사칭이나 비정상적인 문자 조합은 두드러지지 않았고, "
+                    f"도메인 등록 이력({domain_date})과 보안 연결도 정상 범위로 확인되어 "
+                    "기본적인 신뢰 조건을 만족합니다."
+                )
+            return (
+                "주소 구조에서 브랜드 사칭이나 비정상적인 문자 조합은 두드러지지 않았고, "
+                "도메인 등록 이력과 보안 연결도 정상 범위로 확인되어 "
+                "기본적인 신뢰 조건을 만족합니다."
+            )
+        if has_ssl:
+            return (
+                "주소 구조에서 브랜드 사칭이나 비정상적인 문자 조합은 두드러지지 않았고, "
+                "보안 연결도 정상 범위로 확인되어 기본적인 신뢰 조건을 만족합니다."
+            )
+        if has_domain:
+            if domain_date:
+                return (
+                    "주소 구조에서 브랜드 사칭이나 비정상적인 문자 조합은 두드러지지 않았고, "
+                    f"도메인 등록 이력({domain_date})이 확인되어 기본적인 신뢰 조건을 만족합니다."
+                )
+            return (
+                "주소 구조에서 브랜드 사칭이나 비정상적인 문자 조합은 두드러지지 않았고, "
+                "도메인 등록 이력이 확인되어 기본적인 신뢰 조건을 만족합니다."
+            )
+        return (
+            "주소 구조에서 브랜드 사칭이나 비정상적인 문자 조합은 두드러지지 않아 "
+            "뚜렷한 위험 신호는 확인되지 않았습니다."
+        )
+
+    if has_domain and has_ssl:
+        if domain_date:
+            return (
+                f"도메인 등록 이력({domain_date})과 보안 연결도 정상 범위로 확인되어 "
+                "기본적인 신뢰 조건을 만족합니다."
+            )
+        return (
+            "도메인 등록 이력과 보안 연결도 정상 범위로 확인되어 "
+            "기본적인 신뢰 조건을 만족합니다."
+        )
+    if has_ssl:
+        return "보안 연결도 정상 범위로 확인되어 기본적인 신뢰 조건을 만족합니다."
+    if has_domain:
+        if domain_date:
+            return (
+                f"도메인 등록 이력({domain_date})이 확인되어 "
+                "기본적인 신뢰 조건을 만족합니다."
+            )
+        return "도메인 등록 이력이 확인되어 기본적인 신뢰 조건을 만족합니다."
+
+    return None
+
+
 def _compose_benign_explanations(
     typo_feat_map: Dict[str, Any],
     typo_probability: float,
@@ -3357,29 +3509,201 @@ def _compose_benign_explanations(
     dom_feature_map: Dict[str, Any],
     _dom_probability: float,
     threshold: float = 0.5,
+    url: Optional[str] = None,
 ) -> List[str]:
     """
-    정상(verdict benign) 전용 상세 근거. 실제로 확인된 조건만 1~3줄로 담는다.
+    정상(verdict benign) 전용 상세 근거. typo·domain·ssl은 단일 통합 문장으로 합성한다.
+    DOM은 통합 문장이 없을 때만 보조 근거로 사용한다.
     (_domain_probability·_dom_probability는 호출부 호환용이며 근거 생성에는 사용하지 않는다.)
     """
-    out: List[str] = []
-    typo_line = _benign_typo_explanation_line(typo_feat_map, typo_probability, threshold)
-    if typo_line:
-        out.append(typo_line)
-    domain_line = _benign_domain_age_explanation_line(domain_feat_map)
-    if domain_line and len(out) < 3:
-        out.append(domain_line)
-    ssl_line = _benign_ssl_explanation_line(domain_feat_map)
-    if ssl_line and len(out) < 3:
-        out.append(ssl_line)
+    has_url_structure = _benign_url_structure_summary_allowed(
+        typo_feat_map,
+        typo_probability,
+        threshold,
+        url=url,
+    )
+    has_domain = _benign_domain_age_explanation_line(domain_feat_map) is not None
+    has_ssl = _benign_ssl_explanation_line(domain_feat_map) is not None
+    domain_date = _benign_domain_creation_date_iso(domain_feat_map) if has_domain else None
+
+    unified = _build_benign_unified_explanation(
+        has_typo=has_url_structure,
+        has_domain=has_domain,
+        has_ssl=has_ssl,
+        domain_date=domain_date,
+    )
+    if unified:
+        return [unified]
+
     dom_line = _benign_dom_explanation_line(dom_feature_map)
-    if dom_line and len(out) < 3:
-        out.append(dom_line)
+    if dom_line:
+        return [dom_line]
 
-    if not out:
-        out.append("뚜렷한 위험 신호가 확인되지 않아 정상으로 판단되었습니다.")
+    return ["뚜렷한 위험 신호가 확인되지 않아 정상으로 판단되었습니다."]
 
-    return out[:3]
+
+_MALICIOUS_PHISHING_SIMILAR_TAIL = "피싱 사이트에서 자주 보이는 특징과 유사합니다."
+
+
+def _malicious_clause_is_unregistered_domain(clause: str) -> bool:
+    return clause.startswith("정상 등록 도메인으로 확인되지 않은")
+
+
+def _malicious_clause_is_general_url_structure(clause: str) -> bool:
+    return "일반적인 서비스와 다른 주소 구조" in clause or "어색한 주소 구조" in clause
+
+
+def _malicious_clause_is_typo_brand(clause: str) -> bool:
+    return any(
+        key in clause
+        for key in (
+            "유사한 철자",
+            "공식 사이트처럼",
+            "공식 주소처럼",
+            "조작한 주소",
+            "로그인·계정",
+            "하이픈으로",
+            "서브도메인에",
+        )
+    )
+
+
+def _malicious_clause_is_url_structure(clause: str) -> bool:
+    return any(
+        key in clause
+        for key in (
+            "주소 구조",
+            "도메인 이름이",
+            "하이픈이",
+            "서브도메인이",
+            "일반적인 서비스와 다른",
+        )
+    )
+
+
+def _compose_malicious_meta_bullets(parts: List[str]) -> List[str]:
+    """도메인·주소 구조·브랜드 위장 등 메타 신호를 짧은 소비자용 bullet으로 합성한다."""
+    if not parts:
+        return []
+
+    unreg = next((p for p in parts if _malicious_clause_is_unregistered_domain(p)), None)
+    url_general = next((p for p in parts if _malicious_clause_is_general_url_structure(p)), None)
+    typo_brand = next((p for p in parts if _malicious_clause_is_typo_brand(p)), None)
+    url_other = next(
+        (p for p in parts if _malicious_clause_is_url_structure(p) and p != url_general),
+        None,
+    )
+    domain_ssl = next(
+        (
+            p
+            for p in parts
+            if p not in (unreg, url_general, typo_brand, url_other)
+            and any(k in p for k in ("도메인", "보안", "등록", "인증서"))
+        ),
+        None,
+    )
+
+    if unreg and url_general:
+        return [
+            "정상 등록 도메인으로 확인되지 않았고, 주소 구조도 일반적인 서비스와 달라 "
+            f"{_MALICIOUS_PHISHING_SIMILAR_TAIL}"
+        ]
+
+    if unreg and typo_brand:
+        return [
+            f"정상 등록 도메인으로 확인되지 않았고, {typo_brand}가 확인되어 "
+            f"{_MALICIOUS_PHISHING_SIMILAR_TAIL}"
+        ]
+
+    if unreg and url_other:
+        return [
+            f"정상 등록 도메인으로 확인되지 않았고, {url_other}가 확인되어 "
+            f"{_MALICIOUS_PHISHING_SIMILAR_TAIL}"
+        ]
+
+    if unreg and domain_ssl:
+        extra = domain_ssl.replace("(SSL)", "보안 연결").replace("SSL", "보안 연결")
+        return [
+            f"정상 등록 도메인으로 확인되지 않았고, {extra}도 확인되어 "
+            f"{_MALICIOUS_PHISHING_SIMILAR_TAIL}"
+        ]
+
+    if unreg:
+        return [
+            "현재 이 도메인은 정상적으로 등록된 사이트로 확인되지 않았습니다. "
+            "잘못된 주소이거나 임시로 만들어진 악성 주소일 가능성이 있습니다."
+        ]
+
+    if len(parts) >= 2:
+        p0, p1 = parts[0], parts[1]
+        if _malicious_clause_is_general_url_structure(p0) or _malicious_clause_is_general_url_structure(p1):
+            other = p1 if _malicious_clause_is_general_url_structure(p0) else p0
+            return [f"{other}이 확인되었고, 주소 구조도 일반적인 서비스와 달라 {_MALICIOUS_PHISHING_SIMILAR_TAIL}"]
+        return [f"{p0}이 확인되었고, {p1}도 확인되어 {_MALICIOUS_PHISHING_SIMILAR_TAIL}"]
+
+    p0 = parts[0]
+    if _malicious_clause_is_general_url_structure(p0):
+        return [f"주소 구조가 일반적인 서비스와 달라 {_MALICIOUS_PHISHING_SIMILAR_TAIL}"]
+    if "보안 연결" in p0 or "보안 인증서" in p0:
+        if "갖춰져 있지 않은" in p0:
+            return ["보안 연결이 제대로 갖춰지지 않아 개인정보 입력 시 유출 위험이 커질 수 있습니다."]
+        if "확인하지 못한" in p0:
+            return [
+                "안전한 연결 정보를 확인하지 못한 채 접속해야 하는 형태로, "
+                "추가 확인이 필요합니다."
+            ]
+        return [f"{p0}가 확인되어 {_MALICIOUS_PHISHING_SIMILAR_TAIL}"]
+    if "지나치게 길고 복잡한 주소 구조" in p0:
+        return [
+            "주소가 일반적인 사이트보다 지나치게 길고 복잡해 "
+            f"실제 접속 대상을 숨기려는 피싱 주소일 가능성이 있습니다."
+        ]
+    return [f"{p0}가 확인되어 {_MALICIOUS_PHISHING_SIMILAR_TAIL}"]
+
+
+def _compose_malicious_dom_bullets(
+    dom_feature_map: Dict[str, float],
+    dom_probability: float,
+) -> List[str]:
+    """DOM 신호를 소비자용 짧은 bullet으로 반환한다(최대 1개, 이해하기 쉬운 신호 우선)."""
+    if float(dom_feature_map.get("dom_dns_failed", 0.0)) >= 1.0:
+        return ["접속 과정에서 차단 또는 보안 연결 문제가 확인되어 주의가 필요합니다."]
+
+    conn_issue = any(
+        float(dom_feature_map.get(key, 0.0)) >= 1.0
+        for key in (
+            "dom_blocked",
+            "dom_ssl_error",
+            "dom_connection_error",
+            "dom_connection_reset",
+            "dom_connection_refused",
+            "dom_timeout",
+        )
+    )
+    if conn_issue:
+        return ["접속 과정에서 차단 또는 보안 연결 문제가 확인되어 주의가 필요합니다."]
+
+    suspicious_form = float(dom_feature_map.get("suspicious_form_action", 0.0)) >= 1.0
+    ratio_f = max(0.0, float(dom_feature_map.get("dead_link_ratio", 0.0)))
+    hidden_i = max(0, int(float(dom_feature_map.get("hidden_tags_count", 0.0))))
+    depth_i = max(0, int(float(dom_feature_map.get("dom_max_depth", 0.0))))
+
+    if suspicious_form:
+        return [
+            "입력한 정보가 현재 사이트가 아닌 다른 주소로 전송될 수 있어 주의가 필요합니다."
+        ]
+    if ratio_f > 5.0:
+        return ["작동하지 않는 링크가 많아 정상 서비스처럼 꾸민 화면일 가능성이 있습니다."]
+    if hidden_i > 5:
+        return ["사용자에게 보이지 않는 숨겨진 요소가 많아 의심됩니다."]
+
+    easy_signals = suspicious_form or ratio_f > 5.0 or hidden_i > 5
+    if not easy_signals and depth_i > 10 and dom_probability >= 0.5:
+        return [
+            "페이지 구조가 일반적인 사이트보다 복잡하게 구성되어 있어 주의가 필요합니다."
+        ]
+
+    return []
 
 
 def _compose_final_explanations(
@@ -3406,6 +3730,7 @@ def _compose_final_explanations(
             dom_feature_map=dom_feature_map,
             _dom_probability=dom_probability,
             threshold=threshold,
+            url=url,
         )
 
     out: List[str] = []
@@ -3517,7 +3842,7 @@ def _compose_final_explanations(
             if hit:
                 return hit
         if typo_probability >= 0.5:
-            hit = _add(44, "정상 서비스와는 다르게 어색한 주소 구조")
+            hit = _add(44, "일반적인 서비스와 다른 주소 구조")
             if hit:
                 return hit
         return None
@@ -3603,90 +3928,6 @@ def _compose_final_explanations(
 
         return None
 
-    def _narrative_dom_paragraph() -> Optional[str]:
-        if float(dom_feature_map.get("dom_dns_failed", 0.0)) >= 1.0:
-            return (
-                "DNS 조회가 실패해 도메인이 사라졌거나 사이트가 비활성화되었을 가능성이 있습니다. "
-                "피싱 사이트 폐쇄 패턴과 유사할 수 있어 주의가 필요합니다."
-            )
-        if float(dom_feature_map.get("dom_connection_reset", 0.0)) >= 1.0:
-            return (
-                "원격 호스트가 연결을 끊어 페이지 구조를 분석하지 못했습니다. "
-                "정상 사이트에서도 발생할 수 있어 다른 신호와 함께 판단하는 편이 좋습니다."
-            )
-        if float(dom_feature_map.get("dom_connection_refused", 0.0)) >= 1.0:
-            return (
-                "서버가 연결 자체를 거부해 페이지 구조를 확인하지 못했습니다. "
-                "반복 발생 시 비정상 운영 패턴일 수 있어 신중한 확인이 필요합니다."
-            )
-
-        dom_max_depth = float(dom_feature_map.get("dom_max_depth", 0.0))
-        dead_link_ratio = float(dom_feature_map.get("dead_link_ratio", 0.0))
-        hidden_tags_count = float(dom_feature_map.get("hidden_tags_count", 0.0))
-        suspicious_form_action = float(dom_feature_map.get("suspicious_form_action", 0.0))
-
-        depth_i = max(0, int(dom_max_depth))
-        ratio_f = max(0.0, dead_link_ratio)
-        hidden_i = max(0, int(hidden_tags_count))
-        has_external_form = suspicious_form_action >= 1.0
-
-        evidence: List[Tuple[int, str]] = []
-
-        if has_external_form:
-            evidence.append((1, "form_external"))
-
-        if hidden_i > 15:
-            evidence.append((2, f"hidden_{hidden_i}"))
-        elif hidden_i > 5:
-            evidence.append((2, f"hidden_{hidden_i}"))
-
-        if ratio_f > 20.0:
-            evidence.append((3, f"dead_{ratio_f:.1f}"))
-        elif ratio_f > 5.0:
-            evidence.append((3, f"dead_{ratio_f:.1f}"))
-
-        if depth_i > 20:
-            evidence.append((4, f"depth_{depth_i}"))
-        elif depth_i > 10:
-            evidence.append((4, f"depth_{depth_i}"))
-
-        if not evidence:
-            return None
-
-        def _slot(tag: str) -> str:
-            if tag == "form_external":
-                return "사용자가 입력한 정보를 외부 도메인으로 전송할 가능성이 있는 화면 구성"
-            if tag.startswith("hidden_"):
-                n = tag.split("_", 1)[1]
-                hi = int(n)
-                if hi > 15:
-                    return f"사용자에게 잘 보이지 않는 숨겨진 요소가 많이 끼어 있는(DOM {hi}건)"
-                return f"숨겨진 요소가 다소 많이 포함된(DOM {hi}건)"
-            if tag.startswith("dead_"):
-                r = float(tag.split("_", 1)[1])
-                if r > 20.0:
-                    return f"실제로는 동작하지 않는 링크가 유독 많은(약 {r:.1f}%)"
-                return f"정상 이동이 어려운 링크가 섞인(약 {r:.1f}%)"
-            if tag.startswith("depth_"):
-                d = int(tag.split("_", 1)[1])
-                if d > 20:
-                    return f"페이지 구조가 비정상적으로 깊고 복잡하게 꼬인(DOM 깊이 {d})"
-                return f"일반 페이지보다 구조가 다소 복잡한(DOM 깊이 {d})"
-            return tag
-
-        top_ev = sorted(evidence, key=lambda x: x[0])[:2]
-        top = [_slot(t) for _, t in top_ev]
-
-        if len(top) == 1:
-            return (
-                f"이 사이트는 {top[0]} 점이 확인되어 "
-                "위장 화면이나 악성 스크립트가 포함되었을 가능성이 있습니다."
-            )
-        return (
-            f"이 사이트는 {top[0]} 점이 이어지고, {top[1]} 형태까지 겹쳐 있어 "
-            "위장 화면이나 악성 스크립트가 포함되었을 가능성이 있습니다."
-        )
-
     typo_t = _narrative_typo_clause()
     url_t = _narrative_url_structure_clause()
     reg_t = _narrative_registration_ssl_clause()
@@ -3703,52 +3944,13 @@ def _compose_final_explanations(
         if c and c not in primary:
             primary.append(c)
 
-    dom_text = _narrative_dom_paragraph()
+    dom_bullets = _compose_malicious_dom_bullets(dom_feature_map, dom_probability)
 
-    if not primary and not dom_text:
+    if not primary and not dom_bullets:
         return ["뚜렷한 악성 징후가 발견되지 않았습니다."]
 
-    def _meta_paragraph(parts: List[str]) -> str:
-        if not parts:
-            return ""
-        if len(parts) == 1:
-            p0 = parts[0]
-            if p0.startswith("정상 등록 도메인으로 확인되지 않은"):
-                return (
-                    "현재 이 도메인은 정상적으로 등록된 사이트로 확인되지 않았습니다. "
-                    "잘못된 주소이거나 임시로 만들어진 악성 주소일 가능성이 있습니다."
-                )
-            if "보안 연결(SSL)이 제대로 갖춰져 있지 않은" in p0:
-                return (
-                    "이 사이트는 보안 연결이 제대로 갖춰져 있지 않은 환경입니다. "
-                    "개인정보 입력 시 유출 위험이 커질 수 있습니다."
-                )
-            if "보안 인증서 정보를 확인하지 못한 채 이어지는" in p0:
-                return (
-                    "이 사이트는 안전한 연결 정보를 확인하지 못한 채 접속해야 하는 형태입니다. "
-                    "일시적 문제일 수 있어도 추가 확인이 필요합니다."
-                )
-            if "일반적인 사이트보다 지나치게 길고 복잡한 주소 구조" in p0:
-                return (
-                    "이 주소는 일반적인 사이트보다 지나치게 길고 복잡한 구조를 사용하고 있어 "
-                    "실제 접속 대상을 숨기려는 피싱 주소일 가능성이 있습니다."
-                )
-            return (
-                f"이 사이트는 {p0}에 해당하는 의심 신호가 보이며 "
-                "최근 피싱 사이트에서 자주 나타나는 특징과 유사합니다."
-            )
-
-        p0, p1 = parts[0], parts[1]
-        return (
-            f"이 사이트는 {p0}에 해당하는 의심 신호가 이어지는 한편 {p1}까지 겹쳐 있어 "
-            "최근 피싱 사이트에서 자주 나타나는 특징과 유사합니다."
-        )
-
-    mp = _meta_paragraph(primary)
-    if mp:
-        out.append(mp)
-    if dom_text:
-        out.append(dom_text)
+    out.extend(_compose_malicious_meta_bullets(primary))
+    out.extend(dom_bullets)
 
     if len(out) > 2:
         out = out[:2]
