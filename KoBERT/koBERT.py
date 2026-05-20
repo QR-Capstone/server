@@ -818,35 +818,36 @@ def predict_phishing_result(target_url):
         prob_phishing = prob_phishing * (1.0 - discount_weight)
         print(f"  📉 [점수 할인] 기업 사이트 오탐 방지 발동! 최종 보정 후({prob_phishing:.1f}%)")
         
-    # 🔥 [4단계] AI 주도형(AI-Driven) 초정밀 판단 사유 생성
+    # 🔥 [4단계] AI 주도형(AI-Driven) 초정밀 판단 사유 생성 (정형화 템플릿 + 특수 케이스 유지)
+    
+    # 🌟 1. 증거 문장이 너무 길면 45자 이내로 말줄임표 처리
+    short_top_sent = top_sent if len(top_sent) <= 45 else top_sent[:45] + "..."
+    
+    # 🌟 2. 템플릿 공통 서론 (입력 폼 + 증거 문장)
+    form_desc = f"{demand_str} 입력을 요구하는 폼이 존재하며" if demand_parts else "별도의 정보 입력 폼은 없으며"
+    report_intro = f"페이지 내에 {form_desc}, \"{short_top_sent}\" 문장이 존재합니다."
+    
+    # 🌟 3. 최종 확률 및 특수 케이스에 따른 결론 조립
     if prob_phishing <= 50.0:
-        if not found_actions and not found_sensitive and base_prob_1 < 5.0:
-            ai_reason = "AI 문맥 분석 결과, 위험한 단어나 개인정보 요구가 전혀 없는 안전한 일반 웹페이지로 확인되었습니다."
-        elif demand_parts:
-            if base_prob_1 < 20.0:
-                ai_reason = f"페이지 내에 {demand_str} 입력을 요구하는 폼이 존재합니다. 그러나 AI가 주변 문맥을 심층 분석한 결과, 기만 의도가 없는 '정상적인 공식 서비스 안내/인증'으로 판단하여 통과시켰습니다."
-            else:
-                ai_reason = f"{demand_str} 요구와 함께 다소 주의가 필요한 텍스트가 탐지되었습니다. 그러나 AI 판단 결과, 피싱 특유의 치명적인 협박이나 긴급성(긴급 행동 유도)이 결여되어 있어 최종 정상 범주로 분류했습니다."
-        else:
-             ai_reason = f"일부 주의가 필요한 문구(AI 위험도 {base_prob_1:.1f}%)가 있으나, AI가 문서를 종합적으로 스캔한 결과 직접적인 정보 탈취 목적이 없다고 판단하여 정상 처리했습니다."
+        ai_reason = f"{report_intro} AI 분석 결과, 기만 의도가 없는 안전한 서비스로 판단하여 최종 {prob_phishing:.1f}%의 확률로 접속을 통과시켰습니다."
     else:
+        # 기존의 소중한 특수 사유들을 템플릿의 '결론' 부분으로 부활시킵니다!
         if is_fake_gambling:
-            ai_reason = f"룰베이스 엔진 교차 검증 결과, '{detected_gambling_str}' 관련 복권/사행성 텍스트가 확인되었으나 접속 도메인({target_url})이 국가 공인 합법 도메인이 아닙니다. 전형적인 사칭 및 불법 사설 도박장으로 판별되어 접속을 강력히 차단합니다."
-        elif found_high_risk:
-            ai_reason = f"명백한 불법 키워드({high_risk_str})가 탐지되었으며, AI가 이와 연관된 문맥을 정밀 분석한 결과 {demand_str}를 탈취하려는 '{scam_type}' 목적이 확인되어 악성이라고 판정하였습니다."
+            conclusion = f"사행성 키워드('{detected_gambling_str}')가 발견되었으나 국가 공인 도메인이 아닌 불법 사설 도박장/사칭 사이트로 판별되어"
         elif is_translated:
-            ai_reason = f"AI 분석 결과, \"{top_sent[:30]}...\" 해당 문구들이 부자연스러운 기계 번역투 및 어색한 띄어쓰기로 작성된 것이 확인되었습니다. 이는 해외 기반의 양산형 사기 사이트의 전형적인 특징이므로 최종 악성으로 판정합니다."
+            conclusion = f"부자연스러운 기계 번역투 및 띄어쓰기 오류 등 해외 양산형 피싱 사이트의 특징이 감지되어"
+        elif found_high_risk:
+            conclusion = f"고위험 범죄 키워드({high_risk_str})가 포함된 악의적인 '{scam_type}'(으)로 판단되어"
         elif demand_parts and base_prob_1 >= 60.0:
-            ai_reason = f"AI 엔진이 \"{top_sent[:30]}...\" 문장에 내포된 기만적 의도를 정확히 포착했습니다. 이는 불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되었습니다."
-        elif demand_parts and boost_weight_1 > 0:
-            ai_reason = f"AI가 전체 텍스트에서 수상한 흐름을 1차 감지하였고, 실제로 {demand_str} 입력을 요구하는 구조가 2차 확인됨에 따라 딥러닝-룰베이스 교차 검증을 거쳐 최종 악성으로 확정했습니다."
+            conclusion = f"불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되어"
         else:
-            ai_reason = f"특정 키워드 없이도, AI가 \"{top_sent[:30]}...\" 문맥 자체에서 사용자를 속여 시스템을 장악하려는 고도의 악의적 의도를 찾아내어 원천 차단합니다."
+            conclusion = f"사용자를 속여 정보를 탈취하려는 악의적인 '{scam_type}'(으)로 판단되어"
+            
+        ai_reason = f"{report_intro} 딥러닝-룰베이스 교차 검증 결과, {conclusion} 최종 {prob_phishing:.1f}%의 확률로 접속을 차단하였습니다."
 
-    # 🌟 [신규 추가] HTTP 취약 멘트 자연스럽게 합치기 (최종 방어선)
-    # 정상이든 악성이든 HTTP 기반이면 앞에 경고 문구를 붙여줍니다!
+    # 🌟 4. HTTP 취약 멘트 자연스럽게 합치기 (최종 방어선)
     if is_http_vulnerable:
-        ai_reason = f"해당 링크는 보안이 취약한 링크(HTTP)이며, {ai_reason}"
+        ai_reason = f"해당 링크는 암호화되지 않은 취약한 연결(HTTP)을 사용 중이며, {ai_reason}"
 
     # 🔥 [5단계] 수사 보고서(Forensic Report) 형태의 고급 JSON 데이터 조립
     rule_trigger_msg = "특이사항 없음"
