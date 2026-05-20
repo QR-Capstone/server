@@ -1582,6 +1582,15 @@ def build_explanation(
             reasons.append(text)
             added.add(text)
 
+    def _finalize(items: List[str], kind: str) -> List[str]:
+        """가장 강한 2개만 노출하고 나머지는 '그 외 N건'으로 요약."""
+        HEAD = 2
+        head = items[:HEAD]
+        rest = len(items) - len(head)
+        if rest > 0:
+            head.append(f"그 외 {rest}건의 {kind} 신호가 추가로 확인되었습니다.")
+        return head
+
     def _host(u: str) -> str:
         try:
             return urlsplit(u).hostname or ""
@@ -1635,7 +1644,7 @@ def build_explanation(
     # ───── 정상 (prob < 0.5) ─────
     # =====================================================
     if prob < 0.5:
-        SAFE_MAX = 4
+        # 후보를 모두 평가한 뒤 강한 2개 + '그 외 N건'으로 마무리
 
         # 1) 입력 폼 안전
         if form_count == 0 and password_count == 0:
@@ -1710,12 +1719,12 @@ def build_explanation(
         if not reasons:
             _add("전체적인 페이지 연결 구조가 알려진 피싱 사이트와 다르며 정상 사이트 패턴과 유사합니다.")
 
-        return reasons[:SAFE_MAX]
+        return _finalize(reasons, "안전")
 
     # =====================================================
     # ───── 악성 (prob >= 0.5) ─────
+    # 후보를 모두 평가한 뒤 강한 2개 + '그 외 N건'으로 마무리
     # =====================================================
-    MAL_MAX = 4
 
     # 1) 브랜드 위장 + 자격증명 (가장 강한 신호)
     if brand_mismatch > 0 and credential_surface > 0:
@@ -1730,7 +1739,7 @@ def build_explanation(
         _add(f"페이지에 표시된 브랜드 이름과 실제 도메인({page_host or '현재 도메인'})이 일치하지 않습니다.")
 
     # 2) 외부 폼 전송 (도메인 인용)
-    if len(reasons) < MAL_MAX and (external_form_ratio > 0.4 or submits_ext > 0):
+    if external_form_ratio > 0.4 or submits_ext > 0:
         ext_doms = _risk_nodes_by_prefix("form", 2)
         if ext_doms:
             dom_text = ", ".join(ext_doms)
@@ -1742,48 +1751,46 @@ def build_explanation(
             _add(
                 f"입력 폼 중 {ext_pct:.0f}%({submits_ext}개)가 외부 도메인으로 정보를 전송하도록 연결되어 있습니다."
             )
-    elif len(reasons) < MAL_MAX and password_count > 0 and credential_surface >= 0.3:
+    elif password_count > 0 and credential_surface >= 0.3:
         _add(
             f"비밀번호 입력란 {password_count}개를 포함한 자격증명 입력 화면이 노출되어 있지만 도메인 신뢰도가 낮습니다."
         )
 
     # 3) 리다이렉트 / 최종 도메인 변경 (원래/이동 도메인 인용)
-    if len(reasons) < MAL_MAX and final_domain_changed > 0:
+    if final_domain_changed > 0:
         if page_host and final_host and page_host != final_host:
             _add(f"처음 접속한 주소({page_host})에서 다른 도메인({final_host})으로 자동 이동됩니다.")
         else:
             _add("접속하면 처음 입력한 주소와 다른 도메인으로 자동 이동됩니다.")
 
     # 4) 숨김 iframe / 외부 스크립트 과다
-    if len(reasons) < MAL_MAX:
-        if iframe_count > 0:
-            iframe_doms = _risk_nodes_by_prefix("iframe", 1)
-            if iframe_doms:
-                _add(
-                    f"눈에 보이지 않는 iframe {iframe_count}개가 외부 도메인({iframe_doms[0]})에서 콘텐츠를 끌어옵니다."
-                )
-            else:
-                _add(f"눈에 보이지 않는 숨김 iframe이 {iframe_count}개 삽입되어 있습니다.")
-        elif script_count > 8 or iframe_ratio > 0.05:
-            _add(f"외부에서 끌어오는 스크립트가 {script_count}개로 과도하게 많이 실행됩니다.")
+    if iframe_count > 0:
+        iframe_doms = _risk_nodes_by_prefix("iframe", 1)
+        if iframe_doms:
+            _add(
+                f"눈에 보이지 않는 iframe {iframe_count}개가 외부 도메인({iframe_doms[0]})에서 콘텐츠를 끌어옵니다."
+            )
+        else:
+            _add(f"눈에 보이지 않는 숨김 iframe이 {iframe_count}개 삽입되어 있습니다.")
+    elif script_count > 8 or iframe_ratio > 0.05:
+        _add(f"외부에서 끌어오는 스크립트가 {script_count}개로 과도하게 많이 실행됩니다.")
 
     # 5) 외부 링크/도메인 다양성 (위험 엣지)
-    if len(reasons) < MAL_MAX:
-        if risky_edge_ratio > 0.3:
-            _add(
-                f"페이지 내부 연결 중 {risky_edge_ratio*100:.0f}%가 위험 신호로 분류되어 정상 사이트와 크게 다릅니다."
-            )
-        elif external_links > 5 and external_link_ratio > 0.6:
-            _add(
-                f"내부 링크보다 외부 도메인으로 나가는 링크가 {external_links}개({external_link_ratio*100:.0f}%)로 압도적입니다."
-            )
-        elif domain_diversity >= 12:
-            _add(
-                f"페이지가 끌어오는 외부 도메인이 {int(domain_diversity)}곳으로 비정상적으로 많아 트래픽 분산형 악성 패턴과 유사합니다."
-            )
+    if risky_edge_ratio > 0.3:
+        _add(
+            f"페이지 내부 연결 중 {risky_edge_ratio*100:.0f}%가 위험 신호로 분류되어 정상 사이트와 크게 다릅니다."
+        )
+    elif external_links > 5 and external_link_ratio > 0.6:
+        _add(
+            f"내부 링크보다 외부 도메인으로 나가는 링크가 {external_links}개({external_link_ratio*100:.0f}%)로 압도적입니다."
+        )
+    elif domain_diversity >= 12:
+        _add(
+            f"페이지가 끌어오는 외부 도메인이 {int(domain_diversity)}곳으로 비정상적으로 많아 트래픽 분산형 악성 패턴과 유사합니다."
+        )
 
     # 6) GNN 페이지 위험도
-    if len(reasons) < MAL_MAX and page_risk_after_mp > 0.5:
+    if page_risk_after_mp > 0.5:
         _add(
             f"주변 폼·iframe·외부 도메인의 위험 신호가 누적되어 페이지 위험도가 {page_risk_after_mp:.2f}까지 상승했습니다."
         )
@@ -1792,7 +1799,7 @@ def build_explanation(
     if not reasons:
         _add("전체적인 페이지 구조와 외부 연결 패턴이 알려진 피싱 사이트와 유사한 형태로 관찰되었습니다.")
 
-    return reasons[:MAL_MAX]
+    return _finalize(reasons, "위험")
 
 
 def predict_gnn(
