@@ -1559,99 +1559,247 @@ def build_explanation(
     evidence: Dict[str, Any],
     features: Optional[Dict[str, float]] = None,
     prob: float = 0.0,
-) -> str:
+) -> List[str]:
+    """모델 threshold(0.5) 기준 정상/악성 근거.
+
+    수치·도메인·노드 종류를 인용해 일반 사용자도 한눈에 이해할 수 있게 구성한다.
+    """
 
     if not evidence:
-        return "보안 분석 정보를 불러오지 못했습니다."
+        return ["사이트 정보를 가져오지 못했습니다."]
 
-    lines = []
-    counts = evidence.get("counts", {})
-    password_count = counts.get("password_input", 0)
-    form_count = counts.get("form", 0)
-    iframe_count = counts.get("iframe", 0)
-    external_links = counts.get("links_to_external", 0)
-    internal_links = counts.get("links_to_internal", 0)
+    features = features or {}
+    counts = evidence.get("counts", {}) or {}
+    top_nodes = evidence.get("top_risk_nodes", []) or []
+    page_url  = evidence.get("page_url", "") or ""
+    final_url = evidence.get("final_url", "") or ""
 
-    # =========================================================
-    # 1. 최종 판정
-    # =========================================================
-    
-    if prob >= 0.60:
-        lines.append("🚨 위험한 사이트입니다.")
-    elif prob >= 0.35:
-        lines.append("🟡 수상한 사이트입니다.")
-    else:
-        lines.append("✅ 안전한 사이트입니다.")
+    reasons: List[str] = []
+    added: Set[str] = set()
 
-    if features:
+    def _add(text: str) -> None:
+        if text and text not in added:
+            reasons.append(text)
+            added.add(text)
 
-    # =========================
-    # 안전 사이트 근거
-    # =========================
-        if prob < 0.35:
+    def _finalize(items: List[str], kind: str) -> List[str]:
+        """가장 강한 2개만 노출하고 나머지는 '그 외 N건'으로 요약."""
+        HEAD = 2
+        head = items[:HEAD]
+        rest = len(items) - len(head)
+        if rest > 0:
+            head.append(f"그 외 {rest}건의 {kind} 신호가 추가로 확인되었습니다.")
+        return head
 
-            if (
-            features.get("external_form_ratio", 0) == 0
-            and features.get("brand_domain_mismatch", 0) == 0
-            and features.get("credential_surface", 0) == 0
-            ):
-                lines.append(
-                "로그인 정보나 개인정보를 외부 서버로 전송하는 위험 요소가 발견되지 않았습니다."
+    def _host(u: str) -> str:
+        try:
+            return urlsplit(u).hostname or ""
+        except Exception:
+            return ""
+
+    def _risk_nodes_by_prefix(prefix: str, k: int = 2) -> List[str]:
+        out = []
+        for n in top_nodes:
+            node = n.get("node", "")
+            if node.startswith(prefix + ":"):
+                out.append(node.split(":", 1)[1])
+            if len(out) >= k:
+                break
+        return out
+
+    # 피처 수치
+    brand_mismatch         = float(features.get("brand_domain_mismatch", 0.0))
+    external_form_ratio    = float(features.get("external_form_ratio", 0.0))
+    final_domain_changed   = float(features.get("final_domain_changed", 0.0))
+    credential_surface     = float(features.get("credential_surface", 0.0))
+    internal_link_ratio    = float(features.get("internal_link_ratio", 0.0))
+    external_link_ratio    = float(features.get("external_link_ratio", 0.0))
+    iframe_ratio           = float(features.get("iframe_ratio", 0.0))
+    risky_edge_ratio       = float(features.get("risky_edge_ratio", 0.0))
+    domain_diversity       = float(features.get("domain_diversity", 0.0))
+    is_https               = float(features.get("is_https", 0.0))
+    fetch_failed           = float(features.get("fetch_failed", 0.0))
+    page_risk_after_mp     = float(features.get("page_risk_after_mp", 0.0))
+
+    # 카운트
+    password_count  = int(counts.get("password_input", 0))
+    form_count      = int(counts.get("form", 0))
+    input_count     = int(counts.get("input", 0))
+    iframe_count    = int(counts.get("iframe", 0))
+    script_count    = int(counts.get("script", 0))
+    link_total      = int(counts.get("link", 0))
+    external_links  = int(counts.get("links_to_external", 0))
+    internal_links  = int(counts.get("links_to_internal", 0))
+    submits_ext     = int(counts.get("submits_to_external", 0))
+    submits_int     = int(counts.get("submits_to_internal", 0))
+
+    page_host  = _host(page_url)
+    final_host = _host(final_url)
+
+    # 페이지 수집 실패
+    if fetch_failed >= 1.0:
+        return ["사이트가 응답하지 않아 페이지 내부 구조를 확인할 수 없습니다."]
+
+    # =====================================================
+    # ───── 정상 (prob < 0.5) ─────
+    # =====================================================
+    if prob < 0.5:
+        # 후보를 모두 평가한 뒤 강한 2개 + '그 외 N건'으로 마무리
+
+        # 1) 입력 폼 안전
+        if form_count == 0 and password_count == 0:
+            _add("비밀번호·개인정보를 입력받는 폼이 페이지에 존재하지 않습니다.")
+        elif submits_ext == 0 and password_count > 0:
+            _add(
+                f"비밀번호 입력란 {password_count}개와 입력 폼 {form_count}개가 모두 "
+                f"본 사이트({page_host}) 내부로만 전송됩니다."
+            )
+        elif submits_ext == 0 and form_count > 0:
+            _add(
+                f"입력 폼 {form_count}개가 모두 본 사이트 내부로 전송되며 "
+                "외부 도메인으로 새는 정보가 없습니다."
             )
 
-            if features.get("internal_link_ratio", 0) > 0.6:
-                lines.append(
-                "대부분의 연결이 동일한 공식 도메인 내부에서 이루어지고 있습니다."
+        # 2) 링크 분포 (구체 수치)
+        if link_total > 0 and internal_link_ratio > 0.6:
+            int_pct = int(internal_link_ratio * 100)
+            _add(
+                f"전체 링크 {link_total}개 중 {internal_links}개({int_pct}%)가 "
+                "같은 사이트 내부 페이지로 연결되어 자연스러운 구조입니다."
             )
 
-            if features.get("is_https", 0) > 0:
-                lines.append(
-                "HTTPS 보안 연결이 적용되어 있습니다."
+        # 3) 도메인 일치 / 변경 없음
+        if final_domain_changed == 0 and brand_mismatch == 0:
+            if page_host:
+                _add(f"입력한 주소({page_host}) 그대로 접속되며 다른 도메인으로 우회되지 않습니다.")
+            else:
+                _add("입력한 주소 그대로 접속되며 다른 도메인으로 우회되지 않습니다.")
+
+        # 4) HTTPS
+        if is_https > 0:
+            _add("HTTPS 암호화 통신이 적용되어 통신 가로채기·중간자 공격 위험이 낮습니다.")
+
+        # 5) iframe / script 정상 범위
+        if iframe_count == 0:
+            if script_count <= 5:
+                _add(
+                    f"숨김 iframe이 없고 외부 스크립트도 {script_count}개로 "
+                    "일반 정상 사이트 수준입니다."
+                )
+            else:
+                _add(
+                    f"외부 스크립트 {script_count}개가 호출되지만 숨김 iframe이 없어 "
+                    "클릭재킹·드라이브바이 위험은 낮습니다."
+                )
+
+        # 6) 위험 연결 비율
+        if risky_edge_ratio == 0:
+            _add("페이지 안팎의 연결 중 위험 신호로 분류된 항목이 한 건도 없습니다.")
+        elif risky_edge_ratio < 0.1:
+            _add(
+                f"위험으로 분류된 연결이 전체의 {risky_edge_ratio*100:.0f}%에 불과해 "
+                "정상 사이트 패턴에 가깝습니다."
             )
 
-            if counts.get("iframe", 0) == 0:
-                lines.append(
-                "숨겨진 iframe 삽입과 같은 의심스러운 구조가 발견되지 않았습니다."
+        # 7) 외부 도메인 다양성
+        if 0 < domain_diversity <= 6:
+            _add(
+                f"이미지·스크립트 등을 가져오는 외부 도메인이 {int(domain_diversity)}곳으로 "
+                "단순하고 정상적인 구조입니다."
             )
 
-            if counts.get("script", 0) <= 5:
-                lines.append(
-                "외부 스크립트 호출이 과도하지 않아 정상 사이트 패턴과 유사합니다."
+        # 8) GNN 페이지 위험도
+        if page_risk_after_mp < 0.2:
+            _add(
+                f"주변 노드의 위험 신호를 종합한 페이지 위험도가 {page_risk_after_mp:.2f}로 "
+                "정상 범위에 머무릅니다."
             )
 
-            if not lines:
-                lines.append(
-                "사이트 구조와 연결 관계가 일반적인 정상 웹사이트 패턴과 유사합니다."
+        # fallback
+        if not reasons:
+            _add("전체적인 페이지 연결 구조가 알려진 피싱 사이트와 다르며 정상 사이트 패턴과 유사합니다.")
+
+        return _finalize(reasons, "안전")
+
+    # =====================================================
+    # ───── 악성 (prob >= 0.5) ─────
+    # 후보를 모두 평가한 뒤 강한 2개 + '그 외 N건'으로 마무리
+    # =====================================================
+
+    # 1) 브랜드 위장 + 자격증명 (가장 강한 신호)
+    if brand_mismatch > 0 and credential_surface > 0:
+        if page_host:
+            _add(
+                f"유명 브랜드 이름을 노출하면서 실제 도메인({page_host})은 공식 주소와 다르며, "
+                "동시에 로그인·개인정보 입력 화면이 함께 존재합니다."
             )
+        else:
+            _add("유명 브랜드를 사칭하면서 비밀번호·개인정보 입력 화면을 함께 노출하고 있습니다.")
+    elif brand_mismatch > 0:
+        _add(f"페이지에 표시된 브랜드 이름과 실제 도메인({page_host or '현재 도메인'})이 일치하지 않습니다.")
 
-            return " ".join(lines)
+    # 2) 외부 폼 전송 (도메인 인용)
+    if external_form_ratio > 0.4 or submits_ext > 0:
+        ext_doms = _risk_nodes_by_prefix("form", 2)
+        if ext_doms:
+            dom_text = ", ".join(ext_doms)
+            _add(
+                f"입력한 정보가 본 사이트가 아닌 외부 도메인({dom_text})으로 전송되도록 폼이 설정되어 있습니다."
+            )
+        else:
+            ext_pct = external_form_ratio * 100
+            _add(
+                f"입력 폼 중 {ext_pct:.0f}%({submits_ext}개)가 외부 도메인으로 정보를 전송하도록 연결되어 있습니다."
+            )
+    elif password_count > 0 and credential_surface >= 0.3:
+        _add(
+            f"비밀번호 입력란 {password_count}개를 포함한 자격증명 입력 화면이 노출되어 있지만 도메인 신뢰도가 낮습니다."
+        )
 
-    # =========================
-    # 위험 사이트 근거
-    # =========================
-    
-    if features.get("brand_domain_mismatch", 0) > 0:
-        lines.append("유명 브랜드 이름을 도용하고 있지만 실제 공식 주소와 일치하지 않는 가짜 사이트로 확인되었습니다.")
+    # 3) 리다이렉트 / 최종 도메인 변경 (원래/이동 도메인 인용)
+    if final_domain_changed > 0:
+        if page_host and final_host and page_host != final_host:
+            _add(f"처음 접속한 주소({page_host})에서 다른 도메인({final_host})으로 자동 이동됩니다.")
+        else:
+            _add("접속하면 처음 입력한 주소와 다른 도메인으로 자동 이동됩니다.")
 
-    elif features.get("external_form_ratio", 0) > 0.4:
-        lines.append("이 사이트에 입력한 정보가 전혀 관계없는 외부 서버로 전송되는 구조가 확인되었습니다.")
+    # 4) 숨김 iframe / 외부 스크립트 과다
+    if iframe_count > 0:
+        iframe_doms = _risk_nodes_by_prefix("iframe", 1)
+        if iframe_doms:
+            _add(
+                f"눈에 보이지 않는 iframe {iframe_count}개가 외부 도메인({iframe_doms[0]})에서 콘텐츠를 끌어옵니다."
+            )
+        else:
+            _add(f"눈에 보이지 않는 숨김 iframe이 {iframe_count}개 삽입되어 있습니다.")
+    elif script_count > 8 or iframe_ratio > 0.05:
+        _add(f"외부에서 끌어오는 스크립트가 {script_count}개로 과도하게 많이 실행됩니다.")
 
-    elif features.get("final_domain_changed", 0) > 0:
-        lines.append("접속 과정에서 전혀 다른 주소로 자동 이동되는 피싱 수법이 감지되었습니다.")
+    # 5) 외부 링크/도메인 다양성 (위험 엣지)
+    if risky_edge_ratio > 0.3:
+        _add(
+            f"페이지 내부 연결 중 {risky_edge_ratio*100:.0f}%가 위험 신호로 분류되어 정상 사이트와 크게 다릅니다."
+        )
+    elif external_links > 5 and external_link_ratio > 0.6:
+        _add(
+            f"내부 링크보다 외부 도메인으로 나가는 링크가 {external_links}개({external_link_ratio*100:.0f}%)로 압도적입니다."
+        )
+    elif domain_diversity >= 12:
+        _add(
+            f"페이지가 끌어오는 외부 도메인이 {int(domain_diversity)}곳으로 비정상적으로 많아 트래픽 분산형 악성 패턴과 유사합니다."
+        )
 
-    elif iframe_count > 0:
-        lines.append("사용자 눈에 보이지 않는 숨겨진 화면이 포함되어 있어 악성 사이트와 유사한 구조로 판단되었습니다.")
+    # 6) GNN 페이지 위험도
+    if page_risk_after_mp > 0.5:
+        _add(
+            f"주변 폼·iframe·외부 도메인의 위험 신호가 누적되어 페이지 위험도가 {page_risk_after_mp:.2f}까지 상승했습니다."
+        )
 
-    elif counts.get("script", 0) > 5:
-        lines.append("외부에서 불러온 수상한 프로그램 코드가 다수 실행되고 있어 피싱 사이트와 유사한 패턴으로 판단되었습니다.")
+    # fallback
+    if not reasons:
+        _add("전체적인 페이지 구조와 외부 연결 패턴이 알려진 피싱 사이트와 유사한 형태로 관찰되었습니다.")
 
-    elif external_links > 2:
-        lines.append("정상 사이트에 비해 수상한 외부 주소와의 연결이 과도하게 많아 위험한 사이트로 판단되었습니다.")
-
-    else:
-        lines.append("사이트 전체 연결 구조와 동작 패턴이 알려진 피싱 사이트와 유사하여 위험한 사이트로 판단되었습니다.")
-
-    return " ".join(lines)
+    return _finalize(reasons, "위험")
 
 
 def predict_gnn(
@@ -1679,6 +1827,7 @@ def predict_gnn(
     }
     if fetch:
         evidence = model.evidence_from_graph(graph)
+        evidence["page_url"] = graph.page_url
         out["graph_evidence"] = evidence
 
                 # 시각화용 그래프 데이터 생성
