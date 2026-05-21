@@ -1,0 +1,3116 @@
+{
+  "malicious": [
+    {
+      "url": "https://naverpay-order.com",
+      "xg": 70.5,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.5
+    },
+    {
+      "url": "https://sahanajambagi.github.io/amazon_clone/",
+      "xg": 73.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.7
+    },
+    {
+      "url": "https://arunvbiradar.github.io/instagram-clone/",
+      "xg": 67.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.8
+    },
+    {
+      "url": "https://hometaxkorean.s3.us-east-1.amazonaws.com/hiworksess.html?en=YmtraW1Aa3RlLmNvLmty",
+      "xg": 75.6,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 226.6
+    },
+    {
+      "url": "https://uniglobalaccountsupportty.weebly.com/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://yoboza.com/",
+      "xg": 25.3,
+      "xg_v": "malicious",
+      "gn": 9.7,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 45.0
+    },
+    {
+      "url": "https://buyoneo.com/",
+      "xg": 16.7,
+      "xg_v": "benign",
+      "gn": 98.3,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 125.0
+    },
+    {
+      "url": "https://btc-tr.com/",
+      "xg": 18.4,
+      "xg_v": "benign",
+      "gn": 46.4,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 74.8
+    },
+    {
+      "url": "http://godunskoreabest.com/",
+      "xg": 74.6,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 224.6
+    },
+    {
+      "url": "https://www.krenvex.com/?s=",
+      "xg": 19.6,
+      "xg_v": "benign",
+      "gn": 83.3,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 112.9
+    },
+    {
+      "url": "https://kovebeb.top/rkwajKcf/984799984372587655983eede5",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "https://sunghun-cm.com/",
+      "xg": 31.0,
+      "xg_v": "benign",
+      "gn": 1.6,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 82.6
+    },
+    {
+      "url": "https://storage.googleapis.com/bckudwfjcser/newbackgroundZzhjTekHJ.html?cms=c.yunseok@hyundam.com",
+      "xg": 66.5,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 213.5
+    },
+    {
+      "url": "https://gold1.me/index",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "https://lottois.com/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://www.zarexia.net/",
+      "xg": 14.1,
+      "xg_v": "benign",
+      "gn": 1.4,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 65.5
+    },
+    {
+      "url": "https://www.elarionn.com/collections/NK-Factory-Sale-69e5f833d84c8",
+      "xg": 81.2,
+      "xg_v": "malicious",
+      "gn": 39.5,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 130.7
+    },
+    {
+      "url": "https://dmmento.com/",
+      "xg": 21.0,
+      "xg_v": "benign",
+      "gn": 2.6,
+      "gn_v": "benign",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 98.6
+    },
+    {
+      "url": "https://bizcardit.com/shop/1746585315",
+      "xg": 75.7,
+      "xg_v": "malicious",
+      "gn": 0.0,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 125.7
+    },
+    {
+      "url": "https://goldentreeinvest.co.kr/",
+      "xg": 40.9,
+      "xg_v": "malicious",
+      "gn": 59.8,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 175.7
+    },
+    {
+      "url": "https://joonggomarkt.com/",
+      "xg": 18.3,
+      "xg_v": "benign",
+      "gn": 2.6,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 70.9
+    },
+    {
+      "url": "https://hotel-stays341419.com/LPI22892",
+      "xg": 69.1,
+      "xg_v": "malicious",
+      "gn": 0.0,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 119.1
+    },
+    {
+      "url": "https://barclays-banking.net/landing/form/d0ea41c6-9281-435a-8ebb-b26ba12df716/",
+      "xg": 62.5,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 212.5
+    },
+    {
+      "url": "https://hu4.pages.dev/https:/tapestry.tapad.com/tapestry/1",
+      "xg": 76.3,
+      "xg_v": "malicious",
+      "gn": 99.8,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 251.1
+    },
+    {
+      "url": "https://aicc108-demo.pages.dev/title/80153272.html",
+      "xg": 51.3,
+      "xg_v": "malicious",
+      "gn": 28.9,
+      "gn_v": "benign",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 155.2
+    },
+    {
+      "url": "https://paypal.cardpaysecurity.org/login/k3ZXZz5PrN87W8YYvf98PC7tyGARWWwY5VEA=4BQ==9SVhASVhVZlVWXlBX/itrbAUX3V4NnCpTUNsEnK9rZkxcrOcHP/",
+      "xg": 74.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 225.2
+    },
+    {
+      "url": "https://microsoft-1ogin.duckdns.org/",
+      "xg": 66.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 213.7
+    },
+    {
+      "url": "https://www.winners-crew.com/guide?ref=WINNERO8L1",
+      "xg": 68.9,
+      "xg_v": "malicious",
+      "gn": 52.6,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 171.5
+    },
+    {
+      "url": "https://www.kr-cineblooming.com/?key=fT3uikgH",
+      "xg": 29.4,
+      "xg_v": "benign",
+      "gn": 52.1,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 91.5
+    },
+    {
+      "url": "https://airbnb-clone-pavelpyanov.vercel.app/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.2
+    },
+    {
+      "url": "https://facebook-frontend-capstone.vercel.app/",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "http://hair-design-precious.net/d3a9076d/theme",
+      "xg": 83.3,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 233.3
+    },
+    {
+      "url": "http://dream240.cmtpartners.co.kr/main?mobile_conn=on",
+      "xg": 61.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.7
+    },
+    {
+      "url": "https://ww.viettevghy2026.kesug.com/facebook-meta-ads2026",
+      "xg": 76.7,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 227.7
+    },
+    {
+      "url": "https://roblox.com.ge/games/920587237/3H-Adopt-Me?privateServerLinkCode=49992770631105784012860540217749",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://microsoft.authorised-support.com/new-account/EOzAFbYj1bjLmgufSIlKJJR9Kpvsy5kc3UkY=3Ag==5WFxWR1pGWlNBallaUlxbakJcQV1qRVRGRkJaR1E=/6Xx5KG1mKRNjeU3rSnC8diFTM7R4V1de",
+      "xg": 73.0,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.0
+    },
+    {
+      "url": "https://survey.refassured.com/BZXOR4xm",
+      "xg": 70.5,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.5
+    },
+    {
+      "url": "http://ning1-ddere5bmduh3h7gd.z03.azurefd.net/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://s4w.in/www-roblox-com-users-61778168126-profile",
+      "xg": 61.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.8
+    },
+    {
+      "url": "https://www.roblox.et/users/6177816816/profile",
+      "xg": 61.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.8
+    },
+    {
+      "url": "https://thewabisabinook.com/wp-content/nf74nd/china/?email=orix7@07728160d9f0df1aceb2c92383c4262e18c0.org",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "http://hausmeister38.de/edwardhopwooddmd",
+      "xg": 70.6,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 217.6
+    },
+    {
+      "url": "https://www.roblox.com.ml/games/74665200965542/Travel-To-Meet-Neko?privateServerLinkCode=034074815360930863747828703952",
+      "xg": 62.3,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 209.3
+    },
+    {
+      "url": "https://www.roblox.com.ml/games/134694592211993/meet-to-neko?privateServerLinkCode=034074815360930863747828703952",
+      "xg": 62.3,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 209.3
+    },
+    {
+      "url": "https://tettt.busines-help-center.com/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "https://rimee-web.github.io/Movie-Ui",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://mk624-git.github.io/nflex/",
+      "xg": 94.0,
+      "xg_v": "malicious",
+      "gn": 53.6,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 157.6
+    },
+    {
+      "url": "https://daniellekrsitina.github.io/spotify-clone-bootstrap",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://seconddimension.028426.com/s/63bzgfsvbwsfcdx7y9/584dd8/90eab167-7429-489f-99f6-ce86e8d0d81a",
+      "xg": 75.5,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 222.5
+    },
+    {
+      "url": "https://bggfccthhcttch.vercel.app/",
+      "xg": 57.1,
+      "xg_v": "malicious",
+      "gn": 99.9,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 232.0
+    },
+    {
+      "url": "http://b-t-104140.weeblysite.com/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://36476-dashcloud.pages.dev/help/contact/749354586581076",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://36476-dashcloud.pages.dev/help/contact/673530664613669",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://36476-dashcloud.pages.dev/help/contact/72029426206534",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://ario3.arweave.io.vn/wVNYrU_cC_etppnMAoegqOZ3JuRsYckkxwxHw2qjW7M?eta=",
+      "xg": 66.6,
+      "xg_v": "malicious",
+      "gn": 99.9,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 216.5
+    },
+    {
+      "url": "https://yfjvrlkp3qf7plngthgafb5avdthojxenrq4sjghbrd4g2vdlozq.ario3.arweave.io.vn/wVNYrU_cC_etppnMAoegqOZ3JuRsYckkxwxHw2qjW7M?eta=",
+      "xg": 67.4,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.4
+    },
+    {
+      "url": "http://www.cartermobilmadiun.com/callmss/",
+      "xg": 60.4,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 210.4
+    },
+    {
+      "url": "https://kh3a.de/internationalmicro",
+      "xg": 70.6,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 217.6
+    },
+    {
+      "url": "https://misokweb.com/schwab2025",
+      "xg": 59.2,
+      "xg_v": "malicious",
+      "gn": 99.9,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 209.1
+    },
+    {
+      "url": "https://robloxt.cv/users/1106943092/profile",
+      "xg": 65.1,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.1
+    },
+    {
+      "url": "https://m.mbx72.net/account/reg?code=20152",
+      "xg": 71.5,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.5
+    },
+    {
+      "url": "https://m.mbx72.net/account/reg?code=20860",
+      "xg": 71.5,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.5
+    },
+    {
+      "url": "https://m.ezhj2znh069c.com:9229/account/reg?code=44783",
+      "xg": 71.5,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.5
+    },
+    {
+      "url": "https://s4w.in/www-roblox-com-users-8288327272-profile",
+      "xg": 61.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.8
+    },
+    {
+      "url": "https://www.roblox.et/users/8288327192/profile",
+      "xg": 61.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.8
+    },
+    {
+      "url": "https://r.robloxt.cv/users/559211103/profile",
+      "xg": 65.1,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.1
+    },
+    {
+      "url": "https://ressourceshumains.com/?r=0e4f4175-63b5-47e5-b1fb-381adfb5094b&rg=eu",
+      "xg": 34.5,
+      "xg_v": "benign",
+      "gn": 70.6,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 155.1
+    },
+    {
+      "url": "https://surl.lu/axrnyj",
+      "xg": 61.9,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.9
+    },
+    {
+      "url": "https://www.robiox.com.ps/users/9266336035/profile",
+      "xg": 65.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.2
+    },
+    {
+      "url": "http://www.vickyadin.co.nz/mazzellacompanies/",
+      "xg": 71.5,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.5
+    },
+    {
+      "url": "http://accounts.marketwebb.me/en/login/",
+      "xg": 63.6,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 212.6
+    },
+    {
+      "url": "http://www.fullaski.com/longman/ourtimepge/v3/",
+      "xg": 63.6,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 238.6
+    },
+    {
+      "url": "https://suatelatop.serveirc.com/sicred/Portal.php",
+      "xg": 72.3,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.3
+    },
+    {
+      "url": "https://usertrek.github.io/Apple.Support/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "http://usertrek.github.io/Apple.Support",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://dropship.mach95.dev/esgetransfer3baosgeublicfari537.html?eta=loror@d40fb4ee05924b7d16ed8de5b6e1999b6feb.net",
+      "xg": 67.4,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.4
+    },
+    {
+      "url": "http://ig.do/Blox-Fruits-private-Server-Code-14333324331232317323432370930",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "https://attscripts.github.io/att-dd-script",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.2
+    },
+    {
+      "url": "https://dayon.kdense.com/wp-content/llc/home/fonts/jino.html",
+      "xg": 63.6,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 212.6
+    },
+    {
+      "url": "http://ig.do/Blox-Fruits-private-Server-Code-1433332433123231732343237093017",
+      "xg": 62.3,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 209.3
+    },
+    {
+      "url": "http://www.admin-0001-de.weebly.com/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "http://ngnangong-sport.com/",
+      "xg": 74.9,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 184.9
+    },
+    {
+      "url": "http://review.amrogn.com/appleton/",
+      "xg": 69.1,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 218.1
+    },
+    {
+      "url": "http://www.stilles-oertchen.de/capraasset/",
+      "xg": 72.3,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.3
+    },
+    {
+      "url": "http://meta-id90011.agency-manager-support.com/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "https://bellsite-d3c796.webflow.io/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://cassmiya387.github.io/starterpack/",
+      "xg": 62.0,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 209.0
+    },
+    {
+      "url": "https://xfvhg-pmsm-npe5.p-mv4ac1tf.workers.dev/lp/IUzx14P5zm4",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://shaw-tracker.pages.dev/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://notifyhubss.net/z7349464drc57e4ec00aea933f2s7e2858b8.html",
+      "xg": 66.0,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 217.0
+    },
+    {
+      "url": "https://prapalin.github.io/Amazon-clone/",
+      "xg": 73.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.7
+    },
+    {
+      "url": "https://www.roblox.com.ml/users/414697810427/profile",
+      "xg": 62.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 209.1
+    },
+    {
+      "url": "https://www.r.oblox.com.et/games/118821269826806/Wizard-AlchemyReleased?privateServerLinkCode=10583140035655823790507343018195",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "https://channelhub.info/z98bb36e5m8eed4ada9957b3bd0m2d72bc10.html",
+      "xg": 74.1,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 225.1
+    },
+    {
+      "url": "https://surl.li/jbrbvh",
+      "xg": 59.2,
+      "xg_v": "malicious",
+      "gn": 59.1,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 193.3
+    },
+    {
+      "url": "https://robiox.com.ua/communities/519190260/gvwayrbx",
+      "xg": 70.4,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.4
+    },
+    {
+      "url": "https://home-bridn.wasmer.app/",
+      "xg": 67.5,
+      "xg_v": "malicious",
+      "gn": 50.1,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 192.6
+    },
+    {
+      "url": "https://microsoft.authorised-support.com/login/wmVddxjyF1Nh7D0k4EDNPyBkfk7teS4I7VkI=1AA==9VFBaS1ZKVl9NZlVWXlBXZk5QTVFmSVhKSk5WS10=/D3GLSnrS89fqNYsw7wgKSDWkWBH9UtrM",
+      "xg": 73.0,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.0
+    },
+    {
+      "url": "https://robiox.com.ps/communities/3737512164/",
+      "xg": 70.4,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.4
+    },
+    {
+      "url": "https://www.securitysuite365.com/AccountSelectionPage/c?c=00000000-0000-0000-0000-000000000000-241acba3-0f63-48cc-bc7f-5bfbf3b7cf32",
+      "xg": 65.1,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.1
+    },
+    {
+      "url": "http://b35aaa.com/fish/172",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "https://afaktv.com/summerwood",
+      "xg": 72.3,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.3
+    },
+    {
+      "url": "http://digitalomnifederalorg.vercel.app/",
+      "xg": 56.5,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 206.5
+    },
+    {
+      "url": "http://oyster-app-ud5r5.ondigitalocean.app/",
+      "xg": 72.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 219.7
+    },
+    {
+      "url": "https://secure--suitetrzor.gitbook.io/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "http://loginliveoutlk.jimdofree.com/",
+      "xg": 62.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 209.1
+    },
+    {
+      "url": "http://robiox.com.ps/communities/2034191086/BloxFan",
+      "xg": 70.4,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.4
+    },
+    {
+      "url": "http://member049.ad-agency-meta.com/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "https://notifyhubss.net/d309f72497897249f5pa6b01ea328c7db017.html",
+      "xg": 65.6,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.6
+    },
+    {
+      "url": "https://uditrsahani-ship-it.github.io/coins/",
+      "xg": 75.5,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 222.5
+    },
+    {
+      "url": "https://m.dtwyiqnl9ods.com:9229/account/reg?code=47670",
+      "xg": 71.5,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.5
+    },
+    {
+      "url": "https://oginnigideon18-tech.github.io/yahoo.gid/",
+      "xg": 94.1,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 244.1
+    },
+    {
+      "url": "http://oginnigideon18-tech.github.io/yahoo.gid",
+      "xg": 73.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.8
+    },
+    {
+      "url": "https://digi11.ict.ph/",
+      "xg": 63.3,
+      "xg_v": "malicious",
+      "gn": 1.6,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 114.9
+    },
+    {
+      "url": "https://punchnextgen.s3.eu-west-1.amazonaws.com/iqqfwzvz07l0?utm_sourc",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "https://www.robiox.com.ps/games/109983668079237/Steal-a-Brainrot?privateServerLinkCode=93555939948445105498952801673767",
+      "xg": 70.5,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.5
+    },
+    {
+      "url": "http://vermillion-pasca-1a78d7.netlify.app/",
+      "xg": 67.4,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.4
+    },
+    {
+      "url": "http://www.joshidiagnosticcentre.com/Secured28/",
+      "xg": 71.5,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.5
+    },
+    {
+      "url": "http://j60i.vip/",
+      "xg": 72.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 219.7
+    },
+    {
+      "url": "https://www.joy-bet365.com.cn/",
+      "xg": 76.0,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 227.0
+    },
+    {
+      "url": "https://groothuis.be/",
+      "xg": 39.3,
+      "xg_v": "benign",
+      "gn": 0.0,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 89.3
+    },
+    {
+      "url": "https://www.roblox.com.ml/users/423788855943/profile",
+      "xg": 67.0,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.0
+    },
+    {
+      "url": "https://36476-dashcloud.pages.dev/help/contact/789144666602881",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://artsy-village-979746.framer.app/",
+      "xg": 65.4,
+      "xg_v": "malicious",
+      "gn": 0.0,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 115.4
+    },
+    {
+      "url": "https://admin-0001-de.weebly.com/",
+      "xg": 77.7,
+      "xg_v": "malicious",
+      "gn": 5.8,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 133.5
+    },
+    {
+      "url": "https://superfluous-party-506083.framer.app/",
+      "xg": 65.4,
+      "xg_v": "malicious",
+      "gn": 0.1,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 115.5
+    },
+    {
+      "url": "https://dorightvaliantly.info/PL-1466-160526/?u=81C1466&e=Sylwiawk",
+      "xg": 51.6,
+      "xg_v": "malicious",
+      "gn": 99.6,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 226.2
+    },
+    {
+      "url": "https://unlimitedcss.net/",
+      "xg": 13.7,
+      "xg_v": "benign",
+      "gn": 95.5,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 184.2
+    },
+    {
+      "url": "http://www.cedhrdc.org/rivieradoc/",
+      "xg": 69.1,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 218.1
+    },
+    {
+      "url": "https://www.robiox.com.gr/login?returnUrl=6170428472266747",
+      "xg": 79.1,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 230.1
+    },
+    {
+      "url": "http://j60j.vip/",
+      "xg": 72.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 219.7
+    },
+    {
+      "url": "https://www.roblox.com.ml/games/106402412759954/Get-Verified-now?privateServerLinkCode=189048556304024489544972822271",
+      "xg": 62.3,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 209.3
+    },
+    {
+      "url": "https://pub-0670180e6ac942308e1a7b5d1496d509.r2.dev/docusign-paydocument.html",
+      "xg": 67.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.8
+    },
+    {
+      "url": "http://www.personalinjurylawyercherokeecounty.com/",
+      "xg": 70.7,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 220.7
+    },
+    {
+      "url": "https://ipfs.io/ipfs/bafkreiesw5yyzwhqcujsatxn4hwn3drojfd6e4uj4wdzu6nwj25oyuqqhq?eta=orex1@6a5f7b3cee8a91d26689f7621b126d39dae1.net",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://www.robiox.com.py/games/2489938211/The-Condo-V4-Original?privateServerLinkCode=700545392469364631149266863866",
+      "xg": 65.7,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.7
+    },
+    {
+      "url": "http://prashantrana1494.github.io/",
+      "xg": 67.4,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.4
+    },
+    {
+      "url": "https://ldgrsafkh87f.sameera-45.workers.dev/",
+      "xg": 59.1,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 234.1
+    },
+    {
+      "url": "https://authentication.ms/E.3zLRznDRJau4Sw?/VGhlIG5leHQgZ2VuZXJhdGlvbiBvZiBzZWN1cml0eSBhd2FyZW5lc3MgaXMgZGVzaWduZWQgZm9yIGVtcGxveWVlcyBhbmQgYnVpbHQgZm9yIGVudGVycHJpc2VzLiBPdXIgaW5kdXN0cnktbGVhZGluZyByZXN1bHRzIGFyZSBwb3dlcmVkIGJ5IGNvZ25pdGl2ZSBhdXRvbWF0aW9uLg",
+      "xg": 61.9,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.9
+    },
+    {
+      "url": "http://cdn2.hubspot.net/hubfs/5380234/email-media/4d0528831d16375743f66a17dc479d89/e3a933685615cae7f81b3a36d45610e4/Order%20Inquiry%20.pdf.htm",
+      "xg": 74.1,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 223.1
+    },
+    {
+      "url": "http://www.uspsmailjourney.com/uspsmailjourney.com/%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%AF%C2%BF%C2%BD/",
+      "xg": 70.2,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 217.2
+    },
+    {
+      "url": "http://www.uspsmailjourney.com/uspsmailjourney.com/%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%A2%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%82%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%83%C3%83%C2%82%C3%82%C2%83%C3%83%C2%83%C3%82%C2%82%C3%83%C2%82%C3%82%C2%82%C3%83%C2%AF%C3%82%C2%BF%C3%82%C2%BD/",
+      "xg": 70.2,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 217.2
+    },
+    {
+      "url": "https://att92w8928.weebly.com/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://clone-instagram-by-enju.vercel.app/auth",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "https://clone-instagram-by-enju.vercel.app/",
+      "xg": 67.1,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.1
+    },
+    {
+      "url": "https://www.clone-instagram-by-enju.vercel.app/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "http://www.opnsea0penseamint46.vercel.app/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "https://www.032eass.hyperphp.com/",
+      "xg": 82.1,
+      "xg_v": "malicious",
+      "gn": 0.1,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 132.2
+    },
+    {
+      "url": "http://galabettv1.com/",
+      "xg": 75.4,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 226.4
+    },
+    {
+      "url": "https://www.roblox.com.ml/users/413899391385/profile",
+      "xg": 62.0,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 209.0
+    },
+    {
+      "url": "https://meta-id90014.agency-manager-support.com/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "https://popularairservice.com/wp-content/themes/twentytwentyfour/style/home/details.php?lang=en",
+      "xg": 75.6,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.6
+    },
+    {
+      "url": "https://meta-id90016.agency-manager-support.com/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "https://hean823.github.io/Atttech-Docement/My%20Purchase%20Order",
+      "xg": 72.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 219.7
+    },
+    {
+      "url": "http://galabetbonus.com/",
+      "xg": 72.7,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 223.7
+    },
+    {
+      "url": "http://galabetenvivo.com/",
+      "xg": 72.7,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 223.7
+    },
+    {
+      "url": "http://galabet38.net/",
+      "xg": 65.1,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.1
+    },
+    {
+      "url": "http://galabet88.net/",
+      "xg": 65.3,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.3
+    },
+    {
+      "url": "http://galabet388.org/",
+      "xg": 75.1,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 226.1
+    },
+    {
+      "url": "http://galabetgiris-2026.com/",
+      "xg": 70.8,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.8
+    },
+    {
+      "url": "http://qnb-finansbank-dynamic.vercel.app/",
+      "xg": 61.6,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.6
+    },
+    {
+      "url": "https://djaloliddinovasaodat345-alt.github.io/instabot",
+      "xg": 73.9,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.9
+    },
+    {
+      "url": "https://44433a.com/?dl=2ndv22",
+      "xg": 67.4,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.4
+    },
+    {
+      "url": "https://shopeejkt-88.blogspot.com/?m=1",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://www.168888365.com/",
+      "xg": 47.1,
+      "xg_v": "malicious",
+      "gn": 89.2,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 146.3
+    },
+    {
+      "url": "http://member051.ad-agency-meta.com/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "http://www.nelsonngdriving.com/pssupplies/llc.html.php",
+      "xg": 71.5,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.5
+    },
+    {
+      "url": "https://61564.my/",
+      "xg": 72.9,
+      "xg_v": "malicious",
+      "gn": 0.0,
+      "gn_v": "benign",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 122.9
+    },
+    {
+      "url": "https://aktiffka4npaylaterll.file-resmii4.my.id/",
+      "xg": 70.5,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.5
+    },
+    {
+      "url": "https://shopeejkt-62.blogspot.com/?m=1",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://www.365168888.com/",
+      "xg": 47.1,
+      "xg_v": "malicious",
+      "gn": 89.2,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 146.3
+    },
+    {
+      "url": "https://www.66666365.com/",
+      "xg": 48.8,
+      "xg_v": "malicious",
+      "gn": 89.4,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 148.2
+    },
+    {
+      "url": "https://upholdlxmg.gitbook.io/us",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "http://upholdlxmg.gitbook.io/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "https://www.robiox.com.ps/users/2998695412/profile",
+      "xg": 65.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.2
+    },
+    {
+      "url": "http://m.zcnpx.com/",
+      "xg": 33.8,
+      "xg_v": "benign",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 183.8
+    },
+    {
+      "url": "https://qrco.de/bgoHDU",
+      "xg": 75.5,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 222.5
+    },
+    {
+      "url": "https://meta-id90017.agency-manager-support.com/",
+      "xg": 76.1,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 227.1
+    },
+    {
+      "url": "https://iperplano.pt/l/mysavings-php//card.php",
+      "xg": 77.4,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 226.4
+    },
+    {
+      "url": "https://pedagiodigital-flow.com/vias/home.php",
+      "xg": 71.5,
+      "xg_v": "malicious",
+      "gn": 74.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.5
+    },
+    {
+      "url": "https://meta-id90013.agency-manager-support.com/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.2
+    },
+    {
+      "url": "https://tiktokvc-1330623827.pichk.myqcloud.com/index.html",
+      "xg": 62.7,
+      "xg_v": "malicious",
+      "gn": 99.9,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 237.6
+    },
+    {
+      "url": "https://40000ylg.com/",
+      "xg": 73.2,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.2
+    },
+    {
+      "url": "https://1289js.com/",
+      "xg": 59.0,
+      "xg_v": "malicious",
+      "gn": 66.4,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 135.4
+    },
+    {
+      "url": "http://materillos57200.vercel.app/",
+      "xg": 69.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.8
+    },
+    {
+      "url": "https://www.roblox.com.bn/games/127751800473209/Obby-Vibe-Zone-POSES?privateServerLinkCode=65924314243259842165815914766551",
+      "xg": 78.0,
+      "xg_v": "malicious",
+      "gn": 99.3,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 227.3
+    },
+    {
+      "url": "https://www.roblox.et/users/2737556637/profile",
+      "xg": 61.8,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 208.8
+    },
+    {
+      "url": "https://www.robiox.com.gr/users/5234691553/profile",
+      "xg": 65.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.2
+    },
+    {
+      "url": "https://instagram-ftfn88kgl-sebin-leeee.vercel.app/",
+      "xg": 67.4,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 214.4
+    },
+    {
+      "url": "http://microsoft.authorised-support.com/login/wmVddxjyF1Nh7D0k4EDNPyBkfk7teS4I7VkI=1AA==1XFhSQ15CXldFbl1eVlhfbkZYRVluQVBCQkZeQ1U=/D3GLSnrS89fqNYsw7wgKSDWkWBH9UtrM",
+      "xg": 73.0,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 224.0
+    },
+    {
+      "url": "https://waddyworks.com/-/EB-n3",
+      "xg": 72.7,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 223.7
+    },
+    {
+      "url": "https://9000-firebase-new-1778478492228.cluster-l2bgochoazbomqgfmlhuvdvgiy.cloudworkstations.dev/?monospaceUid=767347",
+      "xg": 71.2,
+      "xg_v": "malicious",
+      "gn": 100.0,
+      "gn_v": "malicious",
+      "kb": 50.0,
+      "kb_v": "unknown",
+      "total": 221.2
+    },
+    {
+      "url": "https://www.robiox.com.gr/users/2998695412/profile",
+      "xg": 65.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.2
+    },
+    {
+      "url": "https://survey.refassured.com/0oqOoppK",
+      "xg": 70.5,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.5
+    },
+    {
+      "url": "https://111116js.com/",
+      "xg": 59.7,
+      "xg_v": "malicious",
+      "gn": 60.8,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 130.5
+    },
+    {
+      "url": "https://balanoca.github.io/PrototipeUXUI",
+      "xg": 96.0,
+      "xg_v": "malicious",
+      "gn": 86.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 257.0
+    },
+    {
+      "url": "https://prahallad447.github.io/Amazon-Clone",
+      "xg": 73.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.7
+    },
+    {
+      "url": "https://www.robiox.com.gr/games/2753915549/Blox-Fruits?privateServerLinkCode=67513345369422738108098872983067",
+      "xg": 70.5,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 221.5
+    },
+    {
+      "url": "http://www.loginservice.cloud/E.BMPMH_GD_PA",
+      "xg": 67.5,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 218.5
+    },
+    {
+      "url": "https://www.robiox.com.ua/users/2998695412/profile",
+      "xg": 65.2,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 216.2
+    },
+    {
+      "url": "https://emzor500-del.github.io/Login-gain-",
+      "xg": 73.7,
+      "xg_v": "malicious",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 220.7
+    },
+    {
+      "url": "https://www.waddyworks.com/-/EB-app/",
+      "xg": 72.7,
+      "xg_v": "malicious",
+      "gn": 76.0,
+      "gn_v": "malicious",
+      "kb": 75.0,
+      "kb_v": "malicious",
+      "total": 223.7
+    }
+  ],
+  "benign": [
+    {
+      "url": "https://www.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kakao.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.google.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.coupang.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.gmarket.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.11st.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.samsung.com/kr/",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lge.com/kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.hyundai.com/kr/ko",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kia.com/kr/main.html",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lotte.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.shinsegae.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.apple.com/kr/",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.microsoft.com/ko-kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.amazon.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.youtube.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.instagram.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.github.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.cloudflare.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.notion.so",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kakaobank.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.shinhan.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.wooribank.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kbstar.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.hanabank.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://nhbank.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.ibk.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.nts.go.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.mss.go.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.nhis.or.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://store.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://pay.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kakaocorp.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.sktelecom.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kt.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lguplus.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.interpark.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.tmon.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.wemakeprice.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.auction.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.emart.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.homeplus.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lottemart.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.bgfretail.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.gs25.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.cj.net",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.hanjin.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.korail.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.airport.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kia.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.cgv.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.megabox.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lottcinema.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.daum.net",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://news.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://sports.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://map.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://finance.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.toss.im",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.karrotpay.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.payco.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kakaopay.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://shopping.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://travel.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://blog.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://cafe.naver.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.jobkorea.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.saramin.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.wanted.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.yes24.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kyobo.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.aladin.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.melon.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.genie.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.bugs.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.baemin.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.yogiyo.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.coupangeats.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.musinsa.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.29cm.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.wconcept.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.zigbang.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.dabangapp.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.직방.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 72.0,
+      "gn_v": "malicious",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 86.7
+    },
+    {
+      "url": "https://www.naver.com/main.nhn",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kakao.com/talk",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.samsung.com/global/galaxy/",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.hyundaicard.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lottecard.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.samsungcard.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.kbcard.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.shinhancard.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.hanwha.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lgchem.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.posco.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.sk.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.gs.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lottechilsung.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.ottogi.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.nongshim.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.cj.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.emart24.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.cu.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.ministop.co.kr",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.hyundaidepartment.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lottedepartment.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.gsshop.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.cjonstyle.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    },
+    {
+      "url": "https://www.lotteon.com",
+      "xg": 4.7,
+      "xg_v": "benign",
+      "gn": 3.0,
+      "gn_v": "benign",
+      "kb": 10.0,
+      "kb_v": "benign",
+      "total": 17.7
+    }
+  ]
+}

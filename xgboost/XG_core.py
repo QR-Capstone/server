@@ -23,6 +23,16 @@ import numpy as np
 import tldextract
 
 _TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=None)
+_PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PARENT_DIR not in os.sys.path:
+    os.sys.path.insert(0, _PARENT_DIR)
+try:
+    from trusted_domains import is_trusted_official_url, strong_url_phishing_score
+except Exception:  # pragma: no cover
+    def is_trusted_official_url(raw_url: str) -> bool:
+        return False
+    def strong_url_phishing_score(raw_url: str) -> float:
+        return 0.0
 
 try:
     import requests
@@ -2631,6 +2641,11 @@ def predict_url(
         enable_ssl = bool(bundle.meta.get("enable_ssl", False))
     if domain_only is None:
         domain_only = bool(bundle.meta.get("domain_only", False))
+    if is_trusted_official_url(url):
+        return 0, 0.05, {"trusted_official_domain": 1.0}
+    early_floor = _strong_xg_phishing_floor(url)
+    if early_floor >= 0.66:
+        return 1, early_floor, {"strong_url_phishing_pattern": early_floor}
     X = featurize_urls(
         [url],
         enable_domain_age=enable_domain_age,
@@ -2648,6 +2663,9 @@ def predict_url(
         X = X[:, :base_n]
         feats = feats[:base_n]
     proba = float(predict_proba(bundle.model, X)[0])
+    heuristic_floor = _strong_xg_phishing_floor(url)
+    if heuristic_floor > proba:
+        proba = heuristic_floor
     label = 1 if proba >= 0.5 else 0
     feat_map: Dict[str, Any] = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
     domain_age_meta = get_domain_age_features_for_mode(url, bool(enable_domain_age))
@@ -2674,6 +2692,21 @@ def predict_url_dom(
     *,
     print_dom_feature_debug: bool = True,
 ) -> Tuple[int, float, Dict[str, float]]:
+    if is_trusted_official_url(url):
+        return 0, 0.03, {
+            "dom_max_depth": 0.0,
+            "dead_link_ratio": 0.0,
+            "hidden_tags_count": 0.0,
+            "suspicious_form_action": 0.0,
+            "dom_timeout": 0.0,
+            "dom_ssl_error": 0.0,
+            "dom_blocked": 0.0,
+            "dom_connection_error": 0.0,
+            "dom_connection_reset": 0.0,
+            "dom_dns_failed": 0.0,
+            "dom_connection_refused": 0.0,
+            "trusted_official_domain": 1.0,
+        }
     dom_features = extract_dom_features(
         url, print_dom_feature_debug=print_dom_feature_debug
     )
@@ -2695,6 +2728,58 @@ def predict_url_dom(
         "dom_connection_refused": float(dom_features.get("dom_connection_refused", 0.0)),
     }
     return label, proba, dom_feature_map
+
+
+def _strong_xg_phishing_floor(url: str) -> float:
+    """High-precision URL-only risk floor for common active phishing patterns."""
+    shared_score = strong_url_phishing_score(url)
+    host, path, sld = _split_url_for_analysis(url)
+    if not host:
+        return shared_score
+    combined = f"{host}/{path}"
+    free_hosting = (
+        host.endswith(".pages.dev")
+        or host.endswith(".vercel.app")
+        or host.endswith(".netlify.app")
+        or host.endswith(".github.io")
+        or host.endswith(".weebly.com")
+        or host.endswith(".weeblysite.com")
+        or host.endswith(".web.app")
+        or host.endswith(".firebaseapp.com")
+        or host.endswith(".workers.dev")
+        or host.endswith(".s3.amazonaws.com")
+        or host.endswith(".storage.googleapis.com")
+    )
+    impersonation_terms = (
+        "login",
+        "account",
+        "verify",
+        "secure",
+        "support",
+        "help",
+        "contact",
+        "meta",
+        "facebook",
+        "microsoft",
+        "office",
+        "roblox",
+        "netflix",
+        "naver",
+        "kakao",
+        "paypal",
+        "bank",
+    )
+    if free_hosting and any(term in combined for term in impersonation_terms):
+        return max(shared_score, 0.72)
+    if re.search(r"/account/(reg|login|verify)\b", path) and re.search(r"\d", host):
+        return max(shared_score, 0.72)
+    if re.search(r":\d{3,5}\b", url) and any(term in path for term in ("account", "login", "reg", "verify")):
+        return max(shared_score, 0.72)
+    if len(sld) >= 12 and _domain_digit_letter_ratio(host) > 0.25 and any(term in path for term in ("account", "login", "reg", "verify")):
+        return max(shared_score, 0.72)
+    if _is_homoglyph_typo(sld) or _is_transposition_typo(sld):
+        return max(shared_score, 0.76)
+    return shared_score
 
 # --- Typosquatting explanation helpers (설명 전용; URL·피처 값은 변경하지 않음) ---
 

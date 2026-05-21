@@ -36,6 +36,15 @@ from XG_core import (
 )
 from gnn_engine import GNN_Engine, predict_gnn
 
+try:
+    from trusted_domains import is_trusted_official_url, strong_url_phishing_score
+except Exception:  # pragma: no cover
+    def is_trusted_official_url(raw_url: str) -> bool:
+        return False
+
+    def strong_url_phishing_score(raw_url: str) -> float:
+        return 0.0
+
 app = FastAPI(title="Phishing Detection API")
 
 
@@ -262,6 +271,101 @@ def _extract_model_risk(result: Any) -> str:
     return "UNKNOWN"
 
 
+def _url_rule_adjustment(url: str) -> dict[str, Any] | None:
+    """Conservative URL-only override shared by all API lanes."""
+    if is_trusted_official_url(url):
+        return {
+            "riskLevel": "SAFE",
+            "judgment": "normal",
+            "verdict": "benign",
+            "probability": 0.0,
+            "reason": "공식/신뢰 도메인 사전 통과",
+        }
+    score = float(strong_url_phishing_score(url))
+    if score >= 0.66:
+        return {
+            "riskLevel": "DANGEROUS",
+            "judgment": "unnormal",
+            "verdict": "malicious",
+            "probability": score,
+            "reason": "강한 URL 피싱 패턴 사전 감지",
+        }
+    return None
+
+
+def _model_probability(model: str, result: Any, risk_level: str | None = None) -> float | None:
+    if not isinstance(result, dict):
+        return None
+    if model == "XGBoost":
+        for key in ("final_probability", "probability", "typo_probability", "domain_probability", "dom_probability"):
+            if result.get(key) is not None:
+                try:
+                    return max(0.0, min(1.0, float(result.get(key))))
+                except (TypeError, ValueError):
+                    continue
+    elif model == "GNN":
+        if result.get("probability") is not None:
+            try:
+                return max(0.0, min(1.0, float(result.get("probability"))))
+            except (TypeError, ValueError):
+                return None
+    elif model == "KoBERT":
+        if result.get("threat_score") is not None:
+            try:
+                score = float(result.get("threat_score"))
+                return max(0.0, min(1.0, score / 100.0 if score > 1.0 else score))
+            except (TypeError, ValueError):
+                pass
+
+    risk = risk_level or _extract_model_risk(result)
+    if risk == "DANGEROUS":
+        return 0.75
+    if risk == "SAFE":
+        return 0.10
+    return None
+
+
+def _apply_url_rule_adjustment(model: str, url: str, result: Any) -> Any:
+    adjustment = _url_rule_adjustment(url)
+    if adjustment is None:
+        return result
+
+    out = dict(result) if isinstance(result, dict) else {}
+    out.update(
+        {
+            "riskLevel": adjustment["riskLevel"],
+            "risklevel": adjustment["riskLevel"],
+            "judgment": adjustment["judgment"],
+            "verdict": adjustment["verdict"],
+            "adjusted_by_rule": True,
+            "adjustment_reason": adjustment["reason"],
+        }
+    )
+    prob = float(adjustment["probability"])
+    if model == "XGBoost":
+        out["final_probability"] = round(prob, 6)
+        out["label"] = 1 if adjustment["riskLevel"] == "DANGEROUS" else 0
+        out.setdefault("explanations", [adjustment["reason"]])
+    elif model == "GNN":
+        out["probability"] = round(prob, 6)
+        out["label"] = 1 if adjustment["riskLevel"] == "DANGEROUS" else 0
+        out.setdefault("explanation", [adjustment["reason"]])
+    elif model == "KoBERT":
+        out["threat_score"] = round(prob * 100.0, 1)
+        out.setdefault("threat_type", "URL 구조 기반 판정" if prob else "안전(공식/신뢰 도메인)")
+        out.setdefault(
+            "evidence",
+            {
+                "heuristic_evidence": {"detected_actions": [], "rule_trigger": adjustment["reason"]},
+                "ai_semantic_evidence": {
+                    "suspect_sentence": url,
+                    "ai_inference_logic": adjustment["reason"],
+                },
+            },
+        )
+    return out
+
+
 def _model_detail(
     model: str,
     result: Any,
@@ -292,6 +396,7 @@ def _model_detail(
     risk_level = _extract_model_risk(result)
     judgment = str(result.get("judgment") or _judgment_from_risk(risk_level))
     verdict = str(result.get("verdict") or _verdict_from_risk(risk_level))
+    probability = _model_probability(model, result, risk_level)
     summary = f"{model}: {_korean_risk_text(risk_level)}"
     if result.get("error"):
         summary = f"{model}: 의심"
@@ -305,6 +410,9 @@ def _model_detail(
         "judgment": judgment,
         "verdict": verdict,
         "summary": summary,
+        "probability": round(probability, 6) if probability is not None else None,
+        "adjusted_by_rule": bool(result.get("adjusted_by_rule")),
+        "adjustment_reason": result.get("adjustment_reason"),
     }
 
     if model == "KoBERT":
@@ -404,6 +512,39 @@ def _xgboost_dominant_signal(result: dict[str, Any]) -> str:
 
 
 def _decide_final_risk(details: list[dict[str, Any]]) -> str:
+    official_override = any(
+        detail.get("adjusted_by_rule")
+        and detail.get("riskLevel") == "SAFE"
+        and "공식/신뢰" in str(detail.get("adjustment_reason") or "")
+        for detail in details
+    )
+    if official_override:
+        return "SAFE"
+
+    strong_url_override = any(
+        detail.get("adjusted_by_rule")
+        and detail.get("riskLevel") == "DANGEROUS"
+        and "강한 URL" in str(detail.get("adjustment_reason") or "")
+        for detail in details
+    )
+    if strong_url_override:
+        return "DANGEROUS"
+
+    usable_probs = [
+        float(detail["probability"])
+        for detail in details
+        if detail.get("available") and detail.get("probability") is not None
+    ]
+    if usable_probs:
+        avg_prob = sum(usable_probs) / len(usable_probs)
+        danger_threshold = float(os.getenv("FINAL_DANGER_THRESHOLD", "0.70"))
+        unknown_threshold = float(os.getenv("FINAL_UNKNOWN_THRESHOLD", "0.45"))
+        if avg_prob >= danger_threshold:
+            return "DANGEROUS"
+        if avg_prob >= unknown_threshold:
+            return "UNKNOWN"
+        return "SAFE"
+
     malicious_count = sum(
         1 for detail in details
         if detail.get("available") and detail.get("riskLevel") == "DANGEROUS"
@@ -434,6 +575,9 @@ def _build_final_response(
     t_xg: float,
     t_gnn: float,
 ) -> dict:
+    kobert_result = _apply_url_rule_adjustment("KoBERT", target_url, kobert_result)
+    xg_result = _apply_url_rule_adjustment("XGBoost", target_url, xg_result)
+    gnn_result = _apply_url_rule_adjustment("GNN", target_url, gnn_result)
     details = [
         _model_detail("KoBERT", kobert_result, getattr(app.state, "eng_status", {})),
         _model_detail("XGBoost", xg_result, getattr(app.state, "xg_status", {})),
@@ -454,7 +598,7 @@ def _build_final_response(
         "judgment": judgment,
         "riskLevel": risk_level,
         "conclusion": _korean_risk_text(risk_level),
-        "decision_method": "string_label_interpretation",
+        "decision_method": "score_weighted_ensemble",
         "reasons": reasons,
         "model_details": details,
         "koBERT": kobert_result,
@@ -765,6 +909,7 @@ async def analyze_engine_only(request: URLRequest):
             "engine_disabled": True,
             "engine_reason": getattr(app.state, "eng_status", {}).get("reason", "not_loaded"),
         }
+    result = _apply_url_rule_adjustment("KoBERT", target_url, result)
     return {
         **result,
         "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
@@ -778,6 +923,7 @@ async def analyze_xgboost_only(request: URLRequest):
     if not target_url:
         raise HTTPException(status_code=400, detail="URL is empty.")
     xg_result = await _run_xgboost(_run_xgboost_inference, target_url)
+    xg_result = _apply_url_rule_adjustment("XGBoost", target_url, xg_result)
     return {
         "xgboost": xg_result,
         "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
@@ -791,6 +937,7 @@ async def analyze_gnn_only(request: URLRequest):
     if not target_url:
         raise HTTPException(status_code=400, detail="URL is empty.")
     gnn_result = await _run_gnn(_run_gnn_inference, target_url)
+    gnn_result = _apply_url_rule_adjustment("GNN", target_url, gnn_result)
     return {
         "gnn": gnn_result,
         "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),

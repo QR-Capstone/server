@@ -58,6 +58,16 @@ except Exception as e:  # pragma: no cover
 _NN_MODULE = nn.Module if nn is not None else object
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_PARENT_DIR = os.path.dirname(_BASE_DIR)
+if _PARENT_DIR not in os.sys.path:
+    os.sys.path.insert(0, _PARENT_DIR)
+try:
+    from trusted_domains import is_trusted_official_url, strong_url_phishing_score
+except Exception:  # pragma: no cover
+    def is_trusted_official_url(raw_url: str) -> bool:
+        return False
+    def strong_url_phishing_score(raw_url: str) -> float:
+        return 0.0
 
 MODEL_KIND = "web_structure_torch_gnn_phishing_v2"
 ARTIFACT_VERSION = 3
@@ -1808,6 +1818,35 @@ def predict_gnn(
     raw_url: str,
 ) -> Dict[str, Any]:
     url = _normalize_url(raw_url)
+    if is_trusted_official_url(url):
+        return {
+            "url": url,
+            "probability": 0.03,
+            "risk_score": 3.0,
+            "label": 0,
+            "verdict": "benign",
+            "model_type": MODEL_KIND,
+            "threshold": float(getattr(model, "threshold", 0.5)),
+            "explanation": [
+                "공식/신뢰 도메인 목록과 일치하여 정상 사이트로 우선 분류했습니다."
+            ],
+            "evidence": {"trusted_official_domain": True},
+        }
+    url_only_score = strong_url_phishing_score(url)
+    if url_only_score >= 0.66:
+        return {
+            "url": url,
+            "probability": round(url_only_score, 6),
+            "risk_score": round(url_only_score * 100.0, 1),
+            "label": 1,
+            "verdict": "malicious",
+            "model_type": MODEL_KIND,
+            "threshold": float(getattr(model, "threshold", 0.5)),
+            "explanation": [
+                "무료 호스팅/계정 경로/숫자 혼합 도메인 등 강한 사칭 URL 구조가 감지되었습니다."
+            ],
+            "evidence": {"strong_url_phishing_pattern": url_only_score},
+        }
     fetch = os.getenv("GNN_FETCH_PAGE", "1") != "0"
     sample, graph = graph_sample_for_url(url, fetch=fetch)
     prob_mal = float(model.predict_proba_from_sample(sample))

@@ -23,6 +23,23 @@ from urllib.parse import urlparse, urljoin
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_FILE = os.path.join(BASE_DIR, 'kobert_phishing_model_weights.pt')
+PARENT_DIR = os.path.dirname(BASE_DIR)
+if PARENT_DIR not in os.sys.path:
+    os.sys.path.insert(0, PARENT_DIR)
+try:
+    from trusted_domains import (
+        TRUSTED_REGISTERED_DOMAINS,
+        TRUSTED_SUFFIXES,
+        is_trusted_official_url,
+        strong_url_phishing_score,
+    )
+except Exception:
+    TRUSTED_REGISTERED_DOMAINS = frozenset()
+    TRUSTED_SUFFIXES = ()
+    def is_trusted_official_url(raw_url: str) -> bool:
+        return False
+    def strong_url_phishing_score(raw_url: str) -> float:
+        return 0.0
 
 device = None
 tokenizer = None
@@ -402,6 +419,55 @@ def warmup_engine(include_pw=True):
 
 def predict_phishing_result(target_url):
     global device, tokenizer, model, engine_initialized, async_pw_manager
+
+    start_time = time.time()
+    if not (target_url.startswith("http") or ":" in target_url or target_url.startswith("/")):
+        target_url = "https://" + target_url
+
+    if is_trusted_official_url(target_url):
+        return {
+            "url": target_url,
+            "judgment": "normal",
+            "riskLevel": "LOW",
+            "risklevel": "LOW",
+            "detectedUrl": target_url,
+            "threat_score": 0.0,
+            "threat_type": "안전(공식/신뢰 도메인)",
+            "site_category": "공식 사이트",
+            "evidence": {
+                "heuristic_evidence": {
+                    "detected_actions": [],
+                    "rule_trigger": "공식/신뢰 도메인 사전 통과"
+                },
+                "ai_semantic_evidence": {
+                    "suspect_sentence": "해당 없음",
+                    "ai_inference_logic": "공식/신뢰 도메인 목록과 일치하여 KoBERT 로드 전에 정상 사이트로 분류했습니다."
+                }
+            }
+        }
+
+    url_only_score = strong_url_phishing_score(target_url)
+    if url_only_score >= 0.66:
+        return {
+            "url": target_url,
+            "judgment": "unnormal",
+            "riskLevel": "HIGH",
+            "risklevel": "HIGH",
+            "detectedUrl": target_url,
+            "threat_score": round(url_only_score * 100.0, 1),
+            "threat_type": "URL 구조 기반 사칭 피싱",
+            "site_category": "악성 피싱",
+            "evidence": {
+                "heuristic_evidence": {
+                    "detected_actions": ["브랜드/계정 사칭 URL 패턴"],
+                    "rule_trigger": "강한 URL 피싱 패턴 사전 감지"
+                },
+                "ai_semantic_evidence": {
+                    "suspect_sentence": target_url,
+                    "ai_inference_logic": "무료 호스팅, 계정/로그인 경로, 숫자 혼합 도메인 등 명백한 사칭 URL 구조가 확인되어 KoBERT 로드 전에 차단했습니다."
+                }
+            }
+        }
     
     if not engine_initialized:
         print("\n  [시스템] 엔진 초기 구동을 시작합니다. (첫 1회만 소요)")
@@ -412,33 +478,14 @@ def predict_phishing_result(target_url):
             return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "error": f"엔진 예열 실패: {e}", "detectedUrl": target_url}
         print(f"  [시스템] 엔진 예열 완료! (소요 시간: {time.time() - w_start:.2f}초)\n")
 
-    start_time = time.time()
-
     print("="*60)
     print(f"🎯 [분석 시작] 타겟 URL: {target_url}")
     print("="*60)
 
-    if not (target_url.startswith("http") or ":" in target_url or target_url.startswith("/")): 
-        target_url = "https://" + target_url
-
     is_http_vulnerable = target_url.lower().startswith("http://")
 
-    safe_tlds = ["go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
-    safe_official_domains = [
-        # 기존 금융/공공 기관 및 인프라
-        "nonghyup.com", "kbstar.com", "shinhan.com", "wooribank.com", "kebhana.com",
-        "hanabank.com", "kakaobank.com", "tossbank.com", "kbanknow.com", "ibk.co.kr", "korail.com", "ticketlink.co.kr", 
-        
-        # 🌟 글로벌 IT 기업 및 공식 대형 포털 (자매 도메인 포함)
-        "google.com", "withgoogle.com", "youtube.com", "youtu.be", "gstatic.com", # 구글 라인
-        "naver.com", "navercorp.com", "pstatic.net",                           # 네이버 라인
-        "daum.net", "kakao.com", "kakaocorp.com",                               # 카카오/다음 라인
-        "apple.com", "icloud.com", "microsoft.com", "office.com", 
-        "github.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
-        
-        # 주요 게임사 및 공인 서비스
-        "nexon.com", "ncsoft.com", "netmarble.net", "smilegate.com"
-    ]
+    safe_tlds = list(TRUSTED_SUFFIXES) or ["go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
+    safe_official_domains = list(TRUSTED_REGISTERED_DOMAINS)
     legal_gambling_domains = [
        "dhlottery.co.kr", "www.dhlottery.co.kr", "m.dhlottery.co.kr",
         "betman.co.kr", "www.betman.co.kr", "m.betman.co.kr"
@@ -448,7 +495,8 @@ def predict_phishing_result(target_url):
         domain = urlparse(target_url).netloc.lower()
         
         # 1. 일반 공식 기관/은행 프리패스
-        if any(domain.endswith(tld) for tld in safe_tlds) or \
+        if is_trusted_official_url(target_url) or \
+           any(domain.endswith(tld) for tld in safe_tlds) or \
            any(domain == d or domain.endswith("." + d) for d in safe_official_domains):
             print(f"  🛡️ [공식 기관 화이트리스트 패스] {domain} -> 검사 생략 (0초 컷 정상 처리)")
             print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
