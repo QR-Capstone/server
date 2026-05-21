@@ -651,7 +651,10 @@ def fetch_page(url: str, timeout: float = DEFAULT_TIMEOUT, max_bytes: int = DEFA
             final_url = resp.geturl() or normalized
             status = int(getattr(resp, "status", 200) or 200)
             charset = resp.headers.get_content_charset() or "utf-8"
-            html = raw.decode(charset, errors="replace")
+            try:
+                html = raw.decode(charset, errors="replace")
+            except LookupError:
+                html = raw.decode("cp949" if "949" in charset.lower() else "utf-8", errors="replace")
             redirects = 1 if _registered_domain(urlsplit(normalized).hostname or "") != _registered_domain(urlsplit(final_url).hostname or "") else 0
             return _maybe_browser_enhance(
                 FetchedPage(normalized, final_url, status, html, None, redirects, "urlopen"),
