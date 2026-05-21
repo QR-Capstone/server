@@ -106,10 +106,7 @@ def xgboost_weighted_ensemble_verdict(
     """
     final_score = prob_typo * 0.50 + prob_domain * 0.35 + prob_dom * 0.15
 
-    if prob_typo >= 0.70 or prob_domain >= 0.80 or prob_dom >= 0.80:
-        return final_score, 1
-
-    if final_score >= 0.55:
+    if final_score >= 0.50:
         return final_score, 1
 
     return final_score, 0

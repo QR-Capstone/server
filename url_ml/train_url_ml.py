@@ -19,7 +19,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_OUT = os.path.join(BASE_DIR, "url_ml_model.joblib")
 
 
-def read_csvs(paths: Iterable[str], user_confirmed_weight: float) -> tuple[list[str], list[int], list[float]]:
+def read_csvs(
+    paths: Iterable[str],
+    user_confirmed_weight: float,
+    naver_benign_weight: float,
+) -> tuple[list[str], list[int], list[float]]:
     urls: list[str] = []
     labels: list[int] = []
     weights: list[float] = []
@@ -35,7 +39,12 @@ def read_csvs(paths: Iterable[str], user_confirmed_weight: float) -> tuple[list[
                 urls.append(url)
                 labels.append(int(label))
                 source = (row.get("source") or "").strip().lower()
-                weights.append(user_confirmed_weight if source.startswith("user_normal_") else 1.0)
+                if source.startswith("user_normal_"):
+                    weights.append(user_confirmed_weight)
+                elif source.startswith("naver_search:") and label == "0":
+                    weights.append(naver_benign_weight)
+                else:
+                    weights.append(1.0)
     return urls, labels, weights
 
 
@@ -51,9 +60,15 @@ def main() -> int:
         default=5.0,
         help="Training weight for manually confirmed normal samples.",
     )
+    parser.add_argument(
+        "--naver-benign-weight",
+        type=float,
+        default=3.0,
+        help="Training weight for live benign samples collected from Naver search.",
+    )
     args = parser.parse_args()
 
-    urls, labels, weights = read_csvs(args.input, args.user_confirmed_weight)
+    urls, labels, weights = read_csvs(args.input, args.user_confirmed_weight, args.naver_benign_weight)
     if len(set(labels)) < 2:
         raise SystemExit("need both benign and malicious labels")
     print(f"loaded={len(urls)} malicious={sum(labels)} benign={len(labels)-sum(labels)}")

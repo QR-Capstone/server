@@ -274,6 +274,8 @@ def strong_url_phishing_score(raw_url: str) -> float:
     labels = [part for part in host.split(".") if part]
     sld = labels[-2] if len(labels) >= 2 else labels[0] if labels else ""
     suffix = ".".join(labels[-2:]) if len(labels) >= 2 else host
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", host):
+        return 0.72
     free_hosting = (
         host.endswith(".pages.dev")
         or host.endswith(".vercel.app")
@@ -558,11 +560,16 @@ def strong_url_phishing_score(raw_url: str) -> float:
             return 0.72
     if raw.startswith("http://") and (
         any(term in combined for term in suspicious_path_terms)
+        or any(term in path.lower() for term in ("yahoo", "gmx", "webmail", "mailbox"))
         or host.endswith((".vip", ".top", ".cfd", ".cloud"))
-        or re.search(r"\d", host)
+        or (query and re.search(r"\d{3,}", host))
     ):
         return 0.72
-    if re.search(r"[a-z]{8,}\d{3,}|[a-z]+\d+[a-z]+\d+", host) and not is_trusted_official_url(raw_url):
+    if (
+        not sld.startswith("xn--")
+        and re.search(r"[a-z]{8,}\d{3,}|[a-z]+\d+[a-z]+\d+", host)
+        and not is_trusted_official_url(raw_url)
+    ):
         return 0.72
     if len(raw) > 180 and (
         any(term in combined for term in impersonation_terms + suspicious_path_terms)

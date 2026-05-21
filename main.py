@@ -621,6 +621,19 @@ def _decide_final_risk(details: list[dict[str, Any]]) -> str:
     ):
         return "SAFE"
 
+    if url_ml.get("available") and url_ml.get("riskLevel") == "DANGEROUS":
+        try:
+            url_ml_prob = float(url_ml.get("probability") or 0.0)
+        except Exception:
+            url_ml_prob = 0.0
+        supporting_danger = sum(
+            1
+            for name in ("KoBERT", "XGBoost", "GNN", "URLHeuristic")
+            if (by_model.get(name) or {}).get("riskLevel") == "DANGEROUS"
+        )
+        if url_ml_prob >= 0.70 or supporting_danger >= 1:
+            return "DANGEROUS"
+
     usable_probs = [
         float(detail["probability"])
         for detail in details
