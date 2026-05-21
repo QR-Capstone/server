@@ -501,6 +501,9 @@ def predict_phishing_result(target_url):
         # 기존 대출/투자 관련
         "통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "결제시스템 불안정화", "급등주", "무료 리딩", "VVIP 정보", "세력주", "손실 복구", "무료 체험", 
         
+        #리딩방
+        "전용 매니저", "담당 매니저", "마켓 시그널", "수익 인증", "투자리딩", "종목 추천", "정보방 입장", "VIP 체험", "무료 종목",
+        
         # 포털/보안 협박
         "재가입이 필요", "이용자 확인", "계정 정지", "비정상적인 접근", "차단 해제", "비밀번호 변경", "해외 IP 로그인", "계정 보호 조치", "비밀번호 오류", "안전보안설정", "계정 잠금", "장기 미접속",
         
@@ -718,12 +721,12 @@ def predict_phishing_result(target_url):
     if found_sensitive: demand_parts.append(f"'{', '.join(found_sensitive)}'")
     demand_str = " 및 ".join(demand_parts) if demand_parts else "특정 정보"
     
-    high_risk_str = f"'{', '.join(found_high_risk)}'" if found_high_risk else ""
+    high_risk_str = f"{', '.join(found_high_risk)}" if found_high_risk else ""
 
     # 🔥 [2단계] 키워드 기반 '범죄 유형(Threat Type)' 세부 분류 로직
     scam_type = "기관/기업 사칭 피싱"
     loan_kws = ["통신요금 담보", "신불자", "내구제", "폰테크", "무직자 대출", "통신연체자"]
-    invest_kws = ["비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "급등주", "VVIP 정보", "세력주", "무료 리딩"]
+    invest_kws = ["비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "급등주", "VVIP 정보", "세력주", "무료 리딩","전용 매니저", "담당 매니저", "마켓 시그널", "수익 인증", "투자리딩", "종목 추천", "정보방 입장", "VIP 체험", "무료 종목"]
     trans_kws = ["상륙 하 다", "상륙하 다", "서명 하 다", "지불 하 다", "제출 하 다", "얻 다", "이 긴 다", "청소 하 라", "계 좌", "비 밀 번 호", "제시 하 다", "갱 신 하 다"]
     gambling_kws = ["로또6/45", "동행복권", "연금복권", "파워볼", "프로토", "스포츠토토", "드림게임", "카지노"]
     adult_kws = ["성인용품", "출장안마", "조건만남", "비아그라", "밤알바", "19금", "리얼돌"] 
@@ -741,20 +744,37 @@ def predict_phishing_result(target_url):
 
     detected_gambling_kws = [kw for kw in gambling_kws if kw in processed_text]
     
+    # 기본값 설정
+    scam_tags = []
+
+    # 🌟 독립적인 if문으로 각각 검사해서 태그를 차곡차곡 모음!
     if detected_gambling_kws:
         legal_domains = ["dhlottery.co.kr", "betman.co.kr"]
         if not any(legal_domain in target_url for legal_domain in legal_domains):
-            scam_type = "불법 사설 도박 및 공식 복권 사칭"
+            scam_tags.append("사설도박") 
             is_fake_gambling = True
             found_high_risk = True 
             detected_gambling_str = ", ".join(detected_gambling_kws[:2]) 
             print(f"  🚨 [룰베이스 개입] 비인가 도메인({target_url})에서 사행성 키워드({detected_gambling_str}) 감지!")
-    elif any(kw in processed_text for kw in loan_kws):
-        scam_type = "불법 대출 및 금융 사기"
-    elif any(kw in processed_text for kw in invest_kws):
-        scam_type = "불법 투자 유도(리딩방) 사기"
-    elif is_translated:
-        scam_type = "해외 기계 번역(번역투) 피싱"
+            
+    if any(kw in processed_text for kw in loan_kws):
+        scam_tags.append("불법대출")
+        
+    if any(kw in processed_text for kw in invest_kws):
+        scam_tags.append("투자/리딩방")
+        
+    if is_translated:
+        scam_tags.append("해외양산형")
+
+    # 🌟 모인 태그들을 바탕으로 최종 scam_type 결정
+    if len(scam_tags) > 1:
+        # 2개 이상 걸리면 콤마로 이어붙임 (예: "불법대출, 투자/리딩방 복합 피싱")
+        scam_type = f"{', '.join(scam_tags)} 복합 피싱"
+    elif len(scam_tags) == 1:
+        # 1개만 걸리면 그대로 사용 (예: "불법대출 피싱")
+        scam_type = f"{scam_tags[0]} 피싱"
+    else:
+        scam_type = "일반 기관/기업 사칭 피싱" # 아무것도 안 걸렸을 때 기본값
 
     # 🔥 [3단계] 점수 보정 (문맥 및 도메인 인식형 스마트 가중치)
     boost_weight_1 = 0.0
@@ -833,15 +853,15 @@ def predict_phishing_result(target_url):
     else:
         # 기존의 소중한 특수 사유들을 템플릿의 '결론' 부분으로 부활시킵니다!
         if is_fake_gambling:
-            conclusion = f"사행성 키워드('{detected_gambling_str}')가 발견되었으나 국가 공인 도메인이 아닌 불법 사설 도박장/사칭 사이트로 판별되어"
+            conclusion = f"사행성 키워드({detected_gambling_str})가 발견되었으나 국가 공인 도메인이 아닌 불법 사설 도박장/사칭 사이트로 판별되어"
         elif is_translated:
             conclusion = f"부자연스러운 기계 번역투 및 띄어쓰기 오류 등 해외 양산형 피싱 사이트의 특징이 감지되어"
         elif found_high_risk:
-            conclusion = f"고위험 범죄 키워드({high_risk_str})가 포함된 악의적인 '{scam_type}'(으)로 판단되어"
+            conclusion = f"고위험 범죄 키워드({high_risk_str})가 포함된 악의적인 [{scam_type}](으)로 판단되어"
         elif demand_parts and base_prob_1 >= 60.0:
-            conclusion = f"불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되어"
+            conclusion = f"불안감을 조성하여 {demand_str}를 빼내려는 전형적인 [{scam_type}] 기법으로 판별되어"
         else:
-            conclusion = f"사용자를 속여 정보를 탈취하려는 악의적인 '{scam_type}'(으)로 판단되어"
+            conclusion = f"사용자를 속여 정보를 탈취하려는 악의적인 [{scam_type}](으)로 판단되어"
             
         ai_reason = f"{report_intro} 딥러닝-룰베이스 교차 검증 결과, {conclusion} 최종 {prob_phishing:.1f}%의 확률로 접속을 차단하였습니다."
 
