@@ -167,6 +167,8 @@ def is_trusted_official_url(raw_url: str) -> bool:
     # phishing carriers and must be inspected by the models.
     if host in {"sites.google.com", "docs.google.com", "forms.gle"}:
         return False
+    if host == "forms.office.com" and path.startswith("/pages/responsepage"):
+        return False
     if host.endswith(".google.com") and path.startswith(("/url", "/share.google")):
         return False
     if host in {"docs.zoom.us"}:
