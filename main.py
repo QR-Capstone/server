@@ -631,7 +631,7 @@ def _decide_final_risk(details: list[dict[str, Any]]) -> str:
             for name in ("KoBERT", "XGBoost", "GNN", "URLHeuristic")
             if (by_model.get(name) or {}).get("riskLevel") == "DANGEROUS"
         )
-        if url_ml_prob >= 0.70 or supporting_danger >= 1:
+        if url_ml_prob >= 0.60 or supporting_danger >= 1:
             return "DANGEROUS"
 
     usable_probs = [

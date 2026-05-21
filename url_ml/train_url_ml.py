@@ -39,7 +39,7 @@ def read_csvs(
                 urls.append(url)
                 labels.append(int(label))
                 source = (row.get("source") or "").strip().lower()
-                if source.startswith("user_normal_"):
+                if source.startswith("user_normal_") or source.startswith("manual_eval_"):
                     weights.append(user_confirmed_weight)
                 elif source.startswith("naver_search:") and label == "0":
                     weights.append(naver_benign_weight)
