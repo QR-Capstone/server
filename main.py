@@ -537,8 +537,8 @@ def _decide_final_risk(details: list[dict[str, Any]]) -> str:
     ]
     if usable_probs:
         avg_prob = sum(usable_probs) / len(usable_probs)
-        danger_threshold = float(os.getenv("FINAL_DANGER_THRESHOLD", "0.70"))
-        unknown_threshold = float(os.getenv("FINAL_UNKNOWN_THRESHOLD", "0.45"))
+        danger_threshold = float(os.getenv("FINAL_DANGER_THRESHOLD", "0.40"))
+        unknown_threshold = float(os.getenv("FINAL_UNKNOWN_THRESHOLD", "0.30"))
         if avg_prob >= danger_threshold:
             return "DANGEROUS"
         if avg_prob >= unknown_threshold:

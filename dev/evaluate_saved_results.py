@@ -85,9 +85,11 @@ def final_score_verdict(url: str, row: dict[str, Any]) -> tuple[str, float | Non
     if not scores:
         return "unknown", None
     avg = sum(scores) / len(scores)
-    if avg >= 70.0:
+    danger_threshold = float(os.getenv("FINAL_DANGER_THRESHOLD", "0.40")) * 100.0
+    unknown_threshold = float(os.getenv("FINAL_UNKNOWN_THRESHOLD", "0.30")) * 100.0
+    if avg >= danger_threshold:
         return "malicious", avg
-    if avg >= 45.0:
+    if avg >= unknown_threshold:
         return "unknown", avg
     return "benign", avg
 
