@@ -20,12 +20,14 @@ from typing import Any
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 XG_DIR = os.path.join(BASE, "xgboost")
 GNN_DIR = os.path.join(BASE, "gnn")
-for path in (BASE, XG_DIR, GNN_DIR):
+URL_ML_DIR = os.path.join(BASE, "url_ml")
+for path in (BASE, XG_DIR, GNN_DIR, URL_ML_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from trusted_domains import is_trusted_official_url, strong_url_phishing_score
+from trusted_domains import is_trusted_official_url, strong_url_phishing_score, url_heuristic_phishing_score
 from XG_core import load_bundle, predict_url, predict_url_dom, xgboost_weighted_ensemble_verdict
+from url_ml_engine import load_url_ml_model, predict_url_ml
 
 
 def read_rows(path: str, limit: int | None = None) -> list[tuple[str, int]]:
@@ -115,6 +117,29 @@ def evaluate_xgboost(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]]
     return pairs, misses
 
 
+def evaluate_url_rules(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]], list[tuple[str, int, str, float, str | None]]]:
+    pairs: list[tuple[int, str]] = []
+    misses: list[tuple[str, int, str, float, str | None]] = []
+    for url, label in rows:
+        pred, score, rule = apply_url_rule(url, "benign", 0.0)
+        pairs.append((label, pred))
+        if (label == 1 and pred != "malicious") or (label == 0 and pred != "benign"):
+            misses.append((url, label, pred, score, rule))
+    return pairs, misses
+
+
+def evaluate_url_heuristic(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]], list[tuple[str, int, str, float, str | None]]]:
+    pairs: list[tuple[int, str]] = []
+    misses: list[tuple[str, int, str, float, str | None]] = []
+    for url, label in rows:
+        score = float(url_heuristic_phishing_score(url))
+        pred = "malicious" if score >= 0.40 else "benign"
+        pairs.append((label, pred))
+        if (label == 1 and pred != "malicious") or (label == 0 and pred != "benign"):
+            misses.append((url, label, pred, score, "heuristic"))
+    return pairs, misses
+
+
 def evaluate_gnn(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]], list[tuple[str, int, str, float, str | None]]]:
     from gnn_engine import GNN_Engine, predict_gnn
 
@@ -137,16 +162,45 @@ def evaluate_gnn(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]], li
     return pairs, misses
 
 
+def evaluate_url_ml(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]], list[tuple[str, int, str, float, str | None]]]:
+    model, status = load_url_ml_model()
+    if model is None:
+        raise RuntimeError(status.reason)
+    pairs: list[tuple[int, str]] = []
+    misses: list[tuple[str, int, str, float, str | None]] = []
+    for url, label in rows:
+        out = predict_url_ml(model, url)
+        pred = out.get("verdict", "unknown")
+        score = float(out.get("probability") or 0.0)
+        if pred == "unknown":
+            pred = "malicious" if score >= 0.40 else "benign"
+        pairs.append((label, pred))
+        if (label == 1 and pred != "malicious") or (label == 0 and pred != "benign"):
+            misses.append((url, label, pred, score, "url_ml"))
+    return pairs, misses
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--with-gnn", action="store_true")
+    parser.add_argument("--rules-only", action="store_true")
     args = parser.parse_args()
 
     rows = read_rows(args.input, limit=args.limit or None)
     label_counts = Counter(label for _, label in rows)
     print(f"input={args.input} rows={len(rows)} malicious={label_counts[1]} benign={label_counts[0]}")
+
+    rule_pairs, rule_misses = evaluate_url_rules(rows)
+    print_metrics("URL-rules-only", rule_pairs, rule_misses)
+    heuristic_pairs, heuristic_misses = evaluate_url_heuristic(rows)
+    print_metrics("URLHeuristic@0.40", heuristic_pairs, heuristic_misses)
+    url_ml_pairs, url_ml_misses = evaluate_url_ml(rows)
+    print_metrics("URLML", url_ml_pairs, url_ml_misses)
+
+    if args.rules_only:
+        return 0
 
     xg_pairs, xg_misses = evaluate_xgboost(rows)
     print_metrics("XGBoost+rules", xg_pairs, xg_misses)

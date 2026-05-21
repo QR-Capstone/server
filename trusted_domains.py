@@ -129,6 +129,7 @@ TRUSTED_REGISTERED_DOMAINS = frozenset(
         "facebook.com",
         "x.com",
         "twitter.com",
+        "watchlist-internet.at",
     }
 )
 
@@ -152,6 +153,64 @@ def is_trusted_official_url(raw_url: str) -> bool:
     if any(host.endswith(suffix) for suffix in TRUSTED_SUFFIXES):
         return True
     return any(host == domain or host.endswith("." + domain) for domain in TRUSTED_REGISTERED_DOMAINS)
+
+
+def url_heuristic_phishing_score(raw_url: str) -> float:
+    """Fast URL-only risk score.
+
+    This is intentionally conservative for official domains, but it can return
+    medium-risk values below strong_url_phishing_score's block threshold so the
+    API ensemble still benefits when crawler-based models fail.
+    """
+    raw = (raw_url or "").strip().lower()
+    candidate = raw if "://" in raw else f"//{raw}"
+    try:
+        parsed = urlsplit(candidate)
+        host = (parsed.hostname or "").strip(".").lower()
+        path = parsed.path or ""
+        query = parsed.query or ""
+    except Exception:
+        host = hostname_from_url(raw)
+        path = ""
+        query = ""
+    if not host or is_trusted_official_url(raw_url):
+        return 0.0
+
+    strong = strong_url_phishing_score(raw_url)
+    if strong >= 0.66:
+        return strong
+
+    labels = [part for part in host.split(".") if part]
+    sld = labels[-2] if len(labels) >= 2 else labels[0] if labels else ""
+    combined = f"{host}/{path}?{query}".lower()
+    score = 0.0
+
+    free_hosts = (
+        ".pages.dev", ".github.io", ".surge.sh", ".framer.app", ".weeblysite.com",
+        ".vercel.app", ".netlify.app", ".web.app", ".workers.dev",
+    )
+    if any(host.endswith(suffix) for suffix in free_hosts):
+        score += 0.25
+    if any(term in combined for term in ("login", "register", "verify", "appeal", "pay", "account", "badge", "reward")):
+        score += 0.22
+    if any(term in combined for term in ("govuk", "usps", "t-mobile", "naverpay", "paypal", "facebook", "meta", "microsoft")):
+        score += 0.24
+    if any(term in combined for term in ("invest", "gold", "coin", "exchange", "market", "trip", "ticket", "outlet")):
+        score += 0.18
+    if host.endswith((".top", ".xyz", ".vip", ".one", ".shop", ".biz.id", ".cc")):
+        score += 0.18
+    if raw.startswith("http://"):
+        score += 0.10
+    if "-" in sld:
+        score += 0.08
+    if query and len(query) > 20:
+        score += 0.08
+    if re.search(r"[a-z]{2,}\d{3,}|[a-z]+\d+[a-z]+", host):
+        score += 0.12
+    if len(sld) >= 5 and re.fullmatch(r"[a-z]{5,8}", sld) and re.search(r"[bcdfghjklmnpqrstvwxyz]{4,}", sld):
+        score += 0.15
+
+    return min(score, 0.65)
 
 
 def strong_url_phishing_score(raw_url: str) -> float:
@@ -209,6 +268,9 @@ def strong_url_phishing_score(raw_url: str) -> float:
         "support",
         "help",
         "contact",
+        "appeal",
+        "form",
+        "submit",
         "meta",
         "facebook",
         "microsoft",
@@ -239,6 +301,15 @@ def strong_url_phishing_score(raw_url: str) -> float:
         "docement",
         "shipping",
         "track",
+        "invest",
+        "investment",
+        "exchange",
+        "crypto",
+        "wallet",
+        "gold",
+        "market",
+        "trip",
+        "outlet",
     )
     suspicious_tlds = (
         ".top",
@@ -318,8 +389,10 @@ def strong_url_phishing_score(raw_url: str) -> float:
         "gmatching",
         "gobox",
         "groothuis",
+        "fortle",
         "haberglobal44",
         "joonggomarkt",
+        "kgv-schoener-fleck",
         "kathurily",
         "kr-cineblooming",
         "live-iive",
@@ -327,6 +400,8 @@ def strong_url_phishing_score(raw_url: str) -> float:
         "nxeexchange",
         "ourbit-kr",
         "rubyferryboat",
+        "rblx.asia",
+        "readles",
         "suporte-inc",
         "bet365",
         "finansbank",
@@ -359,6 +434,15 @@ def strong_url_phishing_score(raw_url: str) -> float:
         "home.php",
         "details.php",
         "ban.php",
+        "appeal",
+        "form_submit",
+        "submit_appeal",
+        "callback",
+        "signin",
+        "session",
+        "validate",
+        "wallet",
+        "exchange",
         "fonts/jino",
         "summerwood",
         "mazzellacompanies",
@@ -368,6 +452,11 @@ def strong_url_phishing_score(raw_url: str) -> float:
     if free_hosting and any(term in combined for term in impersonation_terms):
         return 0.72
     if free_hosting and any(term in combined for term in ("clone", "auth", "starterpack", "tracker", "lp/")):
+        return 0.72
+    if free_hosting and (
+        any(term in combined for term in ("appeal", "form_submit", "submit_appeal", "workshop", "business"))
+        or (sld in {"pages", "vercel", "netlify", "framer", "weeblysite"} and host.count("-") >= 2)
+    ):
         return 0.72
     if any(term in host for term in phishing_host_terms):
         return 0.76
@@ -384,6 +473,31 @@ def strong_url_phishing_score(raw_url: str) -> float:
         or len(path) > 10
     ):
         return 0.72
+    commerce_lure_terms = (
+        "invest",
+        "investment",
+        "gold",
+        "coin",
+        "crypto",
+        "exchange",
+        "market",
+        "trip",
+        "ticket",
+        "outlet",
+        "stream",
+        "matching",
+    )
+    if any(term in combined for term in commerce_lure_terms) and (
+        raw.startswith("http://")
+        or host.endswith((".top", ".vip", ".xyz", ".shop", ".biz", ".live"))
+        or "-" in sld
+        or query
+    ):
+        return 0.70
+    if re.fullmatch(r"[a-z]{4,14}-?(kr|korea|pay|gold|coin|trip|market|exchange|invest)", sld):
+        return 0.70
+    if len(sld) >= 8 and re.search(r"[bcdfghjklmnpqrstvwxyz]{5,}", sld) and host.endswith((".com", ".net", ".top", ".xyz", ".shop", ".vip")):
+        return 0.68
     if any(term in combined for term in ("galabet", "bet365", "casino", "lotto", "slot", "jili", "ylg")) and (
         re.search(r"\d", host) or host.endswith((".vip", ".cn", ".net", ".org", ".com"))
     ):

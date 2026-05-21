@@ -14,7 +14,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
-from trusted_domains import is_trusted_official_url, strong_url_phishing_score
+from trusted_domains import is_trusted_official_url, strong_url_phishing_score, url_heuristic_phishing_score
 
 
 MODELS = (
@@ -82,6 +82,11 @@ def final_score_verdict(url: str, row: dict[str, Any]) -> tuple[str, float | Non
         score = adjusted_score(url, row.get(score_key), pred)
         if score is not None and pred not in (None, "error", "unavail", "unknown"):
             scores.append(score)
+    heuristic = float(url_heuristic_phishing_score(url)) * 100.0
+    if is_trusted_official_url(url):
+        scores.append(0.0)
+    elif heuristic >= 35.0:
+        scores.append(heuristic)
     if not scores:
         return "unknown", None
     avg = sum(scores) / len(scores)

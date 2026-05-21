@@ -14,6 +14,7 @@ MODEL_DIRS = {
     "gnn": os.path.join(BASE_DIR, "gnn"),
     "xgboost": os.path.join(BASE_DIR, "xgboost"),
     "KoBERT": os.path.join(BASE_DIR, "KoBERT"),
+    "url_ml": os.path.join(BASE_DIR, "url_ml"),
 }
 for _model_dir in MODEL_DIRS.values():
     if _model_dir not in sys.path:
@@ -35,14 +36,22 @@ from XG_core import (
     xgboost_weighted_ensemble_verdict,
 )
 from gnn_engine import GNN_Engine, predict_gnn
+from url_ml_engine import load_url_ml_model, predict_url_ml
 
 try:
-    from trusted_domains import is_trusted_official_url, strong_url_phishing_score
+    from trusted_domains import (
+        is_trusted_official_url,
+        strong_url_phishing_score,
+        url_heuristic_phishing_score,
+    )
 except Exception:  # pragma: no cover
     def is_trusted_official_url(raw_url: str) -> bool:
         return False
 
     def strong_url_phishing_score(raw_url: str) -> float:
+        return 0.0
+
+    def url_heuristic_phishing_score(raw_url: str) -> float:
         return 0.0
 
 app = FastAPI(title="Phishing Detection API")
@@ -91,6 +100,13 @@ async def _run_gnn(fn, *args, **kwargs):
     if kwargs:
         return await loop.run_in_executor(_gnn_executor, functools.partial(fn, *args, **kwargs))
     return await loop.run_in_executor(_gnn_executor, functools.partial(fn, *args))
+
+
+async def _run_url_ml(fn, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    if kwargs:
+        return await loop.run_in_executor(_xgboost_executor, functools.partial(fn, *args, **kwargs))
+    return await loop.run_in_executor(_xgboost_executor, functools.partial(fn, *args))
 
 
 def _normalize_url_for_xgboost(url: str) -> str:
@@ -188,6 +204,13 @@ def _run_gnn_inference(raw_url: str):
         return {"error": str(e), "verdict": "unknown", "enabled": True}
 
 
+def _run_url_ml_inference(raw_url: str):
+    model = getattr(app.state, "url_ml_model", None)
+    if model is None:
+        return None
+    return predict_url_ml(model, raw_url)
+
+
 def _log_line_kobert(result: dict) -> str:
     j = result.get("judgment", "?")
     rl = result.get("riskLevel", result.get("risklevel", "?"))
@@ -213,6 +236,16 @@ def _log_line_gnn(gnn: object) -> str:
     if isinstance(gnn, dict) and gnn.get("error"):
         return f"GNN(web graph): error {gnn.get('error', '')[:80]}"
     return f"GNN(web graph): verdict={gnn.get('verdict')} p={gnn.get('probability')}"
+
+
+def _log_line_url_ml(url_ml: object) -> str:
+    if url_ml is None:
+        st = getattr(app.state, "url_ml_status", {}) or {}
+        reason = st.get("reason") or "no_model_loaded"
+        return f"URLML: skipped — {reason}"
+    if isinstance(url_ml, dict) and url_ml.get("error"):
+        return f"URLML: error {url_ml.get('error', '')[:80]}"
+    return f"URLML: verdict={url_ml.get('verdict')} p={url_ml.get('probability')}"
 
 
 def _risk_from_model_text(value: Any) -> str:
@@ -296,6 +329,11 @@ def _url_rule_adjustment(url: str) -> dict[str, Any] | None:
 def _model_probability(model: str, result: Any, risk_level: str | None = None) -> float | None:
     if not isinstance(result, dict):
         return None
+    if result.get("probability") is not None and model in {"URLML", "URLHeuristic"}:
+        try:
+            return max(0.0, min(1.0, float(result.get("probability"))))
+        except (TypeError, ValueError):
+            return None
     if model == "XGBoost":
         for key in ("final_probability", "probability", "typo_probability", "domain_probability", "dom_probability"):
             if result.get(key) is not None:
@@ -364,6 +402,36 @@ def _apply_url_rule_adjustment(model: str, url: str, result: Any) -> Any:
             },
         )
     return out
+
+
+def _url_heuristic_result(url: str) -> dict[str, Any]:
+    score = float(url_heuristic_phishing_score(url))
+    ensemble_probability: float | None = score
+    if is_trusted_official_url(url):
+        risk_level = "SAFE"
+        reason = "공식/신뢰 도메인 URL 휴리스틱 통과"
+        ensemble_probability = 0.0
+    elif score >= 0.66:
+        risk_level = "DANGEROUS"
+        reason = "강한 URL 휴리스틱 악성 패턴"
+    elif score >= 0.35:
+        risk_level = "UNKNOWN"
+        reason = "중간 강도 URL 휴리스틱 의심 패턴"
+    else:
+        risk_level = "SAFE"
+        reason = "URL 휴리스틱 특이사항 낮음"
+        ensemble_probability = None
+    return {
+        "model": "URLHeuristic",
+        "available": True,
+        "riskLevel": risk_level,
+        "judgment": _judgment_from_risk(risk_level),
+        "verdict": _verdict_from_risk(risk_level),
+        "summary": f"URLHeuristic: {_korean_risk_text(risk_level)}",
+        "probability": round(ensemble_probability, 6) if ensemble_probability is not None else None,
+        "raw_probability": round(score, 6),
+        "evidence_reasons": [reason],
+    }
 
 
 def _model_detail(
@@ -451,6 +519,16 @@ def _model_detail(
                 "probability": probability,
             },
         )
+    elif model == "URLML":
+        evidence_reasons = []
+        if result.get("adjustment_reason"):
+            evidence_reasons.append(str(result.get("adjustment_reason")))
+        elif result.get("ml_probability") is not None:
+            evidence_reasons.append(
+                f"URL 문자열 ML 확률 {float(result.get('ml_probability')):.3f}, "
+                f"휴리스틱 확률 {float(result.get('heuristic_probability', 0.0)):.3f}"
+            )
+        detail.update({"evidence_reasons": evidence_reasons})
 
     return {k: v for k, v in detail.items() if v not in (None, "", [])}
 
@@ -574,14 +652,19 @@ def _build_final_response(
     t_kobert: float,
     t_xg: float,
     t_gnn: float,
+    url_ml_result: object = None,
+    t_url_ml: float = 0.0,
 ) -> dict:
     kobert_result = _apply_url_rule_adjustment("KoBERT", target_url, kobert_result)
     xg_result = _apply_url_rule_adjustment("XGBoost", target_url, xg_result)
     gnn_result = _apply_url_rule_adjustment("GNN", target_url, gnn_result)
+    url_ml_result = _apply_url_rule_adjustment("URLML", target_url, url_ml_result)
     details = [
         _model_detail("KoBERT", kobert_result, getattr(app.state, "eng_status", {})),
         _model_detail("XGBoost", xg_result, getattr(app.state, "xg_status", {})),
         _model_detail("GNN", gnn_result, getattr(app.state, "gnn_status", {})),
+        _model_detail("URLML", url_ml_result, getattr(app.state, "url_ml_status", {})),
+        _url_heuristic_result(target_url),
     ]
     risk_level = _decide_final_risk(details)
     judgment = _judgment_from_risk(risk_level)
@@ -604,14 +687,17 @@ def _build_final_response(
         "koBERT": kobert_result,
         "xgboost": xg_result,
         "gnn": gnn_result,
+        "url_ml": url_ml_result,
         "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
         "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
         "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),
+        "url_ml_status": getattr(app.state, "url_ml_status", {"enabled": False}),
         "duration_sec": round(dur_wall, 3),
         "timing": {
             "koBERT_sec": round(t_kobert, 6),
             "xgboost_sec": round(t_xg, 6),
             "gnn_sec": round(t_gnn, 6),
+            "url_ml_sec": round(t_url_ml, 6),
             "total_wall_sec": round(dur_wall, 6),
         },
     }
@@ -645,6 +731,20 @@ async def startup_event():
     app.state.gnn_columns = None
     app.state.gnn_status = {"enabled": False, "reason": "not_loaded"}
     app.state.gnn_engine = None
+    app.state.url_ml_model = None
+    app.state.url_ml_status = {"enabled": False, "reason": "not_loaded"}
+
+    try:
+        url_ml_model, url_ml_status = load_url_ml_model()
+        app.state.url_ml_model = url_ml_model
+        app.state.url_ml_status = url_ml_status.__dict__
+        if url_ml_model is not None:
+            sm = predict_url_ml(url_ml_model, "https://example.com")
+            print(f"  [URLML] smoke OK — verdict={sm.get('verdict')} p={sm.get('probability')}")
+        else:
+            print(f"  [URLML] skipped — {url_ml_status.reason}")
+    except Exception as e:
+        app.state.url_ml_status = {"enabled": False, "reason": str(e)}
 
     # Optional: web-structure GNN (gnn_engine: gnn_model.pkl + gnn_model_features.pkl)
     try:
@@ -800,6 +900,7 @@ async def ready():
         "engine": eng_status,
         "xgboost": getattr(app.state, "xg_status", {"enabled": False}),
         "gnn": getattr(app.state, "gnn_status", {"enabled": False}),
+        "url_ml": getattr(app.state, "url_ml_status", {"enabled": False}),
         "issues": issues,
     }
 
@@ -863,10 +964,21 @@ async def analyze_url(request: URLRequest):
             r = await _run_gnn(_run_gnn_inference, target_url)
             return r, time.perf_counter() - t0
 
-        (kobert_result, t_kobert), (xg_result, t_xg), (gnn_result, t_gnn) = await asyncio.gather(
+        async def _url_ml_timed():
+            t0 = time.perf_counter()
+            r = await _run_url_ml(_run_url_ml_inference, target_url)
+            return r, time.perf_counter() - t0
+
+        (
+            (kobert_result, t_kobert),
+            (xg_result, t_xg),
+            (gnn_result, t_gnn),
+            (url_ml_result, t_url_ml),
+        ) = await asyncio.gather(
             _kobert_timed(),
             _xg_timed(),
             _gnn_timed(),
+            _url_ml_timed(),
         )
     except Exception as e:
         print(f"[error] {e}")
@@ -878,6 +990,7 @@ async def analyze_url(request: URLRequest):
         f"    {_log_line_kobert(kobert_result)}  ({t_kobert:.3f}s)\n"
         f"    {_log_line_xgboost(xg_result)}  ({t_xg:.3f}s)\n"
         f"    {_log_line_gnn(gnn_result)}  ({t_gnn:.3f}s)\n"
+        f"    {_log_line_url_ml(url_ml_result)}  ({t_url_ml:.3f}s)\n"
         f"    wall time (parallel): {dur_wall:.3f}s"
     )
     return _build_final_response(
@@ -889,6 +1002,8 @@ async def analyze_url(request: URLRequest):
         t_kobert=t_kobert,
         t_xg=t_xg,
         t_gnn=t_gnn,
+        url_ml_result=url_ml_result,
+        t_url_ml=t_url_ml,
     )
 
 
@@ -941,6 +1056,20 @@ async def analyze_gnn_only(request: URLRequest):
     return {
         "gnn": gnn_result,
         "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),
+    }
+
+
+@app.post("/analyze/url-ml")
+async def analyze_url_ml_only(request: URLRequest):
+    """Fast URL lexical ML only."""
+    target_url = (request.url or "").strip()
+    if not target_url:
+        raise HTTPException(status_code=400, detail="URL is empty.")
+    url_ml_result = await _run_url_ml(_run_url_ml_inference, target_url)
+    url_ml_result = _apply_url_rule_adjustment("URLML", target_url, url_ml_result)
+    return {
+        "url_ml": url_ml_result,
+        "url_ml_status": getattr(app.state, "url_ml_status", {"enabled": False}),
     }
 
 
