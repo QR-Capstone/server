@@ -130,6 +130,9 @@ TRUSTED_REGISTERED_DOMAINS = frozenset(
         "x.com",
         "twitter.com",
         "watchlist-internet.at",
+        "allegro.pl",
+        "bet365.com",
+        "stackexchange.com",
     }
 )
 
@@ -149,6 +152,24 @@ def hostname_from_url(raw_url: str) -> str:
 def is_trusted_official_url(raw_url: str) -> bool:
     host = hostname_from_url(raw_url)
     if not host:
+        return False
+    candidate = (raw_url or "").strip()
+    candidate = candidate if "://" in candidate else f"//{candidate}"
+    try:
+        parsed = urlsplit(candidate)
+        path = (parsed.path or "").lower()
+        query = (parsed.query or "").lower()
+    except Exception:
+        path = ""
+        query = ""
+
+    # User-generated/redirect surfaces on otherwise trusted platforms are common
+    # phishing carriers and must be inspected by the models.
+    if host in {"sites.google.com", "docs.google.com", "forms.gle"}:
+        return False
+    if host.endswith(".google.com") and path.startswith(("/url", "/share.google")):
+        return False
+    if host in {"docs.zoom.us"}:
         return False
     if any(host.endswith(suffix) for suffix in TRUSTED_SUFFIXES):
         return True
@@ -233,6 +254,21 @@ def strong_url_phishing_score(raw_url: str) -> float:
         query = parsed.query or ""
     except Exception:
         query = ""
+
+    if host.endswith(".google.com") and path.startswith(("/url", "/share.google")) and (
+        "http" in query or "q=" in query
+    ):
+        return 0.72
+    if host == "docs.google.com" and any(
+        path.startswith(prefix)
+        for prefix in ("/document/d/", "/presentation/d/", "/forms/d/", "/drawings/d/")
+    ):
+        return 0.72
+    if host == "sites.google.com" and (
+        any(term in combined for term in ("login", "l0gin", "account", "konto", "update", "yahoo", "gmx", "microsoft"))
+        or re.search(r"/view/[a-z0-9_-]{10,}", path)
+    ):
+        return 0.72
     labels = [part for part in host.split(".") if part]
     sld = labels[-2] if len(labels) >= 2 else labels[0] if labels else ""
     suffix = ".".join(labels[-2:]) if len(labels) >= 2 else host
@@ -494,10 +530,11 @@ def strong_url_phishing_score(raw_url: str) -> float:
         or query
     ):
         return 0.70
-    if re.fullmatch(r"[a-z]{4,14}-?(kr|korea|pay|gold|coin|trip|market|exchange|invest)", sld):
+    if (
+        re.fullmatch(r"[a-z]{4,14}-?(kr|korea|pay|gold|coin|trip|market|exchange|invest)", sld)
+        and (raw.startswith("http://") or "-" in sld or host.endswith((".top", ".vip", ".xyz", ".shop", ".biz")))
+    ):
         return 0.70
-    if len(sld) >= 8 and re.search(r"[bcdfghjklmnpqrstvwxyz]{5,}", sld) and host.endswith((".com", ".net", ".top", ".xyz", ".shop", ".vip")):
-        return 0.68
     if any(term in combined for term in ("galabet", "bet365", "casino", "lotto", "slot", "jili", "ylg")) and (
         re.search(r"\d", host) or host.endswith((".vip", ".cn", ".net", ".org", ".com"))
     ):
