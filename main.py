@@ -608,6 +608,19 @@ def _decide_final_risk(details: list[dict[str, Any]]) -> str:
     if strong_url_override:
         return "DANGEROUS"
 
+    by_model = {str(detail.get("model")): detail for detail in details}
+    url_ml = by_model.get("URLML") or {}
+    url_heuristic = by_model.get("URLHeuristic") or {}
+    kobert = by_model.get("KoBERT") or {}
+    if (
+        url_ml.get("available")
+        and url_ml.get("riskLevel") == "SAFE"
+        and url_heuristic.get("available")
+        and url_heuristic.get("riskLevel") == "SAFE"
+        and kobert.get("riskLevel") != "DANGEROUS"
+    ):
+        return "SAFE"
+
     usable_probs = [
         float(detail["probability"])
         for detail in details

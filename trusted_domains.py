@@ -541,7 +541,15 @@ def strong_url_phishing_score(raw_url: str) -> float:
         re.search(r"\d", host) or host.endswith((".vip", ".cn", ".net", ".org", ".com"))
     ):
         return 0.72
-    if re.fullmatch(r"[a-z]*\d+[a-z0-9-]*", sld) and len(sld) <= 8 and (len(path) > 1 or query):
+    if (
+        re.fullmatch(r"[a-z]*\d+[a-z0-9-]*", sld)
+        and len(sld) <= 8
+        and (
+            any(term in combined for term in impersonation_terms + suspicious_path_terms)
+            or host.endswith((".top", ".vip", ".xyz", ".shop", ".cn"))
+            or (query and re.fullmatch(r"\d{3,}[a-z]?", sld))
+        )
+    ):
         return 0.72
     if host.endswith(".github.io") and any(term in combined for term in impersonation_terms + suspicious_path_terms):
         return 0.74
@@ -556,7 +564,10 @@ def strong_url_phishing_score(raw_url: str) -> float:
         return 0.72
     if re.search(r"[a-z]{8,}\d{3,}|[a-z]+\d+[a-z]+\d+", host) and not is_trusted_official_url(raw_url):
         return 0.72
-    if len(raw) > 180 and ("%" in raw or "=" in raw or re.search(r"[A-Za-z0-9+/=]{24,}", raw)):
+    if len(raw) > 180 and (
+        any(term in combined for term in impersonation_terms + suspicious_path_terms)
+        or any(key in query for key in ("email=", "password=", "token=", "session=", "wallet=", "account="))
+    ):
         return 0.72
     if query and ("email=" in query or "eta=" in query or "cms=" in query or "ref=" in query) and len(query) > 20:
         return 0.72
