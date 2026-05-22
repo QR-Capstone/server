@@ -507,13 +507,28 @@ def predict_phishing_result(target_url):
         # 포털/보안 협박
         "재가입이 필요", "이용자 확인", "계정 정지", "비정상적인 접근", "차단 해제", "비밀번호 변경", "해외 IP 로그인", "계정 보호 조치", "비밀번호 오류", "안전보안설정", "계정 잠금", "장기 미접속",
         
+        # 결제 페이지 피싱
+        "수수료 포함 다시 입금", "입금 지연으로 인한", "결제해 주셔야 합니다", "재결제 요망", "다시 입금", "재입금", "재결제", 
+
         # 결제/공공/택배 위장
         "결제 승인", "자동이체 예정", "대출 승인", "신용카드 발급", "지원금 대상자", "소상공인 지원", "환불 처리", "미납 요금", "통장 압류", "과태료 부과", "건강보험료 미납", "도로교통법 위반", "택배 반송", "배송지 오류", "배송지 주소 오류", "통관 번호", "민원 접수 완료",
         
         # 가상화폐 위장
         "코인 상장", "무료 코인 지급", "에어드랍", "사전 판매", "지갑 연동"
     ]
-    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호"]
+    action_keywords = [
+        # 1. 기존 핵심 계정/로그인
+        "비밀번호", "계좌", "로그인", "login", "log in", "signin", "sign in", "주민번호", "주민등록번호", "password", "username", "id", "account",
+        
+        # 2. 💳 결제/카드 (작성자님 아이디어 + 확장)
+        "카드번호", "card number", "credit card", "cvc", "cvv", "보안카드", "유효기간", "pin번호",
+        
+        # 3. 🔐 인증/보안 (2FA 탈취)
+        "인증번호", "otp", "인증코드", "확인코드", "verification", "verify", "passcode",
+        
+        # 4. 🖱️ 치명적 행동 유도
+        "제출", "submit", "confirm", "결제하기", "인증하기"
+    ]
 
     # ----------------------------------------------------
     # 🌟 [1단계] 루트 URL 검사
@@ -810,6 +825,37 @@ def predict_phishing_result(target_url):
         boost_weight_1 += 0.60 # 가중치 60% 폭탄!
         scam_type = "클라우드 호스팅 악용 피싱"
         print(f"  🚨 [룰베이스 개입] 무료 클라우드 도메인({current_domain})에서 로그인/정보 요구 감지!")
+
+    # =========================================================
+    # 🌟 [신규 강력 무기] 대형 플랫폼/결제 사칭(Brand Spoofing) 완벽 차단!
+    # =========================================================
+    # 1. 도메인에 'naver', 'kakao' 등을 섞어 쓴 교묘한 사칭 감지 (예: naver.cafe-152.vip)
+    spoof_target_domains = {
+        "naver": ["naver.com", "navercorp.com", "pstatic.net", "line.me"],
+        "kakao": ["kakao.com", "kakaocorp.com", "daum.net"],
+        "yahoo": ["yahoo.com"],
+        "coupang": ["coupang.com"]
+    }
+
+    is_domain_spoofed = False
+    spoofed_brand = "대형 플랫폼"
+
+    for brand, officials in spoof_target_domains.items():
+        if brand in current_domain and not any(current_domain.endswith(off) for off in officials):
+            is_domain_spoofed = True
+            spoofed_brand = brand.upper()
+            break
+
+    # 2. 텍스트 내 사칭 키워드 감지 (뉴스 기사 오탐을 막기 위해 구체적인 법인명/서비스명 사용)
+    brand_keywords = ["(주)네이버페이", "네이버㈜", "네이버파이낸셜", "카카오페이", "쿠팡(주)"]
+    has_brand_text = any(kw in processed_text.replace(" ", "") for kw in brand_keywords)
+
+    # 3. 도메인을 사칭했거나, 텍스트로 네이버페이 등을 사칭하면서 정보/행동을 요구할 경우!
+    if (is_domain_spoofed or has_brand_text) and (found_actions or found_sensitive):
+        boost_weight_1 += 0.80  # 80% 가중치 핵폭탄 투하!
+        scam_type = f"{spoofed_brand} 사칭 피싱"
+        print(f"  🚨 [룰베이스 개입] {spoofed_brand} 사칭 의심! 비인가 도메인({current_domain})에서 브랜드 사칭 및 정보 요구 감지!")
+    # =========================================================
 
         
     safe_tlds_list = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
