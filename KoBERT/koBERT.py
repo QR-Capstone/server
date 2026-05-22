@@ -834,7 +834,20 @@ def predict_phishing_result(target_url):
         "naver": ["naver.com", "navercorp.com", "pstatic.net", "line.me"],
         "kakao": ["kakao.com", "kakaocorp.com", "daum.net"],
         "yahoo": ["yahoo.com"],
-        "coupang": ["coupang.com"]
+        "coupang": ["coupang.com"],
+        
+        # 택배, 금융, 일반 공공기관 핵심 타겟
+        "samsung": ["samsung.com", "samsung.co.kr", "samsungcard.com", "samsunglife.com", "samsungfire.com", "samsungpop.com"],
+        "toss": ["toss.im"],
+        "cj": ["cjlogistics.com", "cj.net"],
+        "hometax": ["hometax.go.kr"],
+        "police": ["efine.go.kr", "police.go.kr"],
+        "gov": ["gov.kr"],
+        
+        # 🌟 [신규 추가] 사법/수사기관 (가장 악질적인 협박성 피싱 타겟)
+        "scourt": ["scourt.go.kr"], # 대법원
+        "spo": ["spo.go.kr"],       # 검찰청
+        "kics": ["kics.go.kr"]      # 형사사법포털
     }
 
     is_domain_spoofed = False
@@ -847,7 +860,8 @@ def predict_phishing_result(target_url):
             break
 
     # 2. 텍스트 내 사칭 키워드 감지 (뉴스 기사 오탐을 막기 위해 구체적인 법인명/서비스명 사용)
-    brand_keywords = ["(주)네이버페이", "네이버㈜", "네이버파이낸셜", "카카오페이", "쿠팡(주)"]
+    brand_keywords = ["(주)네이버페이", "네이버㈜", "네이버파이낸셜", "카카오페이", "쿠팡(주)","토스뱅크", "비바리퍼블리카", "CJ대한통운", "국세청", "홈택스", "경찰청", "교통민원24", "정부24", "국민건강보험"
+                    , "대법원", "검찰청", "서울중앙지방검찰청", "형사사법포털", "전자소송"]
     has_brand_text = any(kw in processed_text.replace(" ", "") for kw in brand_keywords)
 
     # 3. 도메인을 사칭했거나, 텍스트로 네이버페이 등을 사칭하면서 정보/행동을 요구할 경우!
@@ -903,7 +917,7 @@ def predict_phishing_result(target_url):
         elif is_translated:
             conclusion = f"부자연스러운 기계 번역투 및 띄어쓰기 오류 등 해외 양산형 피싱 사이트의 특징이 감지되어"
         elif found_high_risk:
-            conclusion = f"고위험 범죄 키워드({high_risk_str})가 포함된 악의적인 [{scam_type}](으)로 판단되어"
+            conclusion = f"고위험 피싱/사기 키워드가 포함된 악의적인 [{scam_type}](으)로 판단되어"
         elif demand_parts and base_prob_1 >= 60.0:
             conclusion = f"불안감을 조성하여 {demand_str}를 빼내려는 전형적인 [{scam_type}] 기법으로 판별되어"
         else:
