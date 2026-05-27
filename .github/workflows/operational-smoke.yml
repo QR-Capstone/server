@@ -1,0 +1,43 @@
+name: operational-smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install smoke dependencies
+        run: python -m pip install --upgrade pip httpx
+
+      - name: Compile gate and server modules
+        run: |
+          python -m py_compile \
+            main.py \
+            dev/audit_url_splits.py \
+            dev/benchmark_api_latency.py \
+            dev/evaluate_api_holdout.py \
+            dev/run_api_performance_gate.py \
+            dev/run_operational_gates.py \
+            dev/run_urlml_regression_gate.py \
+            dev/urlml_quality_gate.py \
+            gnn/gnn_engine.py \
+            url_ml/train_url_ml.py \
+            url_ml/url_ml_engine.py \
+            xgboost/XG_core.py
+
+      - name: Benchmark parser self-test
+        run: python dev/benchmark_api_latency.py --self-test
+
+      - name: Operational gate wrapper self-test
+        run: python dev/run_operational_gates.py --skip-urlml --skip-api-performance --skip-api-holdout

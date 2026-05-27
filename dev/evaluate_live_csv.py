@@ -30,15 +30,22 @@ from XG_core import load_bundle, predict_url, predict_url_dom, xgboost_weighted_
 from url_ml_engine import load_url_ml_model, predict_url_ml
 
 
-def read_rows(path: str, limit: int | None = None) -> list[tuple[str, int]]:
+def read_rows(path: str, limit: int | None = None, per_label_limit: int | None = None) -> list[tuple[str, int]]:
     rows: list[tuple[str, int]] = []
+    per_label_counts: Counter[int] = Counter()
     with open(path, "r", encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
             url = (row.get("url") or "").strip()
             label = str(row.get("label", "")).strip()
             if url and label in {"0", "1"}:
-                rows.append((url, int(label)))
+                label_int = int(label)
+                if per_label_limit and per_label_counts[label_int] >= per_label_limit:
+                    continue
+                rows.append((url, label_int))
+                per_label_counts[label_int] += 1
                 if limit and len(rows) >= limit:
+                    break
+                if per_label_limit and all(per_label_counts[label] >= per_label_limit for label in (0, 1)):
                     break
     return rows
 
@@ -57,11 +64,13 @@ def metrics(pairs: list[tuple[int, str]]) -> dict[str, float]:
     tn = sum(1 for label, pred in pairs if label == 0 and pred == "benign")
     fp = sum(1 for label, pred in pairs if label == 0 and pred == "malicious")
     fn = sum(1 for label, pred in pairs if label == 1 and pred == "benign")
+    unknown = sum(1 for _, pred in pairs if pred == "unknown")
     precision = tp / max(1, tp + fp)
     recall = tp / max(1, tp + fn)
     f1 = 2 * precision * recall / max(1e-9, precision + recall)
+    total = max(1, len(pairs))
     return {
-        "accuracy": (tp + tn) / max(1, len(pairs)),
+        "accuracy": (tp + tn) / total,
         "precision": precision,
         "recall": recall,
         "f1": f1,
@@ -69,6 +78,8 @@ def metrics(pairs: list[tuple[int, str]]) -> dict[str, float]:
         "tn": tn,
         "fp": fp,
         "fn": fn,
+        "unknown": unknown,
+        "unknown_rate": unknown / total,
     }
 
 
@@ -77,19 +88,51 @@ def print_metrics(name: str, pairs: list[tuple[int, str]], misses: list[tuple[st
     print(
         f"{name}: accuracy={m['accuracy']:.3f} precision={m['precision']:.3f} "
         f"recall={m['recall']:.3f} f1={m['f1']:.3f} "
-        f"TP={int(m['tp'])} TN={int(m['tn'])} FP={int(m['fp'])} FN={int(m['fn'])}"
+        f"TP={int(m['tp'])} TN={int(m['tn'])} FP={int(m['fp'])} FN={int(m['fn'])} "
+        f"unknown={int(m['unknown'])} unknown_rate={m['unknown_rate']:.3f}"
     )
     for url, label, pred, score, rule in misses[:20]:
         print(f"  MISS label={label} pred={pred} score={score:.3f} rule={rule or '-'} url={url}")
 
 
-def evaluate_xgboost(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]], list[tuple[str, int, str, float, str | None]]]:
+def _is_decisive_url_ml(out: dict[str, Any]) -> bool:
+    return str(out.get("verdict") or "") in {"benign", "malicious"} and str(out.get("riskLevel") or "") in {
+        "SAFE",
+        "DANGEROUS",
+    }
+
+
+def evaluate_xgboost(
+    rows: list[tuple[str, int]], url_ml_preflight: bool = False
+) -> tuple[list[tuple[int, str]], list[tuple[str, int, str, float, str | None]]]:
     typo = load_bundle(os.path.join(XG_DIR, "url_xgb_paired_first.joblib"))
     domain = load_bundle(os.path.join(XG_DIR, "url_xgb_domain_age.joblib"))
     dom = load_bundle(os.path.join(XG_DIR, "url_xgb_dom.joblib"))
+    url_ml_model = None
+    if url_ml_preflight:
+        url_ml_model, status = load_url_ml_model()
+        if url_ml_model is None:
+            raise RuntimeError(status.reason)
     pairs: list[tuple[int, str]] = []
     misses: list[tuple[str, int, str, float, str | None]] = []
+    preflight_hits = 0
     for i, (url, label) in enumerate(rows, 1):
+        if url_ml_model is not None:
+            url_ml_out = predict_url_ml(url_ml_model, url)
+            if _is_decisive_url_ml(url_ml_out):
+                pred = str(url_ml_out.get("verdict") or "unknown")
+                score = float(
+                    url_ml_out.get("probability")
+                    if url_ml_out.get("probability") is not None
+                    else url_ml_out.get("raw_probability") or 0.0
+                )
+                pairs.append((label, pred))
+                preflight_hits += 1
+                if (label == 1 and pred != "malicious") or (label == 0 and pred != "benign"):
+                    misses.append((url, label, pred, score, "url_ml_preflight"))
+                if i % 25 == 0 or i == len(rows):
+                    print(f"  XGBoost [{i}/{len(rows)}] preflight_hits={preflight_hits}", flush=True)
+                continue
         with contextlib.redirect_stdout(io.StringIO()):
             _, p_typo, _ = predict_url(
                 typo,
@@ -113,7 +156,8 @@ def evaluate_xgboost(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]]
         if (label == 1 and pred != "malicious") or (label == 0 and pred != "benign"):
             misses.append((url, label, pred, score, rule))
         if i % 25 == 0 or i == len(rows):
-            print(f"  XGBoost [{i}/{len(rows)}]", flush=True)
+            suffix = f" preflight_hits={preflight_hits}" if url_ml_model is not None else ""
+            print(f"  XGBoost [{i}/{len(rows)}]{suffix}", flush=True)
     return pairs, misses
 
 
@@ -171,9 +215,7 @@ def evaluate_url_ml(rows: list[tuple[str, int]]) -> tuple[list[tuple[int, str]],
     for url, label in rows:
         out = predict_url_ml(model, url)
         pred = out.get("verdict", "unknown")
-        score = float(out.get("probability") or 0.0)
-        if pred == "unknown":
-            pred = "malicious" if score >= 0.40 else "benign"
+        score = float(out.get("probability") if out.get("probability") is not None else out.get("raw_probability") or 0.0)
         pairs.append((label, pred))
         if (label == 1 and pred != "malicious") or (label == 0 and pred != "benign"):
             misses.append((url, label, pred, score, "url_ml"))
@@ -184,11 +226,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--per-label-limit", type=int, default=0)
     parser.add_argument("--with-gnn", action="store_true")
     parser.add_argument("--rules-only", action="store_true")
+    parser.add_argument("--xgboost-urlml-preflight", action="store_true")
     args = parser.parse_args()
 
-    rows = read_rows(args.input, limit=args.limit or None)
+    rows = read_rows(args.input, limit=args.limit or None, per_label_limit=args.per_label_limit or None)
     label_counts = Counter(label for _, label in rows)
     print(f"input={args.input} rows={len(rows)} malicious={label_counts[1]} benign={label_counts[0]}")
 
@@ -202,8 +246,8 @@ def main() -> int:
     if args.rules_only:
         return 0
 
-    xg_pairs, xg_misses = evaluate_xgboost(rows)
-    print_metrics("XGBoost+rules", xg_pairs, xg_misses)
+    xg_pairs, xg_misses = evaluate_xgboost(rows, url_ml_preflight=args.xgboost_urlml_preflight)
+    print_metrics("XGBoost+rules" + ("+urlml-preflight" if args.xgboost_urlml_preflight else ""), xg_pairs, xg_misses)
 
     if args.with_gnn:
         gnn_pairs, gnn_misses = evaluate_gnn(rows)

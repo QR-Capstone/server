@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import contextlib
 import functools
+import html
 import os
+import re
 import sys
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIRS = {
@@ -33,19 +39,25 @@ from XG_core import (
     load_bundle,
     predict_url,
     predict_url_dom,
+    runtime_config as xg_runtime_config,
     xgboost_weighted_ensemble_verdict,
 )
 from gnn_engine import GNN_Engine, predict_gnn
-from url_ml_engine import load_url_ml_model, predict_url_ml
+from gnn_engine import runtime_config as gnn_runtime_config
+from url_ml_engine import load_url_ml_model, predict_url_ml, predict_url_ml_batch
 
 try:
     from trusted_domains import (
         is_trusted_official_url,
+        is_low_risk_hosted_platform_url,
         strong_url_phishing_score,
         url_heuristic_phishing_score,
     )
 except Exception:  # pragma: no cover
     def is_trusted_official_url(raw_url: str) -> bool:
+        return False
+
+    def is_low_risk_hosted_platform_url(raw_url: str) -> bool:
         return False
 
     def strong_url_phishing_score(raw_url: str) -> float:
@@ -64,21 +76,194 @@ async def request_timing_middleware(request: Request, call_next):
     response = await call_next(request)
     dur = time.perf_counter() - t0
     response.headers["X-Process-Time"] = f"{dur:.3f}"
-    print(
-        f"--- [request done] {request.method} {request.url.path} "
-        f"{response.status_code} OK ({dur:.3f}s)"
-    )
+    if LOG_REQUEST_TIMING:
+        print(
+            f"--- [request done] {request.method} {request.url.path} "
+            f"{response.status_code} OK ({dur:.3f}s)"
+        )
     return response
 
 # Warm up Playwright on startup (default off = faster boot)
 STARTUP_WARMUP_PLAYWRIGHT = os.getenv("STARTUP_WARMUP_PLAYWRIGHT", "0") == "1"
+STARTUP_SMOKE_GNN = os.getenv("STARTUP_SMOKE_GNN", "0") == "1"
+LOG_REQUEST_TIMING = os.getenv("LOG_REQUEST_TIMING", "0") == "1"
+ANALYZE_VERBOSE_LOGS = os.getenv("ANALYZE_VERBOSE_LOGS", "0") == "1"
+URL_ML_CACHE_SIZE = int(os.getenv("URL_ML_CACHE_SIZE", "4096"))
+KOBERT_CACHE_SIZE = int(os.getenv("KOBERT_CACHE_SIZE", "512"))
+URL_RULE_CACHE_SIZE = int(os.getenv("URL_RULE_CACHE_SIZE", "8192"))
+XGBOOST_CACHE_SIZE = int(os.getenv("XGBOOST_CACHE_SIZE", "1024"))
+GNN_CACHE_SIZE = int(os.getenv("GNN_CACHE_SIZE", "512"))
+XGBOOST_WORKERS = max(1, int(os.getenv("XGBOOST_WORKERS", "2")))
+GNN_WORKERS = max(1, int(os.getenv("GNN_WORKERS", "2")))
+SUPPRESS_KOBERT_DEBUG_LOGS = os.getenv("SUPPRESS_KOBERT_DEBUG_LOGS", "1") == "1"
+SUPPRESS_XGBOOST_DEBUG_LOGS = os.getenv("SUPPRESS_XGBOOST_DEBUG_LOGS", "1") == "1"
+URL_ML_FAST_PATH = os.getenv("URL_ML_FAST_PATH", "1") == "1"
+URL_ML_FAST_SAFE_MAX = float(os.getenv("URL_ML_FAST_SAFE_MAX", "0.20"))
+URL_ML_FAST_HEURISTIC_MAX = float(os.getenv("URL_ML_FAST_HEURISTIC_MAX", "0.05"))
+URL_ML_FAST_DANGER_MIN = float(os.getenv("URL_ML_FAST_DANGER_MIN", "0.68"))
+URL_ML_FINAL_SOLO_THRESHOLD = float(os.getenv("URL_ML_FINAL_SOLO_THRESHOLD", "0.90"))
+URL_ML_FINAL_SUPPORT_THRESHOLD = float(os.getenv("URL_ML_FINAL_SUPPORT_THRESHOLD", "0.66"))
+ANALYZE_BATCH_MAX_URLS = max(1, int(os.getenv("ANALYZE_BATCH_MAX_URLS", "256")))
+ANALYZE_BATCH_WORKERS = max(1, int(os.getenv("ANALYZE_BATCH_WORKERS", "16")))
+ANALYZE_TEXT_MAX_CHARS = max(1, int(os.getenv("ANALYZE_TEXT_MAX_CHARS", "20000")))
+URL_ML_BATCH_VECTOR_MIN = max(1, int(os.getenv("URL_ML_BATCH_VECTOR_MIN", "17")))
+KOBERT_URL_ML_PREFLIGHT = os.getenv("KOBERT_URL_ML_PREFLIGHT", "1") == "1"
+URL_IN_TEXT_RE = re.compile(
+    r"(?i)\b((?:hxxps?://|https?://|www\.)[^\s<>'\"`]+|[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:/[^\s<>'\"`]*)?)"
+)
+BASE64_TEXT_TOKEN_RE = re.compile(r"(?<![a-zA-Z0-9+/_=-])([a-zA-Z0-9+/_-]{16,}={0,2})(?![a-zA-Z0-9+/_=-])")
+DEFANGED_DOT_RE = re.compile(r"(?i)\s*(?:\[\.\]|\(\.\)|\{\.\}|<\.>|\[dot\]|\(dot\)|\{dot\}| dot )\s*")
+DEFANGED_COLON_RE = re.compile(r"(?i)\s*(?:\[:\]|\(:\)|\{:\}|<:>|\[colon\]|\(colon\)|\{colon\}|colon|콜론|쌍점)\s*")
+DEFANGED_SLASH_RE = re.compile(r"(?i)\s*(?:\[/\]|\(/\)|\{/}|</>|\[slash\]|\(slash\)|\{slash\}|slash|슬래시)\s*")
+HOST_SPACED_DOT_RE = re.compile(r"(?i)(?<=[a-z0-9])\s+\.\s+(?=[a-z0-9])")
+KOREAN_DEFANGED_DOT_RE = re.compile(r"(?i)(?<=[a-z0-9])\s*(?:점|닷|쩜)\s*(?=[a-z0-9])")
+KOREAN_SPACED_DEFANGED_DOT_RE = re.compile(r"(?i)(?<=[a-z0-9])\s+(?:점|닷|쩜)\s+(?=[a-z0-9])")
+ESCAPED_URL_PUNCT_RE = re.compile(r"\\+([./:])")
+ASCII_HEX_ESCAPE_RE = re.compile(r"\\x([0-7][0-9a-fA-F])")
+ASCII_UNICODE_ESCAPE_RE = re.compile(r"(?:\\u|%u)00([0-7][0-9a-fA-F])")
+REMAINING_ESCAPE_TOKEN_RE = re.compile(r"(?:\\x[0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}|%u[0-9a-fA-F]{4})+")
+ASCII_QUOTED_PRINTABLE_RE = re.compile(r"=([0-7][0-9a-fA-F])")
+QUOTED_PRINTABLE_SOFT_BREAK_RE = re.compile(r"=\r?\n[ \t]*")
+REMAINING_QUOTED_PRINTABLE_RE = re.compile(r"(?:=[0-9a-fA-F]{2})+")
+SPACED_HTTPS_SCHEME_RE = re.compile(r"(?i)\bh\s*t\s*t\s*p\s*s\s*:\s*/\s*/")
+SPACED_HTTP_SCHEME_RE = re.compile(r"(?i)\bh\s*t\s*t\s*p\s*:\s*/\s*/")
+SPACED_HXXPS_SCHEME_RE = re.compile(r"(?i)\bh\s*x\s*x\s*p\s*s\s*:\s*/\s*/")
+SPACED_HXXP_SCHEME_RE = re.compile(r"(?i)\bh\s*x\s*x\s*p\s*:\s*/\s*/")
+SPACED_WWW_RE = re.compile(r"(?i)\bw\s*w\s*w\s*(?=\.)")
+SPACED_URL_PREFIX_RE = re.compile(r"(?i)(?:https?://|www\.)")
+SPACED_URL_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_/~%?=&+#")
+SPACED_URL_BOUNDARY_CHARS = set("./-_~%?=&+#")
+WRAPPED_WWW_AFTER_SCHEME_RE = re.compile(r"(?i)\b(https?://)\s*[\[(<{]\s*www\s*[\])>}]\s*(?=\.)")
+STRING_CONCAT_BREAK_RE = re.compile(r"""(?<=[a-z0-9./:_\]\)-])["']\s*\+\s*["'](?=[a-z0-9\[\(.-])""", re.IGNORECASE)
+STRING_LITERAL_ADJACENT_RE = re.compile(r"""(?<=[a-z0-9./:_-])["']\s+["'](?=[a-z0-9.-])""", re.IGNORECASE)
+BACKSLASH_LINE_CONTINUATION_RE = re.compile(r"\\(?:r\\n|n|r|[ \t]*\r?\n)[ \t]*")
+ZERO_WIDTH_TEXT_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff]")
+TEXT_URL_TRANSLATION = str.maketrans(
+    {
+        "\uff0e": ".",
+        "\u3002": ".",
+        "\uff61": ".",
+        "\uff1a": ":",
+        "\ufe55": ":",
+        "\uff0f": "/",
+        "\u2215": "/",
+        "\u2044": "/",
+    }
+)
 
 # Playwright sync API is bound to one thread; engine runs on a single worker.
 _engine_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="phish_engine")
 # XGBoost on its own thread pool (runs in parallel with KoBERT).
-_xgboost_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="xgboost_infer")
+_xgboost_executor = ThreadPoolExecutor(max_workers=XGBOOST_WORKERS, thread_name_prefix="xgboost_infer")
 # Web-structure GNN (gnn_model.pkl)
-_gnn_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gnn_webgraph")
+_gnn_executor = ThreadPoolExecutor(max_workers=GNN_WORKERS, thread_name_prefix="gnn_webgraph")
+
+
+class _NullWriter:
+    def write(self, _: str) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
+
+
+_NULL_WRITER = _NullWriter()
+_NO_ADJUSTMENT = object()
+_INFLIGHT_INFERENCE: dict[tuple[str, str], asyncio.Task] = {}
+
+
+def _cache_stats(fn: Any) -> dict[str, int]:
+    info = fn.cache_info()
+    return {
+        "hits": int(info.hits),
+        "misses": int(info.misses),
+        "maxsize": int(info.maxsize or 0),
+        "currsize": int(info.currsize),
+    }
+
+
+def _runtime_cache_stats() -> dict[str, dict[str, int]]:
+    return {
+        "url_key": _cache_stats(_url_cache_key),
+        "url_ml": _cache_stats(_predict_url_ml_cached),
+        "kobert": _cache_stats(_predict_kobert_cached),
+        "xgboost": _cache_stats(_predict_xgboost_cached),
+        "gnn": _cache_stats(_predict_gnn_cached),
+        "url_rule": _cache_stats(_url_rule_adjustment),
+        "url_heuristic": _cache_stats(_url_heuristic_result),
+    }
+
+
+def _runtime_inflight_stats() -> dict[str, int]:
+    counts = {"kobert": 0, "xgboost": 0, "gnn": 0}
+    for model, _ in _INFLIGHT_INFERENCE:
+        counts[model] = counts.get(model, 0) + 1
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+def _clear_runtime_caches() -> None:
+    for fn in (
+        _url_cache_key,
+        _predict_url_ml_cached,
+        _predict_kobert_cached,
+        _predict_xgboost_cached,
+        _predict_gnn_cached,
+        _url_rule_adjustment,
+        _url_heuristic_result,
+        is_trusted_official_url,
+        is_low_risk_hosted_platform_url,
+        strong_url_phishing_score,
+        url_heuristic_phishing_score,
+    ):
+        cache_clear = getattr(fn, "cache_clear", None)
+        if cache_clear is not None:
+            cache_clear()
+    _INFLIGHT_INFERENCE.clear()
+
+
+async def _singleflight_inference(model: str, key: str, factory) -> Any:
+    token = (model, key)
+    task = _INFLIGHT_INFERENCE.get(token)
+    if task is None:
+        task = asyncio.create_task(factory())
+        _INFLIGHT_INFERENCE[token] = task
+    try:
+        return await task
+    finally:
+        if _INFLIGHT_INFERENCE.get(token) is task:
+            _INFLIGHT_INFERENCE.pop(token, None)
+
+
+@functools.lru_cache(maxsize=URL_RULE_CACHE_SIZE)
+def _url_cache_key(raw_url: str, *, default_scheme: str | None = None) -> str:
+    raw = (raw_url or "").strip()
+    if not raw:
+        return raw
+    candidate = raw if "://" in raw else f"//{raw}"
+    try:
+        parsed = urlsplit(candidate)
+    except Exception:
+        return raw
+    host = parsed.hostname
+    if not host:
+        return raw
+    try:
+        host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        pass
+    netloc = host.lower()
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    if parsed.username:
+        auth = parsed.username
+        if parsed.password:
+            auth = f"{auth}:{parsed.password}"
+        netloc = f"{auth}@{netloc}"
+    scheme = (parsed.scheme or default_scheme or "").lower()
+    if not scheme:
+        return urlunsplit(("", netloc, parsed.path, parsed.query, parsed.fragment))[2:]
+    return urlunsplit((scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
 async def _run_engine(fn, *args, **kwargs):
@@ -103,10 +288,41 @@ async def _run_gnn(fn, *args, **kwargs):
 
 
 async def _run_url_ml(fn, *args, **kwargs):
-    loop = asyncio.get_running_loop()
     if kwargs:
-        return await loop.run_in_executor(_xgboost_executor, functools.partial(fn, *args, **kwargs))
-    return await loop.run_in_executor(_xgboost_executor, functools.partial(fn, *args))
+        return fn(*args, **kwargs)
+    return fn(*args)
+
+
+def _run_kobert_inference(raw_url: str):
+    result = _predict_kobert_cached(_url_cache_key(raw_url, default_scheme="https"))
+    return dict(result) if isinstance(result, dict) else result
+
+
+async def _run_kobert_request(raw_url: str):
+    key = _url_cache_key(raw_url, default_scheme="https")
+    result = await _singleflight_inference(
+        "kobert",
+        key,
+        lambda: _run_engine(_predict_kobert_cached, key),
+    )
+    return dict(result) if isinstance(result, dict) else result
+
+
+@functools.lru_cache(maxsize=KOBERT_CACHE_SIZE)
+def _predict_kobert_cached(raw_url: str):
+    eng = getattr(app.state, "eng", None)
+    if eng is None:
+        return {
+            "judgment": "unknown",
+            "riskLevel": "UNKNOWN",
+            "risklevel": "UNKNOWN",
+            "engine_disabled": True,
+            "engine_reason": getattr(app.state, "eng_status", {}).get("reason", "not_loaded"),
+        }
+    if SUPPRESS_KOBERT_DEBUG_LOGS:
+        with contextlib.redirect_stdout(_NULL_WRITER), contextlib.redirect_stderr(_NULL_WRITER):
+            return eng.predict_phishing_result(raw_url)
+    return eng.predict_phishing_result(raw_url)
 
 
 def _normalize_url_for_xgboost(url: str) -> str:
@@ -122,6 +338,29 @@ def _normalize_url_for_xgboost(url: str) -> str:
 
 def _run_xgboost_inference(raw_url: str):
     """Run XGBoost bundles (typo, domain-age, DOM); returns dict or None if no models."""
+    result = _predict_xgboost_cached(_url_cache_key(raw_url, default_scheme="https"))
+    return dict(result) if isinstance(result, dict) else result
+
+
+async def _run_xgboost_request(raw_url: str):
+    key = _url_cache_key(raw_url, default_scheme="https")
+    result = await _singleflight_inference(
+        "xgboost",
+        key,
+        lambda: _run_xgboost(_predict_xgboost_cached, key),
+    )
+    return dict(result) if isinstance(result, dict) else result
+
+
+@functools.lru_cache(maxsize=XGBOOST_CACHE_SIZE)
+def _predict_xgboost_cached(raw_url: str):
+    if SUPPRESS_XGBOOST_DEBUG_LOGS:
+        with contextlib.redirect_stdout(_NULL_WRITER), contextlib.redirect_stderr(_NULL_WRITER):
+            return _predict_xgboost_uncached(raw_url)
+    return _predict_xgboost_uncached(raw_url)
+
+
+def _predict_xgboost_uncached(raw_url: str):
     typo_bundle = getattr(app.state, "xg_typo_bundle", None)
     domain_bundle = getattr(app.state, "xg_domain_bundle", None)
     dom_bundle = getattr(app.state, "xg_dom_bundle", None)
@@ -158,7 +397,11 @@ def _run_xgboost_inference(raw_url: str):
         domain_feature_map = {}
 
     if dom_bundle is not None:
-        dom_label, dom_prob, dom_feature_map = predict_url_dom(dom_bundle, url)
+        dom_label, dom_prob, dom_feature_map = predict_url_dom(
+            dom_bundle,
+            url,
+            print_dom_feature_debug=False,
+        )
         output["dom_probability"] = round(float(dom_prob), 6)
         output["dom_label"] = int(dom_label)
         output["dom_features"] = {
@@ -194,6 +437,22 @@ def _run_xgboost_inference(raw_url: str):
 
 def _run_gnn_inference(raw_url: str):
     """Web-structure GNN (gnn_model.pkl); None if model not loaded."""
+    result = _predict_gnn_cached(_url_cache_key(raw_url, default_scheme="https"))
+    return dict(result) if isinstance(result, dict) else result
+
+
+async def _run_gnn_request(raw_url: str):
+    key = _url_cache_key(raw_url, default_scheme="https")
+    result = await _singleflight_inference(
+        "gnn",
+        key,
+        lambda: _run_gnn(_predict_gnn_cached, key),
+    )
+    return dict(result) if isinstance(result, dict) else result
+
+
+@functools.lru_cache(maxsize=GNN_CACHE_SIZE)
+def _predict_gnn_cached(raw_url: str):
     model = getattr(app.state, "gnn_model", None)
     cols = getattr(app.state, "gnn_columns", None)
     if model is None or not cols:
@@ -205,6 +464,14 @@ def _run_gnn_inference(raw_url: str):
 
 
 def _run_url_ml_inference(raw_url: str):
+    model = getattr(app.state, "url_ml_model", None)
+    if model is None:
+        return None
+    return _predict_url_ml_cached(_url_cache_key(raw_url))
+
+
+@functools.lru_cache(maxsize=URL_ML_CACHE_SIZE)
+def _predict_url_ml_cached(raw_url: str):
     model = getattr(app.state, "url_ml_model", None)
     if model is None:
         return None
@@ -304,6 +571,7 @@ def _extract_model_risk(result: Any) -> str:
     return "UNKNOWN"
 
 
+@functools.lru_cache(maxsize=URL_RULE_CACHE_SIZE)
 def _url_rule_adjustment(url: str) -> dict[str, Any] | None:
     """Conservative URL-only override shared by all API lanes."""
     if is_trusted_official_url(url):
@@ -363,8 +631,14 @@ def _model_probability(model: str, result: Any, risk_level: str | None = None) -
     return None
 
 
-def _apply_url_rule_adjustment(model: str, url: str, result: Any) -> Any:
-    adjustment = _url_rule_adjustment(url)
+def _apply_url_rule_adjustment(
+    model: str,
+    url: str,
+    result: Any,
+    adjustment: dict[str, Any] | None | object = _NO_ADJUSTMENT,
+) -> Any:
+    if adjustment is _NO_ADJUSTMENT:
+        adjustment = _url_rule_adjustment(url)
     if adjustment is None:
         return result
 
@@ -404,6 +678,52 @@ def _apply_url_rule_adjustment(model: str, url: str, result: Any) -> Any:
     return out
 
 
+def _apply_url_ml_hint_to_model(model: str, result: Any, url_ml_result: Any) -> Any:
+    if not isinstance(result, dict) or not isinstance(url_ml_result, dict):
+        return result
+    url_ml_risk = _extract_model_risk(url_ml_result)
+    if url_ml_risk not in {"SAFE", "DANGEROUS"}:
+        return result
+    model_risk = _extract_model_risk(result)
+    if model_risk == url_ml_risk:
+        return result
+
+    out = dict(result)
+    prob = _model_probability("URLML", url_ml_result, url_ml_risk)
+    if prob is None:
+        prob = 0.95 if url_ml_risk == "DANGEROUS" else 0.05
+    label = 1 if url_ml_risk == "DANGEROUS" else 0
+    out.update(
+        {
+            "riskLevel": url_ml_risk,
+            "risklevel": url_ml_risk,
+            "judgment": _judgment_from_risk(url_ml_risk),
+            "verdict": _verdict_from_risk(url_ml_risk),
+            "label": label,
+            "adjusted_by_url_ml": True,
+            "url_ml_hint_probability": round(float(prob), 6),
+        }
+    )
+    if model == "XGBoost":
+        out["final_probability"] = round(float(prob), 6)
+        explanations = out.get("explanations")
+        reason = f"URL ML 보조 신호로 {model} 단독 판정을 보정했습니다."
+        if isinstance(explanations, list):
+            out["explanations"] = [reason, *explanations]
+        else:
+            out["explanations"] = [reason]
+    else:
+        out["probability"] = round(float(prob), 6)
+        reason = f"URL ML 보조 신호로 {model} 단독 판정을 보정했습니다."
+        explanations = out.get("explanation")
+        if isinstance(explanations, list):
+            out["explanation"] = [reason, *explanations]
+        else:
+            out["explanation"] = [reason]
+    return out
+
+
+@functools.lru_cache(maxsize=URL_RULE_CACHE_SIZE)
 def _url_heuristic_result(url: str) -> dict[str, Any]:
     score = float(url_heuristic_phishing_score(url))
     ensemble_probability: float | None = score
@@ -621,17 +941,39 @@ def _decide_final_risk(details: list[dict[str, Any]]) -> str:
     ):
         return "SAFE"
 
+    xgboost = by_model.get("XGBoost") or {}
+    gnn = by_model.get("GNN") or {}
+    if (
+        url_ml.get("available")
+        and url_ml.get("riskLevel") == "SAFE"
+        and url_heuristic.get("available")
+        and url_heuristic.get("riskLevel") == "SAFE"
+        and xgboost.get("riskLevel") == "SAFE"
+        and gnn.get("riskLevel") != "DANGEROUS"
+        and kobert.get("riskLevel") == "DANGEROUS"
+    ):
+        return "UNKNOWN"
+
     if url_ml.get("available") and url_ml.get("riskLevel") == "DANGEROUS":
         try:
             url_ml_prob = float(url_ml.get("probability") or 0.0)
         except Exception:
             url_ml_prob = 0.0
-        supporting_danger = sum(
-            1
-            for name in ("KoBERT", "XGBoost", "GNN", "URLHeuristic")
-            if (by_model.get(name) or {}).get("riskLevel") == "DANGEROUS"
-        )
-        if url_ml_prob >= 0.60 or supporting_danger >= 1:
+        strong_support = 0
+        for name in ("KoBERT", "XGBoost", "GNN", "URLHeuristic"):
+            detail = by_model.get(name) or {}
+            if detail.get("riskLevel") != "DANGEROUS":
+                continue
+            if detail.get("adjusted_by_rule"):
+                strong_support += 1
+                continue
+            try:
+                support_prob = float(detail.get("probability") or 0.0)
+            except Exception:
+                support_prob = 0.0
+            if support_prob >= URL_ML_FINAL_SUPPORT_THRESHOLD:
+                strong_support += 1
+        if url_ml_prob >= URL_ML_FINAL_SOLO_THRESHOLD or strong_support >= 1:
             return "DANGEROUS"
 
     usable_probs = [
@@ -681,16 +1023,22 @@ def _build_final_response(
     url_ml_result: object = None,
     t_url_ml: float = 0.0,
 ) -> dict:
-    kobert_result = _apply_url_rule_adjustment("KoBERT", target_url, kobert_result)
-    xg_result = _apply_url_rule_adjustment("XGBoost", target_url, xg_result)
-    gnn_result = _apply_url_rule_adjustment("GNN", target_url, gnn_result)
-    url_ml_result = _apply_url_rule_adjustment("URLML", target_url, url_ml_result)
+    rule_url = _url_cache_key(target_url)
+    url_adjustment = _url_rule_adjustment(rule_url)
+    kobert_result = _apply_url_rule_adjustment("KoBERT", target_url, kobert_result, url_adjustment)
+    xg_result = _apply_url_rule_adjustment("XGBoost", target_url, xg_result, url_adjustment)
+    gnn_result = _apply_url_rule_adjustment("GNN", target_url, gnn_result, url_adjustment)
+    url_ml_result = _apply_url_rule_adjustment("URLML", target_url, url_ml_result, url_adjustment)
+    eng_status = getattr(app.state, "eng_status", {"enabled": False})
+    xg_status = getattr(app.state, "xg_status", {"enabled": False})
+    gnn_status = getattr(app.state, "gnn_status", {"enabled": False})
+    url_ml_status = getattr(app.state, "url_ml_status", {"enabled": False})
     details = [
-        _model_detail("KoBERT", kobert_result, getattr(app.state, "eng_status", {})),
-        _model_detail("XGBoost", xg_result, getattr(app.state, "xg_status", {})),
-        _model_detail("GNN", gnn_result, getattr(app.state, "gnn_status", {})),
-        _model_detail("URLML", url_ml_result, getattr(app.state, "url_ml_status", {})),
-        _url_heuristic_result(target_url),
+        _model_detail("KoBERT", kobert_result, eng_status),
+        _model_detail("XGBoost", xg_result, xg_status),
+        _model_detail("GNN", gnn_result, gnn_status),
+        _model_detail("URLML", url_ml_result, url_ml_status),
+        _url_heuristic_result(rule_url),
     ]
     risk_level = _decide_final_risk(details)
     judgment = _judgment_from_risk(risk_level)
@@ -714,10 +1062,10 @@ def _build_final_response(
         "xgboost": xg_result,
         "gnn": gnn_result,
         "url_ml": url_ml_result,
-        "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
-        "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
-        "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),
-        "url_ml_status": getattr(app.state, "url_ml_status", {"enabled": False}),
+        "engine_status": eng_status,
+        "xgboost_status": xg_status,
+        "gnn_status": gnn_status,
+        "url_ml_status": url_ml_status,
         "duration_sec": round(dur_wall, 3),
         "timing": {
             "koBERT_sec": round(t_kobert, 6),
@@ -729,8 +1077,227 @@ def _build_final_response(
     }
 
 
+def _skipped_after_urlml_result(model: str) -> dict[str, Any]:
+    return {
+        "judgment": "unknown",
+        "riskLevel": "UNKNOWN",
+        "risklevel": "UNKNOWN",
+        "verdict": "unknown",
+        "engine_disabled": True,
+        "status": "unavailable",
+        "engine_reason": f"skipped_after_decisive_url_ml:{model}",
+    }
+
+
+def _should_fast_path_after_urlml(result: Any) -> bool:
+    if not URL_ML_FAST_PATH or not isinstance(result, dict):
+        return False
+    risk = _extract_model_risk(result)
+    return risk in {"DANGEROUS", "SAFE"}
+
+
+async def _url_ml_hint_for_request(target_url: str) -> Any:
+    url_ml_hint = await _run_url_ml(_run_url_ml_inference, target_url)
+    return _apply_url_rule_adjustment(
+        "URLML",
+        target_url,
+        url_ml_hint,
+        _url_rule_adjustment(_url_cache_key(target_url)),
+    )
+
+
+def _url_ml_preflight_model_result(model: str, url_ml_hint: Any) -> Any:
+    result = _skipped_after_urlml_result(model)
+    result["preflight_skipped"] = True
+    return _apply_url_ml_hint_to_model(model, result, url_ml_hint)
+
+
 class URLRequest(BaseModel):
     url: str
+
+
+class URLBatchRequest(BaseModel):
+    urls: list[str]
+
+
+class TextAnalyzeRequest(BaseModel):
+    text: str
+
+
+def _decode_ascii_url_escapes(text: str) -> str:
+    def from_hex(match: re.Match[str]) -> str:
+        return chr(int(match.group(1), 16))
+
+    text = QUOTED_PRINTABLE_SOFT_BREAK_RE.sub("", text)
+    decoded = ASCII_HEX_ESCAPE_RE.sub(from_hex, text)
+    decoded = ASCII_UNICODE_ESCAPE_RE.sub(from_hex, decoded)
+    decoded = ASCII_QUOTED_PRINTABLE_RE.sub(from_hex, decoded)
+    decoded = REMAINING_ESCAPE_TOKEN_RE.sub(" ", decoded)
+    return REMAINING_QUOTED_PRINTABLE_RE.sub(" ", decoded)
+
+
+def _compact_spaced_url_segments(text: str) -> str:
+    output: list[str] = []
+    cursor = 0
+    for match in SPACED_URL_PREFIX_RE.finditer(text):
+        start = match.start()
+        if start < cursor:
+            continue
+        output.append(text[cursor:start])
+        segment = [match.group(0)]
+        index = match.end()
+        slash_from_spaced_separator = False
+        while index < len(text):
+            ch = text[index]
+            if ch in SPACED_URL_CHARS:
+                segment.append(ch)
+                if ch != "/":
+                    slash_from_spaced_separator = False
+                index += 1
+                continue
+            if not ch.isspace():
+                break
+
+            next_index = index
+            while next_index < len(text) and text[next_index].isspace():
+                next_index += 1
+            if next_index >= len(text) or text[next_index] not in SPACED_URL_CHARS:
+                break
+
+            token_end = next_index
+            while token_end < len(text) and text[token_end] in SPACED_URL_CHARS and text[token_end] not in SPACED_URL_BOUNDARY_CHARS:
+                token_end += 1
+            token_len = token_end - next_index
+            prev = segment[-1] if segment else ""
+            next_ch = text[next_index]
+            if prev == "/" and token_len > 1:
+                lookahead = token_end
+                while lookahead < len(text) and text[lookahead].isspace():
+                    lookahead += 1
+                if not slash_from_spaced_separator and (lookahead >= len(text) or text[lookahead] not in SPACED_URL_BOUNDARY_CHARS):
+                    break
+            if prev in SPACED_URL_BOUNDARY_CHARS or next_ch in SPACED_URL_BOUNDARY_CHARS or token_len == 1:
+                if next_ch == "/":
+                    slash_from_spaced_separator = True
+                index = next_index
+                continue
+            break
+
+        compacted = "".join(segment)
+        output.append(compacted if "." in compacted else "".join(segment))
+        cursor = index
+    output.append(text[cursor:])
+    return "".join(output)
+
+
+def _normalize_text_for_url_extraction(text: str) -> str:
+    normalized_text = html.unescape(ZERO_WIDTH_TEXT_RE.sub("", text))
+    normalized_text = unquote(normalized_text)
+    normalized_text = _decode_ascii_url_escapes(normalized_text)
+    normalized_text = unicodedata.normalize("NFKC", normalized_text).translate(TEXT_URL_TRANSLATION)
+    normalized_text = STRING_CONCAT_BREAK_RE.sub("", normalized_text)
+    normalized_text = BACKSLASH_LINE_CONTINUATION_RE.sub("", normalized_text)
+    normalized_text = ESCAPED_URL_PUNCT_RE.sub(r"\1", normalized_text)
+    normalized_text = STRING_CONCAT_BREAK_RE.sub("", normalized_text)
+    normalized_text = STRING_LITERAL_ADJACENT_RE.sub("", normalized_text)
+    normalized_text = DEFANGED_DOT_RE.sub(".", normalized_text)
+    normalized_text = DEFANGED_COLON_RE.sub(":", normalized_text)
+    normalized_text = DEFANGED_SLASH_RE.sub("/", normalized_text)
+    normalized_text = KOREAN_SPACED_DEFANGED_DOT_RE.sub(".", normalized_text)
+    normalized_text = KOREAN_DEFANGED_DOT_RE.sub(".", normalized_text)
+    normalized_text = HOST_SPACED_DOT_RE.sub(".", normalized_text)
+    normalized_text = SPACED_HTTPS_SCHEME_RE.sub("https://", normalized_text)
+    normalized_text = SPACED_HTTP_SCHEME_RE.sub("http://", normalized_text)
+    normalized_text = SPACED_HXXPS_SCHEME_RE.sub("https://", normalized_text)
+    normalized_text = SPACED_HXXP_SCHEME_RE.sub("http://", normalized_text)
+    normalized_text = SPACED_WWW_RE.sub("www", normalized_text)
+    normalized_text = re.sub(r"\s*:\s*/\s*/\s*", "://", normalized_text)
+    normalized_text = re.sub(r"(?i)\bhxxps://", "https://", normalized_text)
+    normalized_text = re.sub(r"(?i)\bhxxp://", "http://", normalized_text)
+    normalized_text = WRAPPED_WWW_AFTER_SCHEME_RE.sub(r"\1www", normalized_text)
+    normalized_text = _compact_spaced_url_segments(normalized_text)
+    return normalized_text.replace(":// ", "://")
+
+
+def _append_urls_from_normalized_text(normalized_text: str, urls: list[str]) -> None:
+    seen_spans: set[tuple[int, int]] = set()
+    for match in URL_IN_TEXT_RE.finditer(normalized_text):
+        span = match.span(1)
+        if span in seen_spans:
+            continue
+        seen_spans.add(span)
+        candidate = match.group(1).strip().rstrip(".,;:!?)]}\"'")
+        if not candidate or "." not in candidate:
+            continue
+        urls.append(candidate)
+        if len(urls) > ANALYZE_BATCH_MAX_URLS:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Too many URLs in text: {len(urls)} > {ANALYZE_BATCH_MAX_URLS}",
+            )
+
+
+def _decode_base64_url_text(token: str) -> str:
+    if len(token) > 4096:
+        return ""
+    padded = token + ("=" * ((4 - len(token) % 4) % 4))
+    try:
+        decoded = base64.b64decode(padded, altchars=b"-_", validate=False)
+    except (binascii.Error, ValueError):
+        return ""
+    try:
+        decoded_text = decoded.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+    normalized_text = _normalize_text_for_url_extraction(decoded_text)
+    if not URL_IN_TEXT_RE.search(normalized_text):
+        return ""
+    return decoded_text
+
+
+def _extract_urls_from_text(text: str) -> list[str]:
+    if not text:
+        return []
+    if len(text) > ANALYZE_TEXT_MAX_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Text too long: {len(text)} > {ANALYZE_TEXT_MAX_CHARS}",
+        )
+
+    urls: list[str] = []
+    normalized_text = _normalize_text_for_url_extraction(text)
+    _append_urls_from_normalized_text(normalized_text, urls)
+    for token_match in BASE64_TEXT_TOKEN_RE.finditer(normalized_text):
+        decoded_text = _decode_base64_url_text(token_match.group(1))
+        if decoded_text:
+            _append_urls_from_normalized_text(_normalize_text_for_url_extraction(decoded_text), urls)
+    return urls
+
+
+def _prepare_batch_urls(raw_urls: list[str]) -> tuple[list[str], list[str], dict[str, str], dict[str, int]]:
+    if not raw_urls:
+        raise HTTPException(status_code=400, detail="URLs are empty.")
+    if len(raw_urls) > ANALYZE_BATCH_MAX_URLS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many URLs: {len(raw_urls)} > {ANALYZE_BATCH_MAX_URLS}",
+        )
+
+    normalized_urls: list[str] = []
+    keys: list[str] = []
+    unique_urls: dict[str, str] = {}
+    first_index_by_key: dict[str, int] = {}
+    for index, raw_url in enumerate(raw_urls):
+        url = (raw_url or "").strip()
+        if not url:
+            raise HTTPException(status_code=400, detail=f"URL at index {index} is empty.")
+        key = _url_cache_key(url, default_scheme="https")
+        normalized_urls.append(url)
+        keys.append(key)
+        if key not in unique_urls:
+            unique_urls[key] = url
+            first_index_by_key[key] = index
+    return normalized_urls, keys, unique_urls, first_index_by_key
 
 
 @app.on_event("startup")
@@ -746,6 +1313,7 @@ async def startup_event():
     except Exception as e:
         app.state.eng_status = {"enabled": False, "reason": str(e)}
         print(f"[warn] KoBERT engine load failed: {e}")
+    _predict_kobert_cached.cache_clear()
 
     app.state.warmup_done = False
     app.state.warmup_info = None
@@ -759,11 +1327,15 @@ async def startup_event():
     app.state.gnn_engine = None
     app.state.url_ml_model = None
     app.state.url_ml_status = {"enabled": False, "reason": "not_loaded"}
+    _clear_runtime_caches()
 
     try:
         url_ml_model, url_ml_status = load_url_ml_model()
         app.state.url_ml_model = url_ml_model
         app.state.url_ml_status = url_ml_status.__dict__
+        _predict_url_ml_cached.cache_clear()
+        _url_rule_adjustment.cache_clear()
+        _url_heuristic_result.cache_clear()
         if url_ml_model is not None:
             sm = predict_url_ml(url_ml_model, "https://example.com")
             print(f"  [URLML] smoke OK — verdict={sm.get('verdict')} p={sm.get('probability')}")
@@ -794,9 +1366,14 @@ async def startup_event():
                 app.state.gnn_status = {"enabled": False, "reason": reason}
     except Exception as e:
         app.state.gnn_status = {"enabled": False, "reason": str(e)}
+    _predict_gnn_cached.cache_clear()
 
-    # Smoke predict after GNN load
-    if app.state.gnn_model is not None and app.state.gnn_columns is not None:
+    # Optional smoke predict; disabled by default because it performs network fetches.
+    if (
+        STARTUP_SMOKE_GNN
+        and app.state.gnn_model is not None
+        and app.state.gnn_columns is not None
+    ):
         try:
             sm = predict_gnn(
                 app.state.gnn_model,
@@ -865,6 +1442,7 @@ async def startup_event():
             "enabled": False,
             "warnings": xg_errors,
         }
+    _predict_xgboost_cached.cache_clear()
 
     print("--- [2/2] Warmup (warmup_engine) ---")
     if app.state.eng is not None:
@@ -927,6 +1505,23 @@ async def ready():
         "xgboost": getattr(app.state, "xg_status", {"enabled": False}),
         "gnn": getattr(app.state, "gnn_status", {"enabled": False}),
         "url_ml": getattr(app.state, "url_ml_status", {"enabled": False}),
+        "runtime": {
+            "xgboost_workers": XGBOOST_WORKERS,
+            "gnn_workers": GNN_WORKERS,
+            "kobert_cache_size": KOBERT_CACHE_SIZE,
+            "xgboost_cache_size": XGBOOST_CACHE_SIZE,
+            "gnn_cache_size": GNN_CACHE_SIZE,
+            "url_ml_cache_size": URL_ML_CACHE_SIZE,
+            "analyze_batch_max_urls": ANALYZE_BATCH_MAX_URLS,
+            "analyze_batch_workers": ANALYZE_BATCH_WORKERS,
+            "analyze_text_max_chars": ANALYZE_TEXT_MAX_CHARS,
+            "url_ml_batch_vector_min": URL_ML_BATCH_VECTOR_MIN,
+            "kobert_url_ml_preflight": KOBERT_URL_ML_PREFLIGHT,
+            "gnn": gnn_runtime_config(),
+            "xgboost": xg_runtime_config(),
+        },
+        "cache": _runtime_cache_stats(),
+        "inflight": _runtime_inflight_stats(),
         "issues": issues,
     }
 
@@ -952,24 +1547,62 @@ async def warmup_manual():
     return {"ok": True, "warmup": info, "duration_sec": round(dur, 3)}
 
 
-@app.post("/analyze")
-async def analyze_url(request: URLRequest):
-    """Parallel koBERT, XGBoost, GNN via asyncio.gather."""
-    target_url = (request.url or "").strip()
-    if not target_url:
-        raise HTTPException(status_code=400, detail="URL is empty.")
+async def _url_ml_results_for_unique_items(unique_items: list[tuple[str, str]]) -> list[Any]:
+    model = getattr(app.state, "url_ml_model", None)
+    if model is not None and len(unique_items) >= URL_ML_BATCH_VECTOR_MIN:
+        return await _run_url_ml(
+            predict_url_ml_batch,
+            model,
+            [url for _key, url in unique_items],
+        )
+    return [await _run_url_ml(_run_url_ml_inference, url) for _key, url in unique_items]
 
-    print(f"--- [analyze] URL: {target_url} ---")
+
+async def _analyze_target_url(
+    target_url: str,
+    url_ml_result: Any = None,
+    t_url_ml: float | None = None,
+) -> dict[str, Any]:
+    """URLML fast path, then parallel koBERT, XGBoost, GNN when needed."""
+    if ANALYZE_VERBOSE_LOGS:
+        print(f"--- [analyze] URL: {target_url} ---")
 
     t_wall0 = time.perf_counter()
     try:
+        if url_ml_result is None:
+            t_url_ml0 = time.perf_counter()
+            url_ml_result = await _run_url_ml(_run_url_ml_inference, target_url)
+            t_url_ml = time.perf_counter() - t_url_ml0
+        elif t_url_ml is None:
+            t_url_ml = 0.0
+        if _should_fast_path_after_urlml(url_ml_result):
+            dur_wall = time.perf_counter() - t_wall0
+            if ANALYZE_VERBOSE_LOGS:
+                print(
+                    f"--- [analyze fast-path] URL: {target_url}\n"
+                    f"    {_log_line_url_ml(url_ml_result)}  ({t_url_ml:.3f}s)\n"
+                    f"    skipped koBERT/XGBoost/GNN after decisive URLML\n"
+                    f"    wall time: {dur_wall:.3f}s"
+                )
+            return _build_final_response(
+                target_url=target_url,
+                kobert_result=_skipped_after_urlml_result("KoBERT"),
+                xg_result=_skipped_after_urlml_result("XGBoost"),
+                gnn_result=_skipped_after_urlml_result("GNN"),
+                dur_wall=dur_wall,
+                t_kobert=0.0,
+                t_xg=0.0,
+                t_gnn=0.0,
+                url_ml_result=url_ml_result,
+                t_url_ml=t_url_ml,
+            )
 
         # Three branches in parallel (not sequential)
         async def _kobert_timed():
             t0 = time.perf_counter()
             eng = getattr(app.state, "eng", None)
             if eng is not None:
-                r = await _run_engine(eng.predict_phishing_result, target_url)
+                r = await _run_kobert_request(target_url)
             else:
                 r = {
                     "judgment": "unknown",
@@ -982,43 +1615,37 @@ async def analyze_url(request: URLRequest):
 
         async def _xg_timed():
             t0 = time.perf_counter()
-            r = await _run_xgboost(_run_xgboost_inference, target_url)
+            r = await _run_xgboost_request(target_url)
             return r, time.perf_counter() - t0
 
         async def _gnn_timed():
             t0 = time.perf_counter()
-            r = await _run_gnn(_run_gnn_inference, target_url)
-            return r, time.perf_counter() - t0
-
-        async def _url_ml_timed():
-            t0 = time.perf_counter()
-            r = await _run_url_ml(_run_url_ml_inference, target_url)
+            r = await _run_gnn_request(target_url)
             return r, time.perf_counter() - t0
 
         (
             (kobert_result, t_kobert),
             (xg_result, t_xg),
             (gnn_result, t_gnn),
-            (url_ml_result, t_url_ml),
         ) = await asyncio.gather(
             _kobert_timed(),
             _xg_timed(),
             _gnn_timed(),
-            _url_ml_timed(),
         )
     except Exception as e:
         print(f"[error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     dur_wall = time.perf_counter() - t_wall0
-    print(
-        f"--- [analyze summary] URL: {target_url}  (koBERT | xgboost | gnn parallel)\n"
-        f"    {_log_line_kobert(kobert_result)}  ({t_kobert:.3f}s)\n"
-        f"    {_log_line_xgboost(xg_result)}  ({t_xg:.3f}s)\n"
-        f"    {_log_line_gnn(gnn_result)}  ({t_gnn:.3f}s)\n"
-        f"    {_log_line_url_ml(url_ml_result)}  ({t_url_ml:.3f}s)\n"
-        f"    wall time (parallel): {dur_wall:.3f}s"
-    )
+    if ANALYZE_VERBOSE_LOGS:
+        print(
+            f"--- [analyze summary] URL: {target_url}  (koBERT | xgboost | gnn parallel)\n"
+            f"    {_log_line_kobert(kobert_result)}  ({t_kobert:.3f}s)\n"
+            f"    {_log_line_xgboost(xg_result)}  ({t_xg:.3f}s)\n"
+            f"    {_log_line_gnn(gnn_result)}  ({t_gnn:.3f}s)\n"
+            f"    {_log_line_url_ml(url_ml_result)}  ({t_url_ml:.3f}s)\n"
+            f"    wall time (parallel): {dur_wall:.3f}s"
+        )
     return _build_final_response(
         target_url=target_url,
         kobert_result=kobert_result,
@@ -1033,15 +1660,145 @@ async def analyze_url(request: URLRequest):
     )
 
 
-@app.post("/analyze/engine")
-async def analyze_engine_only(request: URLRequest):
-    """KoBERT only (e.g. step 1 in UI)."""
+@app.post("/analyze")
+async def analyze_url(request: URLRequest):
     target_url = (request.url or "").strip()
     if not target_url:
         raise HTTPException(status_code=400, detail="URL is empty.")
+    return await _analyze_target_url(target_url)
+
+
+@app.post("/analyze/batch")
+async def analyze_url_batch(request: URLBatchRequest):
+    raw_urls = list(request.urls or [])
+    normalized_urls, keys, unique_urls, first_index_by_key = _prepare_batch_urls(raw_urls)
+
+    semaphore = asyncio.Semaphore(ANALYZE_BATCH_WORKERS)
+    results_by_key: dict[str, dict[str, Any]] = {}
+    unique_items = list(unique_urls.items())
+
+    t0 = time.perf_counter()
+    t_url_ml0 = time.perf_counter()
+    url_ml_results = await _url_ml_results_for_unique_items(unique_items)
+    batch_t_url_ml = time.perf_counter() - t_url_ml0
+    url_ml_by_key: dict[str, Any] = {}
+    for (key, url), url_ml_result in zip(unique_items, url_ml_results):
+        url_ml_by_key[key] = _apply_url_rule_adjustment(
+            "URLML",
+            url,
+            url_ml_result,
+            _url_rule_adjustment(key),
+        )
+
+    async def analyze_one(key: str, url: str) -> None:
+        async with semaphore:
+            per_url_t_url_ml = batch_t_url_ml / max(1, len(unique_items))
+            results_by_key[key] = await _analyze_target_url(url, url_ml_by_key.get(key), per_url_t_url_ml)
+
+    await asyncio.gather(*(analyze_one(key, url) for key, url in unique_items))
+    results = [
+        {
+            "index": index,
+            "url": normalized_urls[index],
+            "duplicate_of": first_index_by_key[key] if first_index_by_key[key] != index else None,
+            "result": results_by_key[key],
+        }
+        for index, key in enumerate(keys)
+    ]
+    return {
+        "count": len(raw_urls),
+        "unique_count": len(unique_urls),
+        "deduplicated": len(unique_urls) < len(raw_urls),
+        "duration_sec": round(time.perf_counter() - t0, 3),
+        "results": results,
+    }
+
+
+@app.post("/analyze/text")
+async def analyze_text(request: TextAnalyzeRequest):
+    urls = _extract_urls_from_text(request.text or "")
+    if not urls:
+        return {
+            "count": 0,
+            "unique_count": 0,
+            "deduplicated": False,
+            "duration_sec": 0.0,
+            "results": [],
+        }
+    return await analyze_url_batch(URLBatchRequest(urls=urls))
+
+
+@app.post("/analyze/url-ml/batch")
+async def analyze_url_ml_batch(request: URLBatchRequest):
+    raw_urls = list(request.urls or [])
+    normalized_urls, keys, unique_urls, first_index_by_key = _prepare_batch_urls(raw_urls)
+
+    t0 = time.perf_counter()
+    results_by_key: dict[str, dict[str, Any]] = {}
+    unique_items = list(unique_urls.items())
+    batch_results = await _url_ml_results_for_unique_items(unique_items)
+
+    for (key, url), url_ml_result in zip(unique_items, batch_results):
+        url_ml_result = _apply_url_rule_adjustment(
+            "URLML",
+            url,
+            url_ml_result,
+            _url_rule_adjustment(key),
+        )
+        results_by_key[key] = {
+            "url_ml": url_ml_result,
+            "url_ml_status": getattr(app.state, "url_ml_status", {"enabled": False}),
+        }
+
+    results = [
+        {
+            "index": index,
+            "url": normalized_urls[index],
+            "duplicate_of": first_index_by_key[key] if first_index_by_key[key] != index else None,
+            "result": results_by_key[key],
+        }
+        for index, key in enumerate(keys)
+    ]
+    return {
+        "count": len(raw_urls),
+        "unique_count": len(unique_urls),
+        "deduplicated": len(unique_urls) < len(raw_urls),
+        "duration_sec": round(time.perf_counter() - t0, 3),
+        "results": results,
+    }
+
+
+@app.post("/analyze/url-ml/text")
+async def analyze_url_ml_text(request: TextAnalyzeRequest):
+    urls = _extract_urls_from_text(request.text or "")
+    if not urls:
+        return {
+            "count": 0,
+            "unique_count": 0,
+            "deduplicated": False,
+            "duration_sec": 0.0,
+            "results": [],
+        }
+    return await analyze_url_ml_batch(URLBatchRequest(urls=urls))
+
+
+@app.post("/analyze/engine")
+async def analyze_engine_only(request: URLRequest):
+    """KoBERT lane with URLML preflight for decisive URL-only cases."""
+    target_url = (request.url or "").strip()
+    if not target_url:
+        raise HTTPException(status_code=400, detail="URL is empty.")
+    url_ml_hint = None
+    if KOBERT_URL_ML_PREFLIGHT:
+        url_ml_hint = await _url_ml_hint_for_request(target_url)
+        if _should_fast_path_after_urlml(url_ml_hint):
+            return {
+                **_url_ml_preflight_model_result("KoBERT", url_ml_hint),
+                "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
+            }
     eng = getattr(app.state, "eng", None)
     if eng is not None:
-        result = await _run_engine(eng.predict_phishing_result, target_url)
+        result = await _run_kobert_request(target_url)
     else:
         result = {
             "judgment": "unknown",
@@ -1050,7 +1807,14 @@ async def analyze_engine_only(request: URLRequest):
             "engine_disabled": True,
             "engine_reason": getattr(app.state, "eng_status", {}).get("reason", "not_loaded"),
         }
-    result = _apply_url_rule_adjustment("KoBERT", target_url, result)
+    result = _apply_url_rule_adjustment(
+        "KoBERT",
+        target_url,
+        result,
+        _url_rule_adjustment(_url_cache_key(target_url)),
+    )
+    if url_ml_hint is not None:
+        result = _apply_url_ml_hint_to_model("KoBERT", result, url_ml_hint)
     return {
         **result,
         "engine_status": getattr(app.state, "eng_status", {"enabled": False}),
@@ -1059,12 +1823,24 @@ async def analyze_engine_only(request: URLRequest):
 
 @app.post("/analyze/xgboost")
 async def analyze_xgboost_only(request: URLRequest):
-    """XGBoost only; use /analyze/gnn for GNN separately."""
+    """XGBoost lane with URLML preflight; use /analyze/gnn for GNN separately."""
     target_url = (request.url or "").strip()
     if not target_url:
         raise HTTPException(status_code=400, detail="URL is empty.")
-    xg_result = await _run_xgboost(_run_xgboost_inference, target_url)
-    xg_result = _apply_url_rule_adjustment("XGBoost", target_url, xg_result)
+    url_ml_hint = await _url_ml_hint_for_request(target_url)
+    if _should_fast_path_after_urlml(url_ml_hint):
+        return {
+            "xgboost": _url_ml_preflight_model_result("XGBoost", url_ml_hint),
+            "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
+        }
+    xg_result = await _run_xgboost_request(target_url)
+    xg_result = _apply_url_rule_adjustment(
+        "XGBoost",
+        target_url,
+        xg_result,
+        _url_rule_adjustment(_url_cache_key(target_url)),
+    )
+    xg_result = _apply_url_ml_hint_to_model("XGBoost", xg_result, url_ml_hint)
     return {
         "xgboost": xg_result,
         "xgboost_status": getattr(app.state, "xg_status", {"enabled": False}),
@@ -1073,12 +1849,24 @@ async def analyze_xgboost_only(request: URLRequest):
 
 @app.post("/analyze/gnn")
 async def analyze_gnn_only(request: URLRequest):
-    """Web-structure GNN only."""
+    """Web-structure GNN lane with URLML preflight."""
     target_url = (request.url or "").strip()
     if not target_url:
         raise HTTPException(status_code=400, detail="URL is empty.")
-    gnn_result = await _run_gnn(_run_gnn_inference, target_url)
-    gnn_result = _apply_url_rule_adjustment("GNN", target_url, gnn_result)
+    url_ml_hint = await _url_ml_hint_for_request(target_url)
+    if _should_fast_path_after_urlml(url_ml_hint):
+        return {
+            "gnn": _url_ml_preflight_model_result("GNN", url_ml_hint),
+            "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),
+        }
+    gnn_result = await _run_gnn_request(target_url)
+    gnn_result = _apply_url_rule_adjustment(
+        "GNN",
+        target_url,
+        gnn_result,
+        _url_rule_adjustment(_url_cache_key(target_url)),
+    )
+    gnn_result = _apply_url_ml_hint_to_model("GNN", gnn_result, url_ml_hint)
     return {
         "gnn": gnn_result,
         "gnn_status": getattr(app.state, "gnn_status", {"enabled": False}),
@@ -1092,7 +1880,12 @@ async def analyze_url_ml_only(request: URLRequest):
     if not target_url:
         raise HTTPException(status_code=400, detail="URL is empty.")
     url_ml_result = await _run_url_ml(_run_url_ml_inference, target_url)
-    url_ml_result = _apply_url_rule_adjustment("URLML", target_url, url_ml_result)
+    url_ml_result = _apply_url_rule_adjustment(
+        "URLML",
+        target_url,
+        url_ml_result,
+        _url_rule_adjustment(_url_cache_key(target_url)),
+    )
     return {
         "url_ml": url_ml_result,
         "url_ml_status": getattr(app.state, "url_ml_status", {"enabled": False}),

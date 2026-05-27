@@ -1,0 +1,111 @@
+{
+  "inputs": [
+    "dev\\urlml_retrain_all_unique_20260522.csv",
+    "dev\\live_iter_20260523_new_clean_eval.csv",
+    "dev\\benign_user_normals_20260521.csv",
+    "dev\\fresh_unseen_100_20260524.csv",
+    "dev\\fresh_korean_unseen_100_20260524.csv",
+    "dev\\synthetic_korean_phish_20260524.csv"
+  ],
+  "label_conflicts": 0,
+  "seed": "url-split-v1",
+  "source_types": [
+    "benign_ad_landing",
+    "benign_hard_korean_smb",
+    "benign_major_official",
+    "benign_user_confirmed_fp",
+    "malicious_real_dead",
+    "malicious_real_live",
+    "malicious_synthetic_kr"
+  ],
+  "test_balanced": {
+    "labels": {
+      "0": 452,
+      "1": 452
+    },
+    "rows": 904,
+    "sources": {
+      "benign_ad_landing": 24,
+      "benign_hard_korean_smb": 210,
+      "benign_major_official": 148,
+      "benign_user_confirmed_fp": 70,
+      "malicious_real_live": 452
+    },
+    "splits": {
+      "test": 904
+    }
+  },
+  "test_operational": {
+    "labels": {
+      "0": 452,
+      "1": 50
+    },
+    "rows": 502,
+    "sources": {
+      "benign_ad_landing": 24,
+      "benign_hard_korean_smb": 210,
+      "benign_major_official": 148,
+      "benign_user_confirmed_fp": 70,
+      "malicious_real_live": 50
+    },
+    "splits": {
+      "test": 502
+    }
+  },
+  "train": {
+    "labels": {
+      "0": 3628,
+      "1": 4901
+    },
+    "rows": 8529,
+    "sources": {
+      "benign_ad_landing": 202,
+      "benign_hard_korean_smb": 1542,
+      "benign_major_official": 1317,
+      "benign_user_confirmed_fp": 567,
+      "malicious_real_live": 3825,
+      "malicious_synthetic_kr": 1076
+    },
+    "splits": {
+      "train": 8529
+    }
+  },
+  "validation": {
+    "labels": {
+      "0": 465,
+      "1": 597
+    },
+    "rows": 1062,
+    "sources": {
+      "benign_ad_landing": 23,
+      "benign_hard_korean_smb": 203,
+      "benign_major_official": 159,
+      "benign_user_confirmed_fp": 80,
+      "malicious_real_live": 473,
+      "malicious_synthetic_kr": 124
+    },
+    "splits": {
+      "validation": 1062
+    }
+  },
+  "warehouse": {
+    "labels": {
+      "0": 4545,
+      "1": 5960
+    },
+    "rows": 10505,
+    "sources": {
+      "benign_ad_landing": 249,
+      "benign_hard_korean_smb": 1955,
+      "benign_major_official": 1624,
+      "benign_user_confirmed_fp": 717,
+      "malicious_real_live": 4760,
+      "malicious_synthetic_kr": 1200
+    },
+    "splits": {
+      "test": 914,
+      "train": 8529,
+      "validation": 1062
+    }
+  }
+}

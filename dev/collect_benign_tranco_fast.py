@@ -18,6 +18,7 @@ if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
 from dev.collect_urls import fetch_tranco, save_csv
+from url_ml.train_url_ml import canonical_url_key
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
 
@@ -30,8 +31,9 @@ def load_exclude(paths: Iterable[str]) -> set[str]:
         with open(path, "r", encoding="utf-8-sig", newline="") as f:
             for row in csv.DictReader(f):
                 url = (row.get("url") or "").strip()
-                if url:
-                    exclude.add(url)
+                key = canonical_url_key(url)
+                if key:
+                    exclude.add(key)
     return exclude
 
 
@@ -74,7 +76,7 @@ def main() -> int:
     args = parser.parse_args()
 
     exclude = load_exclude(args.exclude)
-    candidates = [u for u in fetch_tranco(args.tranco_n) if u not in exclude]
+    candidates = [u for u in fetch_tranco(args.tranco_n) if canonical_url_key(u) not in exclude]
     candidates = list(dict.fromkeys(candidates))
     print(f"exclude={len(exclude)} candidates={len(candidates)} target={args.target}", flush=True)
 

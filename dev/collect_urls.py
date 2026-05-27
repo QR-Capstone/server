@@ -308,9 +308,18 @@ def check_url(url: str, timeout: int = 8) -> Tuple[bool, bool]:
         return False, False
 
 
-def filter_alive(urls: List[str], label: int, workers: int = 20, max_count: int = 500) -> List[dict]:
+def filter_alive(
+    urls: List[str],
+    label: int,
+    workers: int = 20,
+    max_count: int = 500,
+    timeout: int = 8,
+    max_checked: int | None = None,
+) -> List[dict]:
     """병렬로 생존 확인 — 배치 단위로 처리해 목표 달성 즉시 종료"""
     results: List[dict] = []
+    if max_checked is not None:
+        urls = urls[:max_checked]
     total = len(urls)
     batch_size = workers * 8  # 배치당 최대 future 수
 
@@ -321,7 +330,7 @@ def filter_alive(urls: List[str], label: int, workers: int = 20, max_count: int 
         checked_base = batch_start
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            fmap = {pool.submit(check_url, url): url for url in batch}
+            fmap = {pool.submit(check_url, url, timeout): url for url in batch}
             for fut in as_completed(fmap):
                 url = fmap[fut]
                 checked_base += 1

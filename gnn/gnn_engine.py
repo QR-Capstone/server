@@ -23,7 +23,9 @@ import re
 import socket
 import ssl
 import subprocess
+import threading
 from collections import Counter, defaultdict
+from functools import lru_cache
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -62,11 +64,13 @@ _PARENT_DIR = os.path.dirname(_BASE_DIR)
 if _PARENT_DIR not in os.sys.path:
     os.sys.path.insert(0, _PARENT_DIR)
 try:
-    from trusted_domains import is_trusted_official_url, strong_url_phishing_score
+    from trusted_domains import is_trusted_official_url, strong_url_phishing_score, url_heuristic_phishing_score
 except Exception:  # pragma: no cover
     def is_trusted_official_url(raw_url: str) -> bool:
         return False
     def strong_url_phishing_score(raw_url: str) -> float:
+        return 0.0
+    def url_heuristic_phishing_score(raw_url: str) -> float:
         return 0.0
 
 MODEL_KIND = "web_structure_torch_gnn_phishing_v2"
@@ -74,6 +78,8 @@ ARTIFACT_VERSION = 3
 
 DEFAULT_TIMEOUT = float(os.getenv("GNN_FETCH_TIMEOUT", "4.0"))
 DEFAULT_MAX_BYTES = int(os.getenv("GNN_FETCH_MAX_BYTES", str(512 * 1024)))
+FETCH_CACHE_SIZE = int(os.getenv("GNN_FETCH_CACHE_SIZE", "512"))
+FETCH_LOCK_MAX = max(1, int(os.getenv("GNN_FETCH_LOCK_MAX", str(max(1024, FETCH_CACHE_SIZE * 2)))))
 PUBLIC_DNS_SERVERS = ("1.1.1.1", "8.8.8.8")
 
 PHISHING_WORDS = {
@@ -99,6 +105,7 @@ PHISHING_WORDS = {
 BRAND_WORDS = {
     "apple",
     "binance",
+    "bradesco",
     "discord",
     "facebook",
     "github",
@@ -129,6 +136,7 @@ BRAND_DOMAIN_ALIASES = {
     "google": {"google", "gstatic", "googleusercontent"},
     "microsoft": {"microsoft", "live", "office", "windows"},
     "apple": {"apple", "icloud"},
+    "bradesco": {"bradesco"},
     "chase": {"chase"},
      "crypto": {"crypto"},   
     "trezor": {"trezor"},
@@ -635,8 +643,84 @@ def _maybe_browser_enhance(page: FetchedPage, timeout: float, max_bytes: int) ->
     return page
 
 
+_FETCH_CACHE_LOCK_GUARD = threading.Lock()
+_FETCH_CACHE_LOCKS: Dict[str, threading.Lock] = {}
+
+
+def _fetch_cache_key(url: str, timeout: float, max_bytes: int) -> str:
+    parsed = urlsplit(_normalize_url(url))
+    fetch_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ""))
+    return f"{fetch_url}\0{float(timeout):.3f}\0{int(max_bytes)}"
+
+
+def _fetch_cache_lock(key: str) -> threading.Lock:
+    with _FETCH_CACHE_LOCK_GUARD:
+        lock = _FETCH_CACHE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _FETCH_CACHE_LOCKS[key] = lock
+        return lock
+
+
+def _prune_fetch_cache_locks() -> None:
+    with _FETCH_CACHE_LOCK_GUARD:
+        if len(_FETCH_CACHE_LOCKS) <= FETCH_LOCK_MAX:
+            return
+        target_size = max(1, min(FETCH_CACHE_SIZE, FETCH_LOCK_MAX // 2))
+        for key, lock in list(_FETCH_CACHE_LOCKS.items()):
+            if len(_FETCH_CACHE_LOCKS) <= target_size:
+                break
+            if not lock.locked():
+                _FETCH_CACHE_LOCKS.pop(key, None)
+
+
+def _copy_fetched_page(page: FetchedPage) -> FetchedPage:
+    return FetchedPage(
+        page.requested_url,
+        page.final_url,
+        page.status,
+        page.html,
+        page.error,
+        page.redirect_count,
+        page.fetch_method,
+    )
+
+
+def runtime_config() -> Dict[str, Any]:
+    info = _fetch_page_cached.cache_info()
+    return {
+        "fetch_timeout_sec": DEFAULT_TIMEOUT,
+        "fetch_max_bytes": DEFAULT_MAX_BYTES,
+        "fetch_cache_size": FETCH_CACHE_SIZE,
+        "fetch_lock_max": FETCH_LOCK_MAX,
+        "fetch_cache_hits": int(info.hits),
+        "fetch_cache_misses": int(info.misses),
+        "fetch_cache_currsize": int(info.currsize),
+        "fetch_lock_count": len(_FETCH_CACHE_LOCKS),
+        "fetch_page_enabled": os.getenv("GNN_FETCH_PAGE", "1") != "0",
+        "playwright_enabled": os.getenv("GNN_USE_PLAYWRIGHT", "1") == "1",
+    }
+
+
+@lru_cache(maxsize=FETCH_CACHE_SIZE)
+def _fetch_page_cached(key: str, normalized: str, timeout: float, max_bytes: int) -> FetchedPage:
+    return _fetch_page_uncached(normalized, timeout, max_bytes)
+
+
 def fetch_page(url: str, timeout: float = DEFAULT_TIMEOUT, max_bytes: int = DEFAULT_MAX_BYTES) -> FetchedPage:
     normalized = _normalize_url(url)
+    parsed = urlsplit(normalized)
+    fetch_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ""))
+    key = _fetch_cache_key(fetch_url, timeout, max_bytes)
+    lock = _fetch_cache_lock(key)
+    try:
+        with lock:
+            return _copy_fetched_page(_fetch_page_cached(key, fetch_url, float(timeout), int(max_bytes)))
+    finally:
+        _prune_fetch_cache_locks()
+
+
+def _fetch_page_uncached(normalized: str, timeout: float, max_bytes: int) -> FetchedPage:
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -1809,6 +1893,11 @@ def build_explanation(
         )
 
     # fallback
+    if evidence.get("low_evidence_graph_adjustment"):
+        return _finalize(
+            ["페이지 fetch는 성공했지만 그래프 위험 증거가 거의 없어 GNN 악성 판정을 보수적으로 낮췄습니다."],
+            "정상",
+        )
     if not reasons:
         _add("전체적인 페이지 구조와 외부 연결 패턴이 알려진 피싱 사이트와 유사한 형태로 관찰되었습니다.")
 
@@ -1850,12 +1939,39 @@ def predict_gnn(
             ],
             "evidence": {"strong_url_phishing_pattern": url_only_score},
         }
+    url_heuristic_score = float(url_heuristic_phishing_score(url))
+    url_heuristic_threshold = float(os.getenv("GNN_URL_HEURISTIC_MALICIOUS_THRESHOLD", "0.20"))
+    if url_heuristic_score >= url_heuristic_threshold:
+        return {
+            "url": url,
+            "probability": round(max(url_heuristic_score, url_heuristic_threshold), 6),
+            "risk_score": round(max(url_heuristic_score, url_heuristic_threshold) * 100.0, 1),
+            "label": 1,
+            "verdict": "malicious",
+            "model_type": MODEL_KIND,
+            "threshold": float(getattr(model, "threshold", 0.5)),
+            "explanation": [
+                "URL 문자열에 계정/인증/배송/브랜드 사칭에 가까운 위험 구조가 누적되어 악성으로 보정했습니다."
+            ],
+            "evidence": {"url_heuristic_phishing_pattern": url_heuristic_score},
+        }
     fetch = os.getenv("GNN_FETCH_PAGE", "1") != "0"
     sample, graph = graph_sample_for_url(url, fetch=fetch)
     prob_mal = float(model.predict_proba_from_sample(sample))
     fmap_tmp = feature_map_from_graph(graph) if fetch else {}
     
-    if fmap_tmp.get("suspicious_tld", 0.0) > 0:
+    low_evidence_graph = (
+        fetch
+        and graph.fetch_error is None
+        and 200 <= int(graph.status or 0) < 400
+        and len(graph.edges) == 0
+        and len(graph.nodes) <= 1
+        and fmap_tmp.get("suspicious_tld", 0.0) <= 0
+    )
+    if low_evidence_graph:
+        prob_mal = min(prob_mal, float(os.getenv("GNN_LOW_EVIDENCE_MAX_PROB", "0.20")))
+        label = 0
+    elif fmap_tmp.get("suspicious_tld", 0.0) > 0:
         prob_mal = min(1.0, prob_mal + 0.40)
         label = 1
     else:
@@ -1869,6 +1985,8 @@ def predict_gnn(
     }
     if fetch:
         evidence = model.evidence_from_graph(graph)
+        if low_evidence_graph:
+            evidence["low_evidence_graph_adjustment"] = True
         evidence["page_url"] = graph.page_url
         out["graph_evidence"] = evidence
 

@@ -11,6 +11,7 @@ import random
 import re
 import socket
 import ssl
+import threading
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -23,6 +24,14 @@ import numpy as np
 import tldextract
 
 _TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=None)
+_XG_DEBUG_LOGS = os.getenv("XG_DEBUG_LOGS", "0") == "1"
+
+
+def _xg_debug(message: str) -> None:
+    if _XG_DEBUG_LOGS:
+        print(message)
+
+
 _PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT_DIR not in os.sys.path:
     os.sys.path.insert(0, _PARENT_DIR)
@@ -648,12 +657,12 @@ def extract_length_features(url: str) -> Dict[str, float]:
 # 4. Domain age / RDAP features (도메인 나이)
 # ============================================================
 
-_RDAP_LOOKUP_TIMEOUT_SECONDS = 3.0
+_RDAP_LOOKUP_TIMEOUT_SECONDS = float(os.getenv("XG_RDAP_LOOKUP_TIMEOUT", "1.0"))
 
 # 추론 시간이 길어져 기본값은 1회 조회로 제한합니다.
 # 필요 시 _RDAP_MAX_ATTEMPTS 값을 3으로 변경하면 최초 1회 + 재시도 2회 구조로 다시 사용할 수 있습니다.
-_RDAP_RETRY_SLEEP_SECONDS = 0.5  # 재시도 사이 간격 (_RDAP_MAX_ATTEMPTS > 1 일 때만 사용)
-_RDAP_MAX_ATTEMPTS = 1  # 기본 1회만 RDAP 호출 (과거 기본값: 3 → 최대 3회까지 조회 · 아래 루프 유지)
+_RDAP_RETRY_SLEEP_SECONDS = float(os.getenv("XG_RDAP_RETRY_SLEEP", "0.5"))
+_RDAP_MAX_ATTEMPTS = max(1, int(os.getenv("XG_RDAP_MAX_ATTEMPTS", "1")))
 # _RDAP_MAX_ATTEMPTS = 3  # timeout 대응 재시도를 다시 켤 때 위 줄을 주석 처리하고 이 값을 사용하세요.
 _DOMAIN_AGE_MAX_DAYS = 36500.0
 _DOMAIN_AGE_LOOKUP_FAILED = {
@@ -694,6 +703,38 @@ _DOMAIN_AGE_DISABLED = {
 }
 _DOMAIN_AGE_CACHE: Dict[str, Dict[str, Any]] = {}
 _NETWORK_CACHE: Dict[str, Dict[str, Any]] = {}
+_XG_LOCK_MAX = max(1, int(os.getenv("XG_LOCK_MAX", "4096")))
+_CACHE_LOCKS_GUARD = threading.Lock()
+_DOMAIN_AGE_LOCKS: Dict[str, threading.Lock] = {}
+_SSL_LOCKS: Dict[str, threading.Lock] = {}
+_DOM_FEATURE_LOCKS: Dict[str, threading.Lock] = {}
+
+
+def _cache_lock(lock_map: Dict[str, threading.Lock], key: str) -> threading.Lock:
+    with _CACHE_LOCKS_GUARD:
+        lock = lock_map.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            lock_map[key] = lock
+        return lock
+
+
+def _prune_lock_map(lock_map: Dict[str, threading.Lock]) -> None:
+    if len(lock_map) <= _XG_LOCK_MAX:
+        return
+    target_size = max(1, _XG_LOCK_MAX // 2)
+    for key, lock in list(lock_map.items()):
+        if len(lock_map) <= target_size:
+            break
+        if not lock.locked():
+            lock_map.pop(key, None)
+
+
+def _prune_cache_locks() -> None:
+    with _CACHE_LOCKS_GUARD:
+        _prune_lock_map(_DOMAIN_AGE_LOCKS)
+        _prune_lock_map(_SSL_LOCKS)
+        _prune_lock_map(_DOM_FEATURE_LOCKS)
 
 def normalize_host_for_network(url: str) -> Dict[str, Any]:
     """
@@ -710,11 +751,11 @@ def normalize_host_for_network(url: str) -> Dict[str, Any]:
     cache_key = raw_host or (url or "").strip()
     cached = _NETWORK_CACHE.get(cache_key)
     if cached is not None:
-        print(f"[NETWORK DEBUG] raw_host={cached['raw_host']}")
-        print(f"[NETWORK DEBUG] ascii_host={cached['ascii_host']}")
-        print(f"[NETWORK DEBUG] registered_domain={cached['registered_domain']}")
-        print(f"[NETWORK DEBUG] ascii_registered_domain={cached['ascii_registered_domain']}")
-        print(f"[NETWORK DEBUG] dns_resolved={cached['dns_resolved']}")
+        _xg_debug(f"[NETWORK DEBUG] raw_host={cached['raw_host']}")
+        _xg_debug(f"[NETWORK DEBUG] ascii_host={cached['ascii_host']}")
+        _xg_debug(f"[NETWORK DEBUG] registered_domain={cached['registered_domain']}")
+        _xg_debug(f"[NETWORK DEBUG] ascii_registered_domain={cached['ascii_registered_domain']}")
+        _xg_debug(f"[NETWORK DEBUG] dns_resolved={cached['dns_resolved']}")
         return dict(cached)
 
     ascii_host = raw_host
@@ -749,11 +790,11 @@ def normalize_host_for_network(url: str) -> Dict[str, Any]:
     }
     _NETWORK_CACHE[cache_key] = dict(info)
 
-    print(f"[NETWORK DEBUG] raw_host={raw_host}")
-    print(f"[NETWORK DEBUG] ascii_host={ascii_host}")
-    print(f"[NETWORK DEBUG] registered_domain={registered_domain}")
-    print(f"[NETWORK DEBUG] ascii_registered_domain={ascii_registered_domain}")
-    print(f"[NETWORK DEBUG] dns_resolved={dns_resolved}")
+    _xg_debug(f"[NETWORK DEBUG] raw_host={raw_host}")
+    _xg_debug(f"[NETWORK DEBUG] ascii_host={ascii_host}")
+    _xg_debug(f"[NETWORK DEBUG] registered_domain={registered_domain}")
+    _xg_debug(f"[NETWORK DEBUG] ascii_registered_domain={ascii_registered_domain}")
+    _xg_debug(f"[NETWORK DEBUG] dns_resolved={dns_resolved}")
     return dict(info)
 
 def _extract_host_for_domain_age(url_or_host: str) -> str:
@@ -796,22 +837,22 @@ def _fetch_rdap_payload_attempt(registered_domain: str) -> Tuple[Optional[Dict[s
             payload = response.read()
             charset = response.headers.get_content_charset() or "utf-8"
     except HTTPError as e:
-        print(f"[RDAP DEBUG] http_status={e.code}")
+        _xg_debug(f"[RDAP DEBUG] http_status={e.code}")
         if e.code == 404:
             return None, "not_registered"
         return None, "lookup_failed"
     except TimeoutError:
-        print("[RDAP DEBUG] timeout")
+        _xg_debug("[RDAP DEBUG] timeout")
         return None, "lookup_failed"
     except URLError as e:
-        print(f"[RDAP DEBUG] url_error={e}")
+        _xg_debug(f"[RDAP DEBUG] url_error={e}")
         return None, "lookup_failed"
     except (ValueError, OSError):
         return None, "lookup_failed"
     try:
         parsed = json.loads(payload.decode(charset, errors="replace"))
     except Exception:
-        print("[RDAP DEBUG] json_parse_failed")
+        _xg_debug("[RDAP DEBUG] json_parse_failed")
         return None, "lookup_failed"
     if not isinstance(parsed, dict):
         return None, "lookup_failed"
@@ -900,59 +941,64 @@ def _compute_domain_age_days(created_at: datetime, now: Optional[datetime] = Non
 def extract_domain_age_features(url: str) -> Dict[str, Any]:
     network_info = normalize_host_for_network(url)
     registered_domain = str(network_info.get("ascii_registered_domain", "") or "")
-    print(f"[DOMAIN DEBUG] url={url}")
-    print(f"[DOMAIN DEBUG] registered_domain={registered_domain}")
-    print(f"[DOMAIN DEBUG] rdap_cache_hit={registered_domain in _DOMAIN_AGE_CACHE}")
+    _xg_debug(f"[DOMAIN DEBUG] url={url}")
+    _xg_debug(f"[DOMAIN DEBUG] registered_domain={registered_domain}")
+    _xg_debug(f"[DOMAIN DEBUG] rdap_cache_hit={registered_domain in _DOMAIN_AGE_CACHE}")
 
     if not registered_domain:
-        print("[RDAP DEBUG] status=lookup_failed")
+        _xg_debug("[RDAP DEBUG] status=lookup_failed")
         return dict(_DOMAIN_AGE_LOOKUP_FAILED)
     if not bool(network_info.get("dns_resolved", False)):
-        print("[RDAP DEBUG] dns_failed_but_rdap_lookup_attempted")
+        _xg_debug("[RDAP DEBUG] dns_failed_but_rdap_lookup_attempted")
 
-    cached = _DOMAIN_AGE_CACHE.get(registered_domain)
-    if cached is not None:
-        return dict(cached)
+    lock = _cache_lock(_DOMAIN_AGE_LOCKS, registered_domain)
+    try:
+        with lock:
+            cached = _DOMAIN_AGE_CACHE.get(registered_domain)
+            if cached is not None:
+                return dict(cached)
 
-    payload, rdap_status = _fetch_rdap_payload(registered_domain)
-    print(f"[RDAP DEBUG] status={rdap_status}")
-    print(f"[DOMAIN DEBUG] rdap_payload_exists={payload is not None}")
+            payload, rdap_status = _fetch_rdap_payload(registered_domain)
+            _xg_debug(f"[RDAP DEBUG] status={rdap_status}")
+            _xg_debug(f"[DOMAIN DEBUG] rdap_payload_exists={payload is not None}")
 
-    if rdap_status == "not_registered":
-        features = dict(_DOMAIN_AGE_NOT_REGISTERED)
-        _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
-        return dict(features)
-    if rdap_status == "lookup_failed":
-        features = dict(_DOMAIN_AGE_LOOKUP_FAILED)
-        # lookup_failed is cached for the current run only to avoid repeated network delays.
-        _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
-        return dict(features)
+            if rdap_status == "not_registered":
+                features = dict(_DOMAIN_AGE_NOT_REGISTERED)
+                _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
+                return dict(features)
+            if rdap_status == "lookup_failed":
+                features = dict(_DOMAIN_AGE_LOOKUP_FAILED)
+                # lookup_failed is cached for the current run only to avoid repeated network delays.
+                _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
+                return dict(features)
 
-    created_at = _extract_rdap_creation_date(payload)
-    if created_at is None:
-        print("[RDAP DEBUG] creation_date_parse_failed")
-        features = dict(_DOMAIN_AGE_PARSE_FAILED)
-        _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
-        return dict(features)
+            created_at = _extract_rdap_creation_date(payload)
+            if created_at is None:
+                _xg_debug("[RDAP DEBUG] creation_date_parse_failed")
+                features = dict(_DOMAIN_AGE_PARSE_FAILED)
+                _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
+                return dict(features)
 
-    domain_age_days = _compute_domain_age_days(created_at)
-    print(f"[DOMAIN DEBUG] domain_age_days={domain_age_days}")
-    created_ref = created_at
-    if getattr(created_ref, "tzinfo", None) is not None:
-        created_ref = created_ref.astimezone(timezone.utc)
-    rdap_creation_date_iso = created_ref.date().isoformat()
-    features: Dict[str, Any] = {
-        "domain_age_days": float(domain_age_days),
-        "domain_age_log_days": float(math.log1p(domain_age_days)),
-        "domain_age_missing": 0.0,
-        "rdap_status_ok": 1.0,
-        "rdap_status_not_registered": 0.0,
-        "rdap_status_lookup_failed": 0.0,
-        "rdap_status_parse_failed": 0.0,
-        "rdap_creation_date_iso": rdap_creation_date_iso,
-    }
-    _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
-    return dict(features)
+            domain_age_days = _compute_domain_age_days(created_at)
+            _xg_debug(f"[DOMAIN DEBUG] domain_age_days={domain_age_days}")
+            created_ref = created_at
+            if getattr(created_ref, "tzinfo", None) is not None:
+                created_ref = created_ref.astimezone(timezone.utc)
+            rdap_creation_date_iso = created_ref.date().isoformat()
+            features: Dict[str, Any] = {
+                "domain_age_days": float(domain_age_days),
+                "domain_age_log_days": float(math.log1p(domain_age_days)),
+                "domain_age_missing": 0.0,
+                "rdap_status_ok": 1.0,
+                "rdap_status_not_registered": 0.0,
+                "rdap_status_lookup_failed": 0.0,
+                "rdap_status_parse_failed": 0.0,
+                "rdap_creation_date_iso": rdap_creation_date_iso,
+            }
+            _DOMAIN_AGE_CACHE[registered_domain] = dict(features)
+            return dict(features)
+    finally:
+        _prune_cache_locks()
 
 def get_domain_age_features_for_mode(url: str, enable_domain_age: bool) -> Dict[str, Any]:
     if not enable_domain_age:
@@ -963,7 +1009,7 @@ def get_domain_age_features_for_mode(url: str, enable_domain_age: bool) -> Dict[
 # 5. SSL certificate features (SSL 유효기간)
 # ============================================================
 
-_SSL_LOOKUP_TIMEOUT_SECONDS = 3.0
+_SSL_LOOKUP_TIMEOUT_SECONDS = float(os.getenv("XG_SSL_LOOKUP_TIMEOUT", "1.0"))
 _SSL_CERT_MAX_DAYS = 36500.0
 _SSL_FALLBACK = {
     "ssl_valid_days": 0.0,
@@ -1009,86 +1055,91 @@ def extract_ssl_features(url: str) -> Dict[str, float]:
     parsed = urlsplit(url if "://" in (url or "") else "http://" + (url or ""))
     network_info = normalize_host_for_network(url)
     if not bool(network_info.get("dns_resolved", False)):
-        print("[SSL DEBUG] skipped due to DNS failure")
+        _xg_debug("[SSL DEBUG] skipped due to DNS failure")
         return dict(_SSL_FALLBACK_LOOKUP_FAILED)
     host = str(network_info.get("ascii_host", "") or "")
-    print(f"[SSL DEBUG] url={url}")
-    print(f"[SSL DEBUG] scheme={parsed.scheme}")
-    print(f"[SSL DEBUG] host={host}")
-    print(f"[DOMAIN DEBUG] ssl_host={host}")
-    print(f"[DOMAIN DEBUG] ssl_cache_hit={host in _SSL_CACHE}")
+    _xg_debug(f"[SSL DEBUG] url={url}")
+    _xg_debug(f"[SSL DEBUG] scheme={parsed.scheme}")
+    _xg_debug(f"[SSL DEBUG] host={host}")
+    _xg_debug(f"[DOMAIN DEBUG] ssl_host={host}")
+    _xg_debug(f"[DOMAIN DEBUG] ssl_cache_hit={host in _SSL_CACHE}")
 
     if not host:
         return dict(_SSL_FALLBACK_LOOKUP_FAILED)
 
-    cached = _SSL_CACHE.get(host)
-    if cached is not None:
-        return dict(cached)
-
-    context = ssl.create_default_context()
+    lock = _cache_lock(_SSL_LOCKS, host)
     try:
-        with socket.create_connection((host, 443), timeout=_SSL_LOOKUP_TIMEOUT_SECONDS) as sock:
-            with context.wrap_socket(sock, server_hostname=host) as tls_sock:
-                cert = tls_sock.getpeercert()
-    except socket.gaierror:
-        print("[SSL DEBUG] DNS RESOLUTION FAILED")
-        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
-        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
-    except socket.timeout:
-        print("[SSL DEBUG] TCP CONNECTION TIMEOUT")
-        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
-        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
-    except ConnectionRefusedError:
-        print("[SSL DEBUG] CONNECTION REFUSED (port 443 closed)")
-        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK_NO_CERT)
-        return dict(_SSL_FALLBACK_NO_CERT)
-    except ssl.SSLError as e:
-        print(f"[SSL DEBUG] SSL HANDSHAKE FAILED: {e}")
-        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK_NO_CERT)
-        return dict(_SSL_FALLBACK_NO_CERT)
-    except (socket.error, ValueError, OSError):
-        print("[SSL DEBUG] UNKNOWN ERROR: socket/value/os level exception")
-        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
-        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
-    except Exception as e:
-        print(f"[SSL DEBUG] UNKNOWN ERROR: {e}")
-        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
-        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
+        with lock:
+            cached = _SSL_CACHE.get(host)
+            if cached is not None:
+                return dict(cached)
 
-    print("[SSL DEBUG] TLS HANDSHAKE SUCCESS")
-    print(f"[SSL DEBUG] notBefore={cert.get('notBefore')}")
-    print(f"[SSL DEBUG] notAfter={cert.get('notAfter')}")
+            context = ssl.create_default_context()
+            try:
+                with socket.create_connection((host, 443), timeout=_SSL_LOOKUP_TIMEOUT_SECONDS) as sock:
+                    with context.wrap_socket(sock, server_hostname=host) as tls_sock:
+                        cert = tls_sock.getpeercert()
+            except socket.gaierror:
+                _xg_debug("[SSL DEBUG] DNS RESOLUTION FAILED")
+                _xg_debug("[DOMAIN DEBUG] SSL FAILED -> fallback")
+                _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+                return dict(_SSL_FALLBACK_LOOKUP_FAILED)
+            except socket.timeout:
+                _xg_debug("[SSL DEBUG] TCP CONNECTION TIMEOUT")
+                _xg_debug("[DOMAIN DEBUG] SSL FAILED -> fallback")
+                _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+                return dict(_SSL_FALLBACK_LOOKUP_FAILED)
+            except ConnectionRefusedError:
+                _xg_debug("[SSL DEBUG] CONNECTION REFUSED (port 443 closed)")
+                _xg_debug("[DOMAIN DEBUG] SSL FAILED -> fallback")
+                _SSL_CACHE[host] = dict(_SSL_FALLBACK_NO_CERT)
+                return dict(_SSL_FALLBACK_NO_CERT)
+            except ssl.SSLError as e:
+                _xg_debug(f"[SSL DEBUG] SSL HANDSHAKE FAILED: {e}")
+                _xg_debug("[DOMAIN DEBUG] SSL FAILED -> fallback")
+                _SSL_CACHE[host] = dict(_SSL_FALLBACK_NO_CERT)
+                return dict(_SSL_FALLBACK_NO_CERT)
+            except (socket.error, ValueError, OSError):
+                _xg_debug("[SSL DEBUG] UNKNOWN ERROR: socket/value/os level exception")
+                _xg_debug("[DOMAIN DEBUG] SSL FAILED -> fallback")
+                _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+                return dict(_SSL_FALLBACK_LOOKUP_FAILED)
+            except Exception as e:
+                _xg_debug(f"[SSL DEBUG] UNKNOWN ERROR: {e}")
+                _xg_debug("[DOMAIN DEBUG] SSL FAILED -> fallback")
+                _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+                return dict(_SSL_FALLBACK_LOOKUP_FAILED)
 
-    not_before = _parse_ssl_cert_datetime(str(cert.get("notBefore", "")))
-    not_after = _parse_ssl_cert_datetime(str(cert.get("notAfter", "")))
-    if not_before is None or not_after is None:
-        print("[DOMAIN DEBUG] SSL FAILED -> fallback")
-        _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
-        return dict(_SSL_FALLBACK_LOOKUP_FAILED)
+            _xg_debug("[SSL DEBUG] TLS HANDSHAKE SUCCESS")
+            _xg_debug(f"[SSL DEBUG] notBefore={cert.get('notBefore')}")
+            _xg_debug(f"[SSL DEBUG] notAfter={cert.get('notAfter')}")
 
-    now = datetime.now(timezone.utc)
-    ssl_valid_days = _clamp_ssl_days((not_after - not_before).total_seconds() / 86400.0)
-    ssl_remaining_days = _clamp_ssl_days((not_after - now).total_seconds() / 86400.0)
-    ssl_age_days = _clamp_ssl_days((now - not_before).total_seconds() / 86400.0)
-    print(f"[DOMAIN DEBUG] ssl_valid_days={ssl_valid_days}")
-    print(f"[DOMAIN DEBUG] ssl_remaining_days={ssl_remaining_days}")
-    print(f"[DOMAIN DEBUG] ssl_age_days={ssl_age_days}")
-    features = {
-        "ssl_valid_days": float(ssl_valid_days),
-        "ssl_remaining_days": float(ssl_remaining_days),
-        "ssl_age_days": float(ssl_age_days),
-        "ssl_missing": 0.0,
-        "ssl_status_no_cert": 0.0,
-        "ssl_status_lookup_failed": 0.0,
-    }
-    _SSL_CACHE[host] = dict(features)
-    return dict(features)
+            not_before = _parse_ssl_cert_datetime(str(cert.get("notBefore", "")))
+            not_after = _parse_ssl_cert_datetime(str(cert.get("notAfter", "")))
+            if not_before is None or not_after is None:
+                _xg_debug("[DOMAIN DEBUG] SSL FAILED -> fallback")
+                _SSL_CACHE[host] = dict(_SSL_FALLBACK_LOOKUP_FAILED)
+                return dict(_SSL_FALLBACK_LOOKUP_FAILED)
+
+            now = datetime.now(timezone.utc)
+            ssl_valid_days = _clamp_ssl_days((not_after - not_before).total_seconds() / 86400.0)
+            ssl_remaining_days = _clamp_ssl_days((not_after - now).total_seconds() / 86400.0)
+            ssl_age_days = _clamp_ssl_days((now - not_before).total_seconds() / 86400.0)
+            _xg_debug(f"[DOMAIN DEBUG] ssl_valid_days={ssl_valid_days}")
+            _xg_debug(f"[DOMAIN DEBUG] ssl_remaining_days={ssl_remaining_days}")
+            _xg_debug(f"[DOMAIN DEBUG] ssl_age_days={ssl_age_days}")
+            features = {
+                "ssl_valid_days": float(ssl_valid_days),
+                "ssl_remaining_days": float(ssl_remaining_days),
+                "ssl_age_days": float(ssl_age_days),
+                "ssl_missing": 0.0,
+                "ssl_status_no_cert": 0.0,
+                "ssl_status_lookup_failed": 0.0,
+            }
+            _SSL_CACHE[host] = dict(features)
+            return dict(features)
+    finally:
+        _prune_cache_locks()
 
 def get_ssl_features_for_mode(url: str, enable_ssl: bool) -> Dict[str, float]:
     if not enable_ssl:
@@ -1178,7 +1229,7 @@ def extract_domain_only_features(
 # 6. DOM features (DOM 구조 특징)
 # ============================================================
 
-_DOM_FETCH_TIMEOUT_SECONDS = 5.0
+_DOM_FETCH_TIMEOUT_SECONDS = float(os.getenv("XG_DOM_FETCH_TIMEOUT", "1.5"))
 _DOM_FETCH_FALLBACK = {
     "dom_max_depth": 0.0,
     "dead_link_ratio": 0.0,
@@ -1207,6 +1258,25 @@ _DOM_MODEL_FEATURE_NAMES: List[str] = [
 ]
 DOM_MODEL_FEATURE_NAMES: Tuple[str, ...] = tuple(_DOM_MODEL_FEATURE_NAMES)
 _DOM_FEATURE_CACHE: Dict[str, Dict[str, float]] = {}
+
+
+def runtime_config() -> Dict[str, Any]:
+    return {
+        "xg_debug_logs": _XG_DEBUG_LOGS,
+        "rdap_lookup_timeout_sec": _RDAP_LOOKUP_TIMEOUT_SECONDS,
+        "rdap_max_attempts": _RDAP_MAX_ATTEMPTS,
+        "rdap_retry_sleep_sec": _RDAP_RETRY_SLEEP_SECONDS,
+        "ssl_lookup_timeout_sec": _SSL_LOOKUP_TIMEOUT_SECONDS,
+        "dom_fetch_timeout_sec": _DOM_FETCH_TIMEOUT_SECONDS,
+        "network_cache_size": len(_NETWORK_CACHE),
+        "domain_age_cache_size": len(_DOMAIN_AGE_CACHE),
+        "ssl_cache_size": len(_SSL_CACHE),
+        "dom_feature_cache_size": len(_DOM_FEATURE_CACHE),
+        "lock_max": _XG_LOCK_MAX,
+        "domain_age_lock_count": len(_DOMAIN_AGE_LOCKS),
+        "ssl_lock_count": len(_SSL_LOCKS),
+        "dom_feature_lock_count": len(_DOM_FEATURE_LOCKS),
+    }
 
 def _debug_print_dom_feature_values(feature_values: Dict[str, float]) -> None:
     print("[DOM FEATURE DEBUG]")
@@ -1308,31 +1378,31 @@ def _classify_dom_connection_error(error: Exception) -> str:
 
 def _normalize_url_for_dom_fetch(url: str) -> str:
     raw = (url or "").strip()
-    print(f"[DOM DEBUG] normalize_raw_url={raw}")
+    _xg_debug(f"[DOM DEBUG] normalize_raw_url={raw}")
     if not raw:
-        print("[DOM DEBUG] normalize_failed: empty url")
+        _xg_debug("[DOM DEBUG] normalize_failed: empty url")
         return ""
     candidate = raw if "://" in raw else f"http://{raw}"
-    print(f"[DOM DEBUG] normalize_candidate={candidate}")
+    _xg_debug(f"[DOM DEBUG] normalize_candidate={candidate}")
     try:
         parsed = urlsplit(candidate)
     except Exception:
-        print("[DOM DEBUG] normalize_failed: urlsplit exception")
+        _xg_debug("[DOM DEBUG] normalize_failed: urlsplit exception")
         return ""
     normalized = candidate if parsed.hostname else ""
     if not normalized:
-        print("[DOM DEBUG] normalize_failed: hostname missing")
+        _xg_debug("[DOM DEBUG] normalize_failed: hostname missing")
     return normalized
 
 def _fetch_html_for_dom(url: str) -> Tuple[str, Optional[str]]:
     network_info = normalize_host_for_network(url)
     if not bool(network_info.get("dns_resolved", False)):
-        print("[DOM DEBUG] skipped due to DNS failure")
+        _xg_debug("[DOM DEBUG] skipped due to DNS failure")
         return "", "dom_dns_failed"
 
     target_url = _normalize_url_for_dom_fetch(url)
     if not target_url:
-        print("[DOM DEBUG] normalize produced empty target_url")
+        _xg_debug("[DOM DEBUG] normalize produced empty target_url")
         return "", "dom_connection_error"
     ascii_host = str(network_info.get("ascii_host", "") or "")
     if ascii_host:
@@ -1350,9 +1420,9 @@ def _fetch_html_for_dom(url: str) -> Tuple[str, Optional[str]]:
         except Exception:
             pass
     if requests is None:
-        print("[DOM DEBUG] requests library is not available")
+        _xg_debug("[DOM DEBUG] requests library is not available")
         return "", "dom_connection_error"
-    print(f"[DOM DEBUG] fetching_url={target_url}")
+    _xg_debug(f"[DOM DEBUG] fetching_url={target_url}")
     try:
         response = requests.get(  # type: ignore[union-attr]
             target_url,
@@ -1360,26 +1430,26 @@ def _fetch_html_for_dom(url: str) -> Tuple[str, Optional[str]]:
             headers={"User-Agent": "Mozilla/5.0"},
         )
     except requests.exceptions.Timeout:
-        print("[DOM DEBUG] FETCH TIMEOUT")
+        _xg_debug("[DOM DEBUG] FETCH TIMEOUT")
         return "", "dom_timeout"
     except requests.exceptions.SSLError as e:
-        print(f"[DOM DEBUG] SSL ERROR: {e}")
+        _xg_debug(f"[DOM DEBUG] SSL ERROR: {e}")
         return "", "dom_ssl_error"
     except requests.exceptions.ConnectionError as e:
-        print(f"[DOM DEBUG] CONNECTION ERROR: {e}")
+        _xg_debug(f"[DOM DEBUG] CONNECTION ERROR: {e}")
         return "", _classify_dom_connection_error(e)
     except requests.exceptions.TooManyRedirects as e:
-        print(f"[DOM DEBUG] TOO MANY REDIRECTS: {e}")
+        _xg_debug(f"[DOM DEBUG] TOO MANY REDIRECTS: {e}")
         return "", "dom_blocked"
     except Exception as e:
-        print(f"[DOM DEBUG] UNKNOWN FETCH ERROR: {type(e).__name__}: {e}")
+        _xg_debug(f"[DOM DEBUG] UNKNOWN FETCH ERROR: {type(e).__name__}: {e}")
         return "", classify_dom_requests_connection_failure(e)
-    print(f"[DOM DEBUG] status_code={response.status_code}")
-    print(f"[DOM DEBUG] final_url={response.url}")
-    print(f"[DOM DEBUG] content_type={response.headers.get('Content-Type')}")
-    print(f"[DOM DEBUG] html_length={len(response.text or '')}")
+    _xg_debug(f"[DOM DEBUG] status_code={response.status_code}")
+    _xg_debug(f"[DOM DEBUG] final_url={response.url}")
+    _xg_debug(f"[DOM DEBUG] content_type={response.headers.get('Content-Type')}")
+    _xg_debug(f"[DOM DEBUG] html_length={len(response.text or '')}")
     if not response.ok:
-        print(f"[DOM DEBUG] RESPONSE NOT OK: status_code={response.status_code}")
+        _xg_debug(f"[DOM DEBUG] RESPONSE NOT OK: status_code={response.status_code}")
         if int(response.status_code) in {403, 429, 503}:
             return "", "dom_blocked"
         return "", "dom_connection_error"
@@ -1433,7 +1503,7 @@ def _extract_dom_features_from_html(
 ) -> Dict[str, float]:
     soup = _parse_dom_soup(html)
     if soup is None:
-        print("[DOM DEBUG] BeautifulSoup parsing failed")
+        _xg_debug("[DOM DEBUG] BeautifulSoup parsing failed")
         if print_dom_feature_debug:
             _debug_print_dom_feature_values(dict(_DOM_FETCH_FALLBACK))
         return dict(_DOM_FETCH_FALLBACK)
@@ -1476,30 +1546,35 @@ def _extract_dom_features_from_html(
 
 def extract_dom_features(url: str, *, print_dom_feature_debug: bool = True) -> Dict[str, float]:
     target_url = _normalize_url_for_dom_fetch(url)
-    print(f"[DOM DEBUG] input_url={url}")
-    print(f"[DOM DEBUG] normalized_url={target_url}")
+    _xg_debug(f"[DOM DEBUG] input_url={url}")
+    _xg_debug(f"[DOM DEBUG] normalized_url={target_url}")
     if not target_url:
         if print_dom_feature_debug:
             _debug_print_dom_feature_values(dict(_DOM_FETCH_FALLBACK))
         return dict(_DOM_FETCH_FALLBACK)
 
-    cached = _DOM_FEATURE_CACHE.get(target_url)
-    if cached is not None:
-        return dict(cached)
+    lock = _cache_lock(_DOM_FEATURE_LOCKS, target_url)
+    try:
+        with lock:
+            cached = _DOM_FEATURE_CACHE.get(target_url)
+            if cached is not None:
+                return dict(cached)
 
-    html, failure_key = _fetch_html_for_dom(target_url)
-    if failure_key is not None:
-        failure_features = _make_dom_failure_features(failure_key)
-        if print_dom_feature_debug:
-            _debug_print_dom_feature_values(failure_features)
-        _DOM_FEATURE_CACHE[target_url] = dict(failure_features)
-        return dict(failure_features)
+            html, failure_key = _fetch_html_for_dom(target_url)
+            if failure_key is not None:
+                failure_features = _make_dom_failure_features(failure_key)
+                if print_dom_feature_debug:
+                    _debug_print_dom_feature_values(failure_features)
+                _DOM_FEATURE_CACHE[target_url] = dict(failure_features)
+                return dict(failure_features)
 
-    features = _extract_dom_features_from_html(
-        html, target_url, print_dom_feature_debug=print_dom_feature_debug
-    )
-    _DOM_FEATURE_CACHE[target_url] = dict(features)
-    return dict(features)
+            features = _extract_dom_features_from_html(
+                html, target_url, print_dom_feature_debug=print_dom_feature_debug
+            )
+            _DOM_FEATURE_CACHE[target_url] = dict(features)
+            return dict(features)
+    finally:
+        _prune_cache_locks()
 
 def _dom_feature_dict_to_array(
     feature_values: Dict[str, float],
@@ -2643,26 +2718,20 @@ def predict_url(
     early_floor = _strong_xg_phishing_floor(url)
     if early_floor >= 0.66:
         return 1, early_floor, {"strong_url_phishing_pattern": early_floor}
-    X = featurize_urls(
-        [url],
-        enable_domain_age=enable_domain_age,
-        enable_ssl=enable_ssl,
-        domain_only=domain_only,
-    )
     feats = extract_features(
         url,
         enable_domain_age=enable_domain_age,
         enable_ssl=enable_ssl,
         domain_only=domain_only,
     )
+    X = feats.reshape(1, -1)
     base_n = len(bundle.feature_names)
     if X.shape[1] > base_n:
         X = X[:, :base_n]
         feats = feats[:base_n]
     proba = float(predict_proba(bundle.model, X)[0])
-    heuristic_floor = _strong_xg_phishing_floor(url)
-    if heuristic_floor > proba:
-        proba = heuristic_floor
+    if early_floor > proba:
+        proba = early_floor
     label = 1 if proba >= 0.5 else 0
     feat_map: Dict[str, Any] = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
     domain_age_meta = get_domain_age_features_for_mode(url, bool(enable_domain_age))
