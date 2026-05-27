@@ -154,7 +154,6 @@ _RE_PHONE = re.compile(r"\b\d{2,3}[-\s]?\d{3,4}[-\s]?\d{4}\b")
 _RE_EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 
 def redact_pii(text: str) -> str:
-    # 🌟 '전화번호', '이메일' 단어가 룰베이스에 걸리지 않도록 우회 단어로 변경!
     text = _RE_PHONE.sub("[고객센터_연락처]", text)
     text = _RE_EMAIL.sub("[고객센터_Email]", text)
     text = re.sub(r"\b[\d\s]*\*{2,}[\d\s]*\b", "[카드번호_형태]", text)
@@ -170,12 +169,12 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     type_map = { "tel": "전화번호", "email": "이메일", "password": "비밀번호", "text": "텍스트", "number": "숫자", "checkbox": "체크박스" }
     sensitive_map = { "account": "계좌번호", "acc_no": "계좌번호", "bank": "계좌번호", "resident": "주민등록번호", "jumin": "주민등록번호", "rrn": "주민등록번호", "card_num": "카드번호", "card_no": "카드번호", "cc_num": "카드번호", "cvc": "카드보안코드", "cvv": "카드보안코드" }
     raw_inputs = []
-    # 🌟 1. input 태그뿐만 아니라 내용 입력용 textarea 태그도 함께 스캔!
+    # 1. input 태그뿐만 아니라 내용 입력용 textarea 태그도 함께 스캔!
     for input_tag in soup.find_all(["input", "textarea"]):
         i_type = (input_tag.get("type", "text") or "text").lower() if input_tag.name == "input" else "텍스트"
         if i_type in ["hidden", "submit", "button", "image"]: continue
         
-        # 🌟 2. 입력창 안의 희미한 글씨(placeholder)가 있으면 무식하게 '텍스트'라 하지 않고 그대로 수집!
+        # 2. 입력창 안의 희미한 글씨(placeholder)가 있으면 무식하게 '텍스트'라 하지 않고 그대로 수집!
         placeholder = input_tag.get('placeholder', '').strip()
         if placeholder and len(placeholder) <= 15:
             raw_inputs.append(placeholder)
@@ -211,21 +210,17 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     extracted_texts = []
     short_text_count = 0
     
-    # 🌟 [추가됨] 한국어 폼 관련 필수 수집 키워드
+    # 한국어 폼 관련 필수 수집 키워드
     vital_kws = [
-        # 1. [작성자님 오리지널] 기존 핵심 단어 (완벽한 기초 뼈대)
+        # 1.핵심 단어 
         "이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청", "결제", "일반결제", 
         "재가입", "본인확인", "계정 정지", "비정상적인", "차단 해제", "안전한 사용", "유출",
-        
         # 2. 초민감 정보 & 금융
         "주민번호", "주민등록번호", "생년월일", "인증번호", "아이디", "ID", "카드번호", "CVC", "보안카드", "환급금",
-        
         # 3. 큐싱(QR 피싱) & 악성 앱 유도
         "앱 다운로드", "APK", "설치", "주차", "요금정산", "대여", "업데이트",
-        
         # 4. 택배/공공기관 사칭 미끼
         "택배", "송장", "송장번호", "통관", "과태료", "범칙금", "통지서", "조회",
-        
         # 5. 필수 행동 버튼
         "로그인", "login", "다운로드", "동의", "제출"
     ]
@@ -235,12 +230,12 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
         
         text_len = len(text)
         
-        # 🌟 [수정됨] 핵심 키워드가 포함되어 있으면 길이/개수 제한 무시하고 무조건 수집! (프리패스)
+        # 핵심 키워드가 포함되어 있으면 길이/개수 제한 무시하고 무조건 수집 (프리패스)
         if any(kw in text for kw in vital_kws):
             extracted_texts.append(text)
         # 일반 텍스트는 1글자 초과(2글자 이상)부터 수집하도록 완화
         elif 1 < text_len <= 25:
-            if short_text_count < 30: # 수집 한도도 15개 -> 30개로 넉넉하게 확장
+            if short_text_count < 30: # 수집 한도 30개
                 extracted_texts.append(text)
                 short_text_count += 1
         elif 25 < text_len <= 500:
@@ -590,6 +585,8 @@ def predict_phishing_result(target_url):
                 }
             }
         }
+
+        return final_json_report
         
         # 앱 UI 콘솔 출력
         print("\n" + "■"*60)
@@ -644,6 +641,7 @@ def predict_phishing_result(target_url):
                 }
             }
         }
+
         
         # 앱 UI 콘솔 출력
         print("\n" + "■"*60)
@@ -795,13 +793,20 @@ def predict_phishing_result(target_url):
     boost_weight_1 = 0.0
     discount_weight = 0.0 # 🌟 [신규] 오탐 방지용 점수 할인 변수
     
-    # 🌟 [신규 로직] 정상 기업 사이트(사업자등록번호 등) 오탐 방지 (점수 대폭 할인)
-    # 회사 사이트 하단에 필수로 들어가는 키워드가 있고, 고위험 협박 키워드가 없다면 정상 기업으로 간주
-    is_corporate_site = any(kw in processed_text.replace(" ", "") for kw in ["사업자등록번호", "사업자번호", "대표이사", "대표:"])
+    # 1. 여기서 current_domain을 먼저 안전하게 선언해 줍니다!
+    current_domain = urlparse(target_url).netloc.lower()
     
-    if is_corporate_site and not found_high_risk:
-        discount_weight = 0.80 # 위협 점수를 80% 깎아버림 (1/5 토막)
-        print("  🛡️ [오탐 방지] 정상적인 기업 정보(사업자등록번호 등) 감지! (위협 점수 80% 할인)")
+    # 2. 기존 기업 키워드에 공공기관, 복지센터, 필수 약관 키워드 대거 추가
+    safe_org_kws = ["사업자등록번호", "사업자번호", "대표이사", "대표:", "개인정보처리방침", "이용약관", "지원센터", "복지관", "재단법인", "사단법인", "어린이집"]
+    is_corporate_site = any(kw in processed_text.replace(" ", "") for kw in safe_org_kws)
+    
+    # 3. 비영리기관(.or.kr), 학교(.hs.kr, .ms.kr, .es.kr) 도메인인지 확인
+    is_org_domain = any(current_domain.endswith(tld) for tld in [".or.kr", ".hs.kr", ".ms.kr", ".es.kr"])
+
+    # 4. 정상 기관 키워드가 있거나 비영리 도메인이면서, 고위험 협박 키워드가 없을 때만 할인!
+    if (is_corporate_site or is_org_domain) and not found_high_risk:
+        discount_weight = 0.80 
+        print("  🛡️ [오탐 방지] 정상 기관/기업 신뢰도 확인! (위협 점수 80% 할인)")
 
     # 🌟 [기존 로직] HTTP 취약점 보정
     if is_http_vulnerable:
