@@ -1,0 +1,13 @@
+{
+  "generated_at_utc": "2026-06-10T21:46:03Z",
+  "feed_url_counts": {
+    "urlhaus": 18473,
+    "openphish": 300,
+    "phishtank": 64736,
+    "phishing_database": 789052,
+    "nurilab": 1268
+  },
+  "unique_keys": 896315,
+  "allowlist_exact": 4,
+  "allowlist_prefixes": 0
+}

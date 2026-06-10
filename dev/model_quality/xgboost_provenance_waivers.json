@@ -1,0 +1,14 @@
+{
+  "waivers": {
+    "xgboost/url_xgb_domain_age.joblib": {
+      "artifact_sha256": "be8a671fdd869694d3a79d49f7f86d6c0d61a1315d59c69d27bbf7c967f20a52",
+      "reason": "Current artifact predates retained engine-training-input manifests. It reports training_rows=10000 and label_counts={0:4545,1:5455}; the exact source CSV is not present in the current worktree. A 2026-06-05 attempt to retrain from dev/engine_training_inputs/xgboost_train_10k.csv with offline domain signals was rejected by the training guard at internal accuracy 0.5353, so the higher-performing existing artifact is retained until live/cached domain-signal retraining is made reproducible.",
+      "required_action": "Retrain url_xgb_domain_age.joblib from a retained CSV with cached RDAP/SSL features, then remove this waiver after dev/audit_xgboost_artifact_provenance.py passes without --waiver-file."
+    },
+    "xgboost/url_xgb_dom.joblib": {
+      "artifact_sha256": "664446c5c8252b15cfa2d55fab4dfd62f605e7ad57804f0925b4bb949e634fbd",
+      "reason": "Current artifact predates retained engine-training-input manifests. It reports training_rows=10000 and label_counts={0:4545,1:5455}; the exact source CSV is not present in the current worktree. Full DOM retraining requires live page fetches and has not yet been converted to a retained feature-cache workflow.",
+      "required_action": "Retrain url_xgb_dom.joblib from a retained CSV with cached DOM features, then remove this waiver after dev/audit_xgboost_artifact_provenance.py passes without --waiver-file."
+    }
+  }
+}

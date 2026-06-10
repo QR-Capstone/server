@@ -1,0 +1,21 @@
+{
+  "loaded_rows": 166877,
+  "training_rows": 164264,
+  "label_counts": {
+    "0": 82132,
+    "1": 82132
+  },
+  "holdout_excluded": 6904,
+  "balanced": true,
+  "class_weight_balanced": true,
+  "C": 5.0,
+  "inputs": [
+    "dev/engine_training_inputs/expanded_url_train_20260611.csv"
+  ],
+  "holdouts": [
+    "dev/fresh_eval_20260611.csv",
+    "dev/fresh_eval_crosssource_20260611.csv",
+    "dev/dataset_splits/test_balanced.csv",
+    "dev/dataset_splits/test_operational.csv"
+  ]
+}

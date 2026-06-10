@@ -1,0 +1,18 @@
+{
+  "loaded_rows": 8409,
+  "training_rows": 7256,
+  "label_counts": {
+    "0": 3628,
+    "1": 3628
+  },
+  "holdout_excluded": 1062,
+  "balanced": true,
+  "class_weight_balanced": false,
+  "C": 4.0,
+  "inputs": [
+    "dev\\dataset_splits\\train.csv"
+  ],
+  "holdouts": [
+    "dev\\dataset_splits\\validation.csv"
+  ]
+}

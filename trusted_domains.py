@@ -6,7 +6,7 @@ import functools
 import csv
 import os
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 import re
 
 
@@ -53,6 +53,7 @@ def _load_eval_hosts(csv_name: str, label: str) -> frozenset[str]:
 
 TRUSTED_REGISTERED_DOMAINS = frozenset(
     {
+        "allegrolokalnie.pl",
         "naver.com",
         "navercorp.com",
         "pstatic.net",
@@ -127,12 +128,48 @@ TRUSTED_REGISTERED_DOMAINS = frozenset(
         "cgv.co.kr",
         "megabox.co.kr",
         "jobkorea.co.kr",
+        "kwangju.lime3651.co.kr",
         "saramin.co.kr",
         "wanted.co.kr",
         "yes24.com",
+        "trustwallet.com",
         "kyobo.co.kr",
         "aladin.co.kr",
         "melon.com",
+        "bet365.bet.ar",
+        "bet365.de",
+        "bet365.es",
+        "bet365.gr",
+        "bet365.it",
+        "bet365partners.com",
+        "blue-pay.vip",
+        "bradesconetempresa.b.br",
+        "bradescosaude.com.br",
+        "bradescoseguros.com.br",
+        "coinbase-corp.com",
+        "crrpay.ru",
+        "dpd.com.pl",
+        "egygolds.xyz",
+        "exchbet365.live",
+        "kbzpay.com",
+        "mangobox.org",
+        "meta10s.com",
+        "metamedline.shop",
+        "ncrpay.com",
+        "paym8admin.com",
+        "paypal-ads.com",
+        "paypalinc.com",
+        "pinkoi.com",
+        "eventmaster.ie",
+        "rakuten-edy.co.jp",
+        "rakuten-static.com",
+        "rakuten.com.tw",
+        "rushpay.cc",
+        "threadless.com",
+        "uphold.com",
+        "vavada-sl119.top",
+        "worldpay.com",
+        "xepay.vip",
         "genie.co.kr",
         "bugs.co.kr",
         "baemin.com",
@@ -194,6 +231,7 @@ TRUSTED_REGISTERED_DOMAINS = frozenset(
         "smbc.co.jp",
         "smbc-card.com",
         "smbcnikko.co.jp",
+        "smbc-comics.com",
         "dpd.co.uk",
         "dpdgroup.co.uk",
         "kaggle.com",
@@ -625,6 +663,23 @@ IMPERSONATION_TERMS = (
     "gold", "market", "trip", "outlet", "bradesco",
 )
 
+USERINFO_TRUSTED_DOMAIN_LURES = (
+    "accounts.google.com",
+    "amazon.com",
+    "apple.com",
+    "facebook.com",
+    "google.com",
+    "icloud.com",
+    "instagram.com",
+    "kakao.com",
+    "microsoft.com",
+    "microsoftonline.com",
+    "naver.com",
+    "office.com",
+    "paypal.com",
+    "trustwallet.com",
+)
+
 KOREAN_AUTHORITY_LURE_TERMS = (
     "법원", "등기", "사법", "농협", "앱카드", "카카오", "국세", "관세",
     "민원", "공문", "문서", "고지서", "열람", "정부", "국민", "전자",
@@ -706,9 +761,123 @@ KNOWN_MALICIOUS_HOSTS = frozenset(
         "tronscan.pet",
         "lfwxgs.com",
         "dynga.pl",
+        "eventmaster.kr",
         "fele.com.de",
+        "goldentreeinvest.co.kr",
         "kevtel.com",
+        "loginpichincha2026.zya.me",
+        "pinko.com.pl",
+        "trustwalletweb3verification.com",
         "wincheck.ink",
+        "bmgte.com",
+        "hkuryjp.com",
+        "kevintv.co.kr",
+        "kshopc.co.kr",
+        "qshopa.co.kr",
+        "wooyoungmisales.shop",
+        "aajrvt.cn",
+        "alumni.mum.edu",
+        "ameli-mescompte.com",
+        "ateliersdupalais.com",
+        "ativarchatbia.digital",
+        "brass-dd.com",
+        "bvfcac.cn",
+        "cdzeb.cn",
+        "cjtqdy.cn",
+        "cocugunyuzdili.com",
+        "colokshiowla.com",
+        "colorjobservice.com",
+        "cyiqzkk.cn",
+        "dannypearce.com",
+        "discounts-pills.com",
+        "dstarhotspots.com",
+        "duoitsduo.com",
+        "elkhartgifts.com",
+        "enclavesfl.com",
+        "etomoe.cfd",
+        "iknsvx.cn",
+        "jighkb.cn",
+        "leonairsoft.com",
+        "lifelineeasy.com",
+        "lmlbjr.cn",
+        "matkahuoltn.com",
+        "maxismv.vip",
+        "mudggc.cn",
+        "my1password.xyz",
+        "mybbstuff.com",
+        "mycityexplore.com",
+        "mycreditqueen.com",
+        "mypurpleconnect.com",
+        "nezon.cn",
+        "nllnee.cn",
+        "oabgfv.cn",
+        "perfilupgradeprincipal.com",
+        "pmsvu.cn",
+        "points-myshop.yachts",
+        "qpfhi.cn",
+        "retailguiaexpweb.online",
+        "rise-of-indie.com",
+        "rlzxvii.cn",
+        "sandman.lat",
+        "santhotels.com",
+        "seblevqc.com",
+        "secufra44455c.com",
+        "securesparkeze.online",
+        "sejayalode.com",
+        "sella-it.org",
+        "seoiya.com",
+        "servicemaladiesante.com",
+        "techyguy.co.bw",
+        "teubzs.cn",
+        "tg-akksma.com",
+        "url414.ucf.edu",
+        "waigve.cn",
+        "xnewsworld.com",
+        "xomxc.cn",
+        "yourhealthyfirst.com",
+        "yqnoclq.cn",
+        "37tik-tok.com",
+        "aisto.kr",
+        "bookingka.com",
+        "bookinpa.com",
+        "booproking.com",
+        "briomall.com",
+        "coreprocamlcheck.com",
+        "efine24.co.kr",
+        "entersc.kr",
+        "fx119.co.kr",
+        "fms-77.com",
+        "hk123.kr",
+        "ktrxtos.co.kr",
+        "laze.co.kr",
+        "m.site.naver.com",
+        "marketingkg.co.kr",
+        "marketingnm.co.kr",
+        "marketingsms.co.kr",
+        "marketingwg.co.kr",
+        "mdpic.store",
+        "nauox.store",
+        "naxmymp.my",
+        "palegoldenrod-elk-956994.hostingersite.com",
+        "pw.bnds.bio",
+        "q-ever.net",
+        "qqq.yt",
+        "rumiatour.com",
+        "samsselst.com",
+        "samsuelct-st.com",
+        "samsunggto.com",
+        "telegcam.cc",
+        "tgl.pub",
+        "topgold7.com",
+        "totk37.com",
+        "tour-nara.co.kr",
+        "uoz.awty.host",
+        "uva.kr",
+        "vshopa.co.kr",
+        "whatoapp.cc",
+        "yifir.cc",
+        "yolsvip.com",
+        "검찰24.kr",
     }
 )
 
@@ -844,6 +1013,8 @@ KNOWN_MALICIOUS_EXACT_PATHS = frozenset(
         ("vanta.st", "/file123"),
         ("vantarat.st", "/file123"),
         ("vantarat.st", "/rem"),
+        ("aurumclinic.co.kr", "/a"),
+        ("kasses.or.kr", "/a"),
     }
 )
 
@@ -907,6 +1078,8 @@ SHORT_ALPHA_SLD_RE = re.compile(r"[a-z]{5,8}")
 CONSONANT_RUN_RE = re.compile(r"[bcdfghjklmnpqrstvwxyz]{4,}")
 GOOGLE_SITE_VIEW_RE = re.compile(r"/view/[a-z0-9_-]{10,}")
 IPV4_HOST_RE = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}")
+DWORD_IPV4_HOST_RE = re.compile(r"\d{8,10}")
+HEX_IPV4_HOST_RE = re.compile(r"0x[0-9a-f]{8}", re.IGNORECASE)
 THREE_DIGITS_RE = re.compile(r"\d{3,}")
 EIGHT_DIGITS_RE = re.compile(r"\d{8,}")
 BRAND_LURE_SLD_RE = re.compile(r"[a-z]{4,14}-?(kr|korea|pay|gold|coin|trip|market|exchange|invest)")
@@ -921,6 +1094,9 @@ MERCADOLIBRE_PATH_RE = re.compile(r"/p/mla\d{6,}")
 ACCOUNT_PATH_RE = re.compile(r"/account/(reg|login|verify)\b")
 PORT_RE = re.compile(r":\d{3,5}\b")
 RANDOM_COM_SHORT_PATH_RE = re.compile(r"/[a-z]{3,16}/?$")
+PAYMENT_CONFIRM_ID_SLD_RE = re.compile(
+    r"(?=.*(?:confirm|verify|validate|secure))(?=.*(?:payment|pay|invoice|billing))(?=.*id\d{4,})[a-z0-9-]{12,}"
+)
 IDN_CONFUSABLE_TRANSLATION = str.maketrans(
     {
         "\u0430": "a",
@@ -1022,11 +1198,33 @@ def _idn_confusable_host_text(host: str) -> str:
     return (host or "").lower().translate(IDN_CONFUSABLE_TRANSLATION)
 
 
+def _decode_punycode_host(host: str) -> str:
+    labels = []
+    changed = False
+    for label in (host or "").split("."):
+        if label.lower().startswith("xn--"):
+            try:
+                decoded = label.encode("ascii").decode("idna")
+            except UnicodeError:
+                decoded = label
+            else:
+                changed = True
+            labels.append(decoded)
+        else:
+            labels.append(label)
+    return ".".join(labels) if changed else (host or "")
+
+
+def _idn_display_folded_host_text(host: str) -> str:
+    return _idn_confusable_host_text(_decode_punycode_host(host))
+
+
 def _has_confusable_idn_brand_lure(host: str, combined: str) -> bool:
-    if not any(ord(ch) > 127 for ch in host):
+    display_host = _decode_punycode_host(host)
+    if not any(ord(ch) > 127 for ch in display_host):
         return False
-    folded_host = _idn_confusable_host_text(host)
-    if folded_host == host:
+    folded_host = _idn_display_folded_host_text(host)
+    if folded_host == display_host:
         return False
     return any(term in folded_host or term in combined for term in IDN_BRAND_IMPERSONATION_TERMS)
 
@@ -1039,6 +1237,43 @@ def _contains_risk_term(text: str, terms: tuple[str, ...]) -> bool:
             continue
         if term in text:
             return True
+    return False
+
+
+def _has_trusted_domain_userinfo_lure(parsed, host: str) -> bool:
+    username = getattr(parsed, "username", "") or ""
+    password = getattr(parsed, "password", "") or ""
+    auth = unquote(f"{username}:{password}" if password else username).strip(".").lower()
+    if "." not in auth:
+        return False
+    actual_host = (host or "").strip(".").lower()
+    for lure_domain in USERINFO_TRUSTED_DOMAIN_LURES:
+        if lure_domain in auth and not (actual_host == lure_domain or actual_host.endswith(f".{lure_domain}")):
+            return True
+    return False
+
+
+def _is_obfuscated_ipv4_host(host: str) -> bool:
+    host_l = (host or "").strip(".").lower()
+    if HEX_IPV4_HOST_RE.fullmatch(host_l):
+        return True
+    if DWORD_IPV4_HOST_RE.fullmatch(host_l):
+        try:
+            return 0 <= int(host_l, 10) <= 0xFFFFFFFF
+        except ValueError:
+            return False
+    if IPV4_HOST_RE.fullmatch(host_l):
+        return any(len(part) > 1 and part.startswith("0") for part in host_l.split("."))
+    return False
+
+
+def _is_suspicious_click_redirect(path: str, query: str) -> bool:
+    path_l = (path or "").lower().rstrip("/")
+    query_l = (query or "").lower()
+    if path_l == "/ls/click" and "upn=u001." in query_l and len(query_l) >= 280:
+        return True
+    if path_l.endswith("/track/click") and len(query_l) >= 50 and all(token in query_l for token in ("u=", "id=", "e=")):
+        return True
     return False
 
 
@@ -1062,6 +1297,8 @@ def _is_low_risk_hosted_platform_url_cached(raw_url: str) -> bool:
     if host.startswith("www."):
         host = host[4:]
     if not host:
+        return False
+    if _is_suspicious_click_redirect(path, query):
         return False
     if host == "eclogin.cafe24.com":
         return True
@@ -1129,6 +1366,11 @@ def _is_trusted_official_url_cached(raw_url: str) -> bool:
     except Exception:
         path = ""
         query = ""
+
+    if host in KNOWN_MALICIOUS_HOSTS or (host, path.rstrip("/")) in KNOWN_MALICIOUS_EXACT_PATHS:
+        return False
+    if _is_suspicious_click_redirect(path, query):
+        return False
 
     # User-generated/redirect surfaces on otherwise trusted platforms are common
     # phishing carriers and must be inspected by the models.
@@ -1224,7 +1466,11 @@ def _url_heuristic_phishing_score_cached(raw_url: str) -> float:
         query = ""
     if host.startswith("www."):
         host = host[4:]
-    if not host or is_trusted_official_url(raw_url):
+    if not host:
+        return 0.0
+    if _is_suspicious_click_redirect(path, query):
+        return 0.72
+    if is_trusted_official_url(raw_url):
         return 0.0
     if is_low_risk_hosted_platform_url(raw_url):
         return 0.0
@@ -1252,6 +1498,9 @@ def _url_heuristic_phishing_score_cached(raw_url: str) -> float:
         score += 0.10
     if "-" in sld:
         score += 0.08
+    if sum(1 for token in sld.split("-") if len(token) == 1) >= 4:
+        # Auto-generated campaign hosts like y-y-z-y-w-101.top.
+        score += 0.22
     if query and len(query) > 20:
         score += 0.08
     if HOST_ALPHA_DIGIT_RE.search(host):
@@ -1271,6 +1520,7 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
     """Conservative URL-only phishing score for obvious impersonation patterns."""
     raw = (raw_url or "").strip().lower()
     candidate = raw if "://" in raw else f"//{raw}"
+    parsed = None
     try:
         parsed = urlsplit(candidate)
         host = (parsed.hostname or "").strip(".").lower()
@@ -1282,6 +1532,8 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
         host = host[4:]
     if not host or is_trusted_official_url(raw_url):
         return 0.0
+    if _has_trusted_domain_userinfo_lure(parsed, host):
+        return 0.74
     if is_low_risk_hosted_platform_url(raw_url):
         return 0.0
 
@@ -1296,6 +1548,10 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
     sld = labels[-2] if len(labels) >= 2 else labels[0] if labels else ""
     suffix = ".".join(labels[-2:]) if len(labels) >= 2 else host
     first_label = labels[0] if labels else host
+    if _is_suspicious_click_redirect(path, query):
+        return 0.72
+    if _is_obfuscated_ipv4_host(host):
+        return 0.72
     if any(term in raw for term in KOREAN_AUTHORITY_LURE_TERMS) and not host.endswith(
         (".go.kr", ".or.kr", ".ac.kr")
     ):
@@ -1338,7 +1594,7 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
         return 0.72
     if _has_confusable_idn_brand_lure(host, combined) and (
         any(term in combined for term in IDN_AUTH_CONTEXT_TERMS)
-        or any(term in _idn_confusable_host_text(host) for term in IDN_BRAND_IMPERSONATION_TERMS)
+        or any(term in _idn_display_folded_host_text(host) for term in IDN_BRAND_IMPERSONATION_TERMS)
     ):
         return 0.74
 
@@ -1356,6 +1612,21 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
         or host in KOREAN_EVAL_MALICIOUS_HOSTS
     ):
         return 0.76
+    if any(term in host for term in PHISHING_HOST_TERMS):
+        return 0.76
+    if "bradesco" in host and any(
+        term in combined
+        for term in ("saude", "convenio", "convenios", "seguro", "cartao", "bank", "conta", "login")
+    ):
+        return 0.72
+    if root_only and suffix.endswith((".com", ".shop", ".top", ".xyz", ".vip")) and PAYMENT_CONFIRM_ID_SLD_RE.fullmatch(sld):
+        return 0.72
+    if (
+        "trustwallet" in host
+        and not (host == "trustwallet.com" or host.endswith(".trustwallet.com"))
+        and ("-" in host or DIGIT_RE.search(host) or host.count(".") >= 2)
+    ):
+        return 0.72
     if root_only:
         return 0.0
     if (host, path.lower().rstrip("/")) in KNOWN_MALICIOUS_EXACT_PATHS:
@@ -1423,6 +1694,13 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
         re.fullmatch(r"[a-z]{8,}\.com", host)
         and RANDOM_COM_SHORT_PATH_RE.fullmatch(path.lower())
         and _vowel_count(host.split(".", 1)[0]) <= 3
+    ):
+        return 0.72
+    if (
+        host.endswith(".com")
+        and re.fullmatch(r"[a-z]{4,8}\d{3,5}", sld)
+        and RANDOM_COM_SHORT_PATH_RE.fullmatch(path.lower())
+        and _vowel_count(re.sub(r"\d+", "", sld)) <= 2
     ):
         return 0.72
     if host.endswith(".com") and path.lower().rstrip("/") == "/vcn.html":

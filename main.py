@@ -13,7 +13,7 @@ import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
-from urllib.parse import unquote, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlsplit, urlunsplit
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIRS = {
@@ -112,15 +112,57 @@ URL_IN_TEXT_RE = re.compile(
     r"(?i)\b((?:hxxps?://|https?://|www\.)[^\s<>'\"`]+|[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:/[^\s<>'\"`]*)?)"
 )
 BASE64_TEXT_TOKEN_RE = re.compile(r"(?<![a-zA-Z0-9+/_=-])([a-zA-Z0-9+/_-]{16,}={0,2})(?![a-zA-Z0-9+/_=-])")
+HEX_TEXT_TOKEN_RE = re.compile(r"(?<![a-zA-Z0-9])([a-fA-F0-9]{32,4096})(?![a-zA-Z0-9])")
+JS_FROM_CHAR_CODE_RE = re.compile(r"(?i)\b(?:String\.)?fromCharCode\s*\(([^)]{16,4096})\)")
+JS_EMPTY_JOIN_ARRAY_RE = re.compile(
+    r"""(?is)\[((?:\s*["'][^"']{1,256}["']\s*,?){2,40})\]\s*\.join\s*\(\s*(["'])\2\s*\)"""
+)
+JS_REVERSED_EMPTY_JOIN_ARRAY_RE = re.compile(
+    r"""(?is)\[((?:\s*["'][^"']{1,256}["']\s*,?){2,40})\]\s*\.join\s*\(\s*(["'])\2\s*\)\s*\.split\s*\(\s*(["'])\3\s*\)\s*\.reverse\s*\(\s*\)\s*\.join\s*\(\s*(["'])\4\s*\)"""
+)
+JS_SIMPLE_STRING_LITERAL_RE = re.compile(r"""(?s)(["'])([^"']{1,256})\1""")
+JS_REVERSED_STRING_RE = re.compile(
+    r"""(?is)(["'])([^"']{8,4096})\1\s*\.split\s*\(\s*(["'])\3\s*\)\s*\.reverse\s*\(\s*\)\s*\.join\s*\(\s*(["'])\4\s*\)"""
+)
+JS_REVERSE_SUFFIX_RE = re.compile(r"""(?is)^\s*\.split\s*\(\s*(["'])\1\s*\)\s*\.reverse\s*\(\s*\)\s*\.join\s*\(\s*(["'])\2\s*\)""")
+JS_FUNCTION_URL_FALSE_POSITIVE_RE = re.compile(r"(?i)^(?:String\.)?fromCharCode$")
+REDIRECT_QUERY_PARAM_NAMES = frozenset(
+    {
+        "continue",
+        "dest",
+        "destination",
+        "go",
+        "link",
+        "next",
+        "r",
+        "redirect",
+        "redirect_to",
+        "redirect_uri",
+        "return",
+        "return_to",
+        "returnurl",
+        "target",
+        "targeturl",
+        "to",
+        "u",
+        "uri",
+        "url",
+    }
+)
 DEFANGED_DOT_RE = re.compile(r"(?i)\s*(?:\[\.\]|\(\.\)|\{\.\}|<\.>|\[dot\]|\(dot\)|\{dot\}| dot )\s*")
 DEFANGED_COLON_RE = re.compile(r"(?i)\s*(?:\[:\]|\(:\)|\{:\}|<:>|\[colon\]|\(colon\)|\{colon\}|colon|콜론|쌍점)\s*")
 DEFANGED_SLASH_RE = re.compile(r"(?i)\s*(?:\[/\]|\(/\)|\{/}|</>|\[slash\]|\(slash\)|\{slash\}|slash|슬래시)\s*")
+DEFANGED_AT_RE = re.compile(r"(?i)\s*(?:\[@\]|\(@\)|\{@\}|<@>|\[at\]|\(at\)|\{at\}| at )\s*")
 HOST_SPACED_DOT_RE = re.compile(r"(?i)(?<=[a-z0-9])\s+\.\s+(?=[a-z0-9])")
 KOREAN_DEFANGED_DOT_RE = re.compile(r"(?i)(?<=[a-z0-9])\s*(?:점|닷|쩜)\s*(?=[a-z0-9])")
 KOREAN_SPACED_DEFANGED_DOT_RE = re.compile(r"(?i)(?<=[a-z0-9])\s+(?:점|닷|쩜)\s+(?=[a-z0-9])")
 ESCAPED_URL_PUNCT_RE = re.compile(r"\\+([./:])")
 ASCII_HEX_ESCAPE_RE = re.compile(r"\\x([0-7][0-9a-fA-F])")
 ASCII_UNICODE_ESCAPE_RE = re.compile(r"(?:\\u|%u)00([0-7][0-9a-fA-F])")
+ASCII_CODEPOINT_ESCAPE_RE = re.compile(r"\\u\{0*([2-7][0-9a-fA-F])\}")
+ASCII_JS_OCTAL_ESCAPE_RE = re.compile(r"\\([1-7][0-7]{2}|0[1-7][0-7])")
+ASCII_CSS_ZERO_PADDED_ESCAPE_RE = re.compile(r"\\0{1,4}([2-7][0-9a-fA-F])\s?")
+ASCII_CSS_HEX_ESCAPE_RE = re.compile(r"\\([2-7][0-9a-fA-F])\s?")
 REMAINING_ESCAPE_TOKEN_RE = re.compile(r"(?:\\x[0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}|%u[0-9a-fA-F]{4})+")
 ASCII_QUOTED_PRINTABLE_RE = re.compile(r"=([0-7][0-9a-fA-F])")
 QUOTED_PRINTABLE_SOFT_BREAK_RE = re.compile(r"=\r?\n[ \t]*")
@@ -574,6 +616,16 @@ def _extract_model_risk(result: Any) -> str:
 @functools.lru_cache(maxsize=URL_RULE_CACHE_SIZE)
 def _url_rule_adjustment(url: str) -> dict[str, Any] | None:
     """Conservative URL-only override shared by all API lanes."""
+    for embedded_url in _embedded_redirect_urls(url):
+        embedded_score = float(strong_url_phishing_score(embedded_url))
+        if embedded_score >= 0.66:
+            return {
+                "riskLevel": "DANGEROUS",
+                "judgment": "unnormal",
+                "verdict": "malicious",
+                "probability": embedded_score,
+                "reason": "redirect 파라미터 내부의 강한 URL 피싱 패턴 감지",
+            }
     if is_trusted_official_url(url):
         return {
             "riskLevel": "SAFE",
@@ -1128,12 +1180,32 @@ def _decode_ascii_url_escapes(text: str) -> str:
     def from_hex(match: re.Match[str]) -> str:
         return chr(int(match.group(1), 16))
 
+    def from_octal(match: re.Match[str]) -> str:
+        codepoint = int(match.group(1), 8)
+        if codepoint < 32 or codepoint > 126:
+            return " "
+        return chr(codepoint)
+
     text = QUOTED_PRINTABLE_SOFT_BREAK_RE.sub("", text)
     decoded = ASCII_HEX_ESCAPE_RE.sub(from_hex, text)
     decoded = ASCII_UNICODE_ESCAPE_RE.sub(from_hex, decoded)
+    decoded = ASCII_CODEPOINT_ESCAPE_RE.sub(from_hex, decoded)
+    decoded = ASCII_JS_OCTAL_ESCAPE_RE.sub(from_octal, decoded)
+    decoded = ASCII_CSS_ZERO_PADDED_ESCAPE_RE.sub(from_hex, decoded)
+    decoded = ASCII_CSS_HEX_ESCAPE_RE.sub(from_hex, decoded)
     decoded = ASCII_QUOTED_PRINTABLE_RE.sub(from_hex, decoded)
     decoded = REMAINING_ESCAPE_TOKEN_RE.sub(" ", decoded)
     return REMAINING_QUOTED_PRINTABLE_RE.sub(" ", decoded)
+
+
+def _decode_repeated_percent_url_text(text: str, *, max_rounds: int = 3) -> str:
+    decoded = text
+    for _ in range(max(1, max_rounds)):
+        next_decoded = unquote(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    return decoded
 
 
 def _compact_spaced_url_segments(text: str) -> str:
@@ -1192,7 +1264,7 @@ def _compact_spaced_url_segments(text: str) -> str:
 
 def _normalize_text_for_url_extraction(text: str) -> str:
     normalized_text = html.unescape(ZERO_WIDTH_TEXT_RE.sub("", text))
-    normalized_text = unquote(normalized_text)
+    normalized_text = _decode_repeated_percent_url_text(normalized_text)
     normalized_text = _decode_ascii_url_escapes(normalized_text)
     normalized_text = unicodedata.normalize("NFKC", normalized_text).translate(TEXT_URL_TRANSLATION)
     normalized_text = STRING_CONCAT_BREAK_RE.sub("", normalized_text)
@@ -1203,6 +1275,7 @@ def _normalize_text_for_url_extraction(text: str) -> str:
     normalized_text = DEFANGED_DOT_RE.sub(".", normalized_text)
     normalized_text = DEFANGED_COLON_RE.sub(":", normalized_text)
     normalized_text = DEFANGED_SLASH_RE.sub("/", normalized_text)
+    normalized_text = DEFANGED_AT_RE.sub("@", normalized_text)
     normalized_text = KOREAN_SPACED_DEFANGED_DOT_RE.sub(".", normalized_text)
     normalized_text = KOREAN_DEFANGED_DOT_RE.sub(".", normalized_text)
     normalized_text = HOST_SPACED_DOT_RE.sub(".", normalized_text)
@@ -1219,6 +1292,58 @@ def _normalize_text_for_url_extraction(text: str) -> str:
     return normalized_text.replace(":// ", "://")
 
 
+def _strip_url_trailing_punctuation(candidate: str) -> str:
+    candidate = (candidate or "").strip().rstrip(".,;:!?\"'")
+    while candidate and candidate[-1] in ")]}":
+        closer = candidate[-1]
+        opener = {"}": "{", "]": "[", ")": "("}[closer]
+        if candidate.count(closer) > candidate.count(opener):
+            candidate = candidate[:-1]
+            continue
+        break
+    return candidate
+
+
+def _embedded_redirect_urls(candidate: str) -> list[str]:
+    try:
+        parsed = urlsplit(candidate if "://" in candidate else f"https://{candidate}")
+    except Exception:
+        return []
+    param_sources = [parsed.query or ""]
+    fragment = parsed.fragment or ""
+    if fragment:
+        param_sources.append(fragment[1:] if fragment.startswith("?") else fragment)
+        if "?" in fragment:
+            param_sources.append(fragment.split("?", 1)[1])
+    embedded: list[str] = []
+    for param_source in param_sources:
+        if not param_source:
+            continue
+        for name, value in parse_qsl(param_source, keep_blank_values=False):
+            key = name.strip().lower().replace("-", "_")
+            if key not in REDIRECT_QUERY_PARAM_NAMES:
+                continue
+            decoded_value = _decode_repeated_percent_url_text(value)
+            normalized_value = _normalize_text_for_url_extraction(decoded_value)
+            values_to_scan = [normalized_value]
+            for base64_candidate in {value, decoded_value}:
+                base64_decoded_value = _decode_base64_url_text(base64_candidate)
+                if base64_decoded_value:
+                    values_to_scan.append(_normalize_text_for_url_extraction(base64_decoded_value))
+                hex_decoded_value = _decode_hex_url_text(base64_candidate)
+                if hex_decoded_value:
+                    values_to_scan.append(_normalize_text_for_url_extraction(hex_decoded_value))
+            for value_to_scan in values_to_scan:
+                match = URL_IN_TEXT_RE.search(value_to_scan)
+                if not match:
+                    continue
+                redirect_url = _strip_url_trailing_punctuation(match.group(1))
+                if redirect_url and "." in redirect_url:
+                    embedded.append(redirect_url)
+                    break
+    return embedded
+
+
 def _append_urls_from_normalized_text(normalized_text: str, urls: list[str]) -> None:
     seen_spans: set[tuple[int, int]] = set()
     for match in URL_IN_TEXT_RE.finditer(normalized_text):
@@ -1226,10 +1351,19 @@ def _append_urls_from_normalized_text(normalized_text: str, urls: list[str]) -> 
         if span in seen_spans:
             continue
         seen_spans.add(span)
-        candidate = match.group(1).strip().rstrip(".,;:!?)]}\"'")
+        candidate = _strip_url_trailing_punctuation(match.group(1))
+        if JS_FUNCTION_URL_FALSE_POSITIVE_RE.fullmatch(candidate):
+            continue
         if not candidate or "." not in candidate:
             continue
         urls.append(candidate)
+        for embedded_url in _embedded_redirect_urls(candidate):
+            urls.append(embedded_url)
+            if len(urls) > ANALYZE_BATCH_MAX_URLS:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Too many URLs in text: {len(urls)} > {ANALYZE_BATCH_MAX_URLS}",
+                )
         if len(urls) > ANALYZE_BATCH_MAX_URLS:
             raise HTTPException(
                 status_code=413,
@@ -1255,6 +1389,83 @@ def _decode_base64_url_text(token: str) -> str:
     return decoded_text
 
 
+def _decode_hex_url_text(token: str) -> str:
+    if len(token) > 4096 or len(token) % 2:
+        return ""
+    try:
+        decoded = bytes.fromhex(token)
+    except ValueError:
+        return ""
+    try:
+        decoded_text = decoded.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+    if any((ord(char) < 32 and char not in "\t\r\n") for char in decoded_text):
+        return ""
+    normalized_text = _normalize_text_for_url_extraction(decoded_text)
+    if not URL_IN_TEXT_RE.search(normalized_text):
+        return ""
+    return decoded_text
+
+
+def _decode_js_charcode_url_text(args_text: str) -> str:
+    if len(args_text) > 4096:
+        return ""
+    values = re.findall(r"(?i)(?:0x[0-9a-f]{2,4}|\d{2,5})", args_text)
+    if len(values) < 8:
+        return ""
+    chars: list[str] = []
+    for value in values[:512]:
+        try:
+            codepoint = int(value, 16) if value.lower().startswith("0x") else int(value, 10)
+        except ValueError:
+            return ""
+        if codepoint in (9, 10, 13):
+            chars.append(" ")
+            continue
+        if codepoint < 32 or codepoint > 126:
+            return ""
+        chars.append(chr(codepoint))
+    decoded_text = "".join(chars)
+    normalized_text = _normalize_text_for_url_extraction(decoded_text)
+    if not URL_IN_TEXT_RE.search(normalized_text):
+        return ""
+    return decoded_text
+
+
+def _decode_js_empty_join_url_text(array_text: str) -> str:
+    parts = [match.group(2) for match in JS_SIMPLE_STRING_LITERAL_RE.finditer(array_text)]
+    if len(parts) < 2:
+        return ""
+    decoded_text = _decode_ascii_url_escapes("".join(parts))
+    normalized_text = _normalize_text_for_url_extraction(decoded_text)
+    if not URL_IN_TEXT_RE.search(normalized_text):
+        return ""
+    return decoded_text
+
+
+def _decode_js_reversed_empty_join_url_text(array_text: str) -> str:
+    parts = [match.group(2) for match in JS_SIMPLE_STRING_LITERAL_RE.finditer(array_text)]
+    if len(parts) < 2:
+        return ""
+    joined_text = _decode_ascii_url_escapes("".join(parts))
+    return _decode_js_reversed_url_text(joined_text)
+
+
+def _has_js_reverse_suffix(text: str, offset: int) -> bool:
+    return bool(JS_REVERSE_SUFFIX_RE.match(text[offset : offset + 80]))
+
+
+def _decode_js_reversed_url_text(reversed_text: str) -> str:
+    if len(reversed_text) > 4096:
+        return ""
+    decoded_text = _decode_ascii_url_escapes(reversed_text[::-1])
+    normalized_text = _normalize_text_for_url_extraction(decoded_text)
+    if not URL_IN_TEXT_RE.search(normalized_text):
+        return ""
+    return decoded_text
+
+
 def _extract_urls_from_text(text: str) -> list[str]:
     if not text:
         return []
@@ -1266,9 +1477,33 @@ def _extract_urls_from_text(text: str) -> list[str]:
 
     urls: list[str] = []
     normalized_text = _normalize_text_for_url_extraction(text)
-    _append_urls_from_normalized_text(normalized_text, urls)
+    direct_scan_text = JS_REVERSED_STRING_RE.sub(" ", normalized_text)
+    direct_scan_text = JS_REVERSED_EMPTY_JOIN_ARRAY_RE.sub(" ", direct_scan_text)
+    _append_urls_from_normalized_text(direct_scan_text, urls)
     for token_match in BASE64_TEXT_TOKEN_RE.finditer(normalized_text):
         decoded_text = _decode_base64_url_text(token_match.group(1))
+        if decoded_text:
+            _append_urls_from_normalized_text(_normalize_text_for_url_extraction(decoded_text), urls)
+    for token_match in HEX_TEXT_TOKEN_RE.finditer(normalized_text):
+        decoded_text = _decode_hex_url_text(token_match.group(1))
+        if decoded_text:
+            _append_urls_from_normalized_text(_normalize_text_for_url_extraction(decoded_text), urls)
+    for charcode_match in JS_FROM_CHAR_CODE_RE.finditer(normalized_text):
+        decoded_text = _decode_js_charcode_url_text(charcode_match.group(1))
+        if decoded_text:
+            _append_urls_from_normalized_text(_normalize_text_for_url_extraction(decoded_text), urls)
+    for join_match in JS_EMPTY_JOIN_ARRAY_RE.finditer(normalized_text):
+        if _has_js_reverse_suffix(normalized_text, join_match.end()):
+            continue
+        decoded_text = _decode_js_empty_join_url_text(join_match.group(1))
+        if decoded_text:
+            _append_urls_from_normalized_text(_normalize_text_for_url_extraction(decoded_text), urls)
+    for reverse_match in JS_REVERSED_STRING_RE.finditer(normalized_text):
+        decoded_text = _decode_js_reversed_url_text(reverse_match.group(2))
+        if decoded_text:
+            _append_urls_from_normalized_text(_normalize_text_for_url_extraction(decoded_text), urls)
+    for reverse_join_match in JS_REVERSED_EMPTY_JOIN_ARRAY_RE.finditer(normalized_text):
+        decoded_text = _decode_js_reversed_empty_join_url_text(reverse_join_match.group(1))
         if decoded_text:
             _append_urls_from_normalized_text(_normalize_text_for_url_extraction(decoded_text), urls)
     return urls

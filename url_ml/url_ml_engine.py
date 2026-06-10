@@ -23,12 +23,21 @@ PARENT_DIR = os.path.dirname(BASE_DIR)
 if PARENT_DIR not in os.sys.path:
     os.sys.path.insert(0, PARENT_DIR)
 
+from phishing_blocklist import is_blocklisted_url
 from trusted_domains import (
     is_low_risk_hosted_platform_url,
     is_trusted_official_url,
     strong_url_phishing_score,
     url_heuristic_phishing_score,
 )
+
+_BLOCKLIST_RESULT = {
+    "verdict": "malicious",
+    "riskLevel": "DANGEROUS",
+    "probability": 0.99,
+    "adjusted_by_rule": True,
+    "adjustment_reason": "공개 피싱 피드 차단 목록 일치",
+}
 
 
 @dataclass
@@ -70,6 +79,9 @@ def predict_url_ml(model: Any, raw_url: str) -> dict[str, Any]:
             "adjusted_by_rule": True,
             "adjustment_reason": "공식/저위험 호스팅 플랫폼 URLML 통과",
         }
+
+    if is_blocklisted_url(url):
+        return dict(_BLOCKLIST_RESULT)
 
     strong = float(strong_url_phishing_score(url))
     if strong >= 0.66:
@@ -158,6 +170,10 @@ def predict_url_ml_batch(model: Any, raw_urls: list[str]) -> list[dict[str, Any]
                 "adjusted_by_rule": True,
                 "adjustment_reason": "공식/저위험 호스팅 플랫폼 URLML 통과",
             }
+            continue
+
+        if is_blocklisted_url(url):
+            results[index] = dict(_BLOCKLIST_RESULT)
             continue
 
         strong = float(strong_url_phishing_score(url))

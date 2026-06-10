@@ -23,11 +23,13 @@ import ssl
 import sys
 import time
 import urllib.request
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Tuple
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_FILE = os.path.join(BASE_DIR, "kobert_phishing_model_weights.pt")
+WEIGHTS_META_FILE = os.path.join(BASE_DIR, "kobert_phishing_model_weights.meta.json")
 
 # ──────────────────────────────────────────────
 # HTML → 텍스트 추출 (기존 koBERT.py 함수 재사용)
@@ -115,8 +117,8 @@ def fetch_text(url: str) -> Tuple[str, bool]:
 # 학습 데이터 로드
 # ──────────────────────────────────────────────
 
-def load_csv(path: str) -> Tuple[List[str], List[int]]:
-    urls, labels = [], []
+def load_csv(path: str) -> Tuple[List[str], List[int], List[str]]:
+    urls, labels, texts = [], [], []
     with open(path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -126,7 +128,32 @@ def load_csv(path: str) -> Tuple[List[str], List[int]]:
                 continue
             urls.append(u)
             labels.append(int(lb))
-    return urls, labels
+            texts.append((row.get("text") or "").strip())
+    return urls, labels, texts
+
+
+def use_cached_texts(texts: List[str], labels: List[int]) -> Tuple[List[str], List[int]]:
+    texts_out, labels_out = [], []
+    skipped_empty = 0
+    skipped_non_kr = 0
+    used_fallback = 0
+    for text, label in zip(texts, labels):
+        if not text.strip():
+            skipped_empty += 1
+            continue
+        if not HANGUL.search(text):
+            skipped_non_kr += 1
+            continue
+        if "웹사이트 주소 분석 텍스트" in text:
+            used_fallback += 1
+        texts_out.append(text[:512])
+        labels_out.append(label)
+    print(
+        f"  캐시 텍스트 사용: {len(texts_out)}개 "
+        f"(비어있음 {skipped_empty}개 제외, 비한국어 {skipped_non_kr}개 제외, "
+        f"URL fallback {used_fallback}개)"
+    )
+    return texts_out, labels_out
 
 
 # ──────────────────────────────────────────────
@@ -218,11 +245,15 @@ def finetune(
     max_len: int = 128,
     val_ratio: float = 0.15,
     seed: int = 42,
+    freeze_encoder: bool = False,
+    preserve_if_worse: bool = True,
 ) -> None:
     import torch
+    import torch.nn.functional as F
     from torch.optim import AdamW
-    from torch.utils.data import DataLoader, random_split
+    from torch.utils.data import DataLoader, Subset
     from transformers import BertForSequenceClassification, BertTokenizer
+    from sklearn.model_selection import train_test_split
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n  디바이스: {device}")
@@ -244,6 +275,14 @@ def finetune(
     else:
         print("  기존 가중치 없음 — 처음부터 fine-tuning")
 
+    if freeze_encoder:
+        frozen = 0
+        for name, param in model.named_parameters():
+            if name.startswith("bert."):
+                param.requires_grad = False
+                frozen += param.numel()
+        print(f"  Encoder freeze: ON (frozen_params={frozen})")
+
     model.to(device)
 
     # 데이터셋 분할
@@ -251,24 +290,50 @@ def finetune(
     dataset = make_dataset(texts, labels, tokenizer, max_len)
     n_val = max(1, int(len(dataset) * val_ratio))
     n_train = len(dataset) - n_val
-    train_ds, val_ds = random_split(dataset, [n_train, n_val])
+    indices = list(range(len(dataset)))
+    train_idx, val_idx = train_test_split(
+        indices,
+        test_size=n_val,
+        random_state=seed,
+        stratify=labels,
+    )
+    train_ds = Subset(dataset, train_idx)
+    val_ds = Subset(dataset, val_idx)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size)
 
     print(f"  Train: {n_train}개  Val: {n_val}개  Epochs: {epochs}  LR: {lr}")
 
-    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    optimizer = AdamW(
+        [param for param in model.parameters() if param.requires_grad],
+        lr=lr,
+        weight_decay=0.01,
+    )
 
     # 클래스 불균형 보정
     import numpy as np
     label_arr = np.array(labels)
     pos = label_arr.sum()
     neg = len(label_arr) - pos
-    pos_weight = torch.tensor([neg / max(pos, 1)], dtype=torch.float32).to(device)
+    class_weights = torch.tensor(
+        [
+            len(label_arr) / max(2 * neg, 1),
+            len(label_arr) / max(2 * pos, 1),
+        ],
+        dtype=torch.float32,
+    ).to(device)
 
     best_val_acc = 0.0
     best_weights = None
+    previous_best_val_acc: float | None = None
+    if preserve_if_worse and os.path.isfile(WEIGHTS_META_FILE):
+        try:
+            with open(WEIGHTS_META_FILE, "r", encoding="utf-8") as f:
+                previous_meta = json.load(f)
+            previous_best_val_acc = float(previous_meta.get("best_val_accuracy"))
+        except Exception:
+            previous_best_val_acc = None
 
     for epoch in range(1, epochs + 1):
         # Train
@@ -283,8 +348,8 @@ def finetune(
             batch_labels = batch["labels"].to(device)
 
             optimizer.zero_grad()
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=batch_labels)
-            loss = outputs.loss
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            loss = F.cross_entropy(outputs.logits, batch_labels, weight=class_weights)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -338,6 +403,12 @@ def finetune(
         model.load_state_dict(best_weights)
 
     print(f"\n  최고 검증 정확도: {best_val_acc:.4f}")
+    if previous_best_val_acc is not None and best_val_acc < previous_best_val_acc:
+        print(
+            "  기존 최고 검증 정확도보다 낮아 저장 생략: "
+            f"previous={previous_best_val_acc:.4f} new={best_val_acc:.4f}"
+        )
+        return
 
     # 백업 후 저장
     if os.path.isfile(WEIGHTS_FILE):
@@ -347,6 +418,22 @@ def finetune(
 
     torch.save(model.state_dict(), WEIGHTS_FILE)
     print(f"  저장: {WEIGHTS_FILE}")
+    meta = {
+        "training_rows": len(texts),
+        "label_counts": {"0": int(neg), "1": int(pos)},
+        "epochs": int(epochs),
+        "batch_size": int(batch_size),
+        "learning_rate": float(lr),
+        "max_len": int(max_len),
+        "val_ratio": float(val_ratio),
+        "seed": int(seed),
+        "freeze_encoder": bool(freeze_encoder),
+        "best_val_accuracy": float(best_val_acc),
+        "weights_file": os.path.basename(WEIGHTS_FILE),
+    }
+    with open(WEIGHTS_META_FILE, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    print(f"  메타 저장: {WEIGHTS_META_FILE}")
 
 
 # ──────────────────────────────────────────────
@@ -363,19 +450,32 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--workers", type=int, default=8, help="텍스트 수집 병렬 수")
     parser.add_argument("--skip-fetch", action="store_true",
                         help="CSV에 text 컬럼이 있으면 직접 사용 (크롤링 건너뜀)")
+    parser.add_argument("--min-training-rows", type=int, default=0,
+                        help="한국어 텍스트 필터 후 학습 row가 이 값보다 작으면 실패")
+    parser.add_argument("--prepare-only", action="store_true",
+                        help="텍스트 로딩/필터/최소 row 검증만 수행하고 fine-tuning은 건너뜀")
+    parser.add_argument("--freeze-encoder", action="store_true",
+                        help="KoBERT encoder를 고정하고 classifier head만 학습")
+    parser.add_argument(
+        "--allow-lower-val-save",
+        action="store_true",
+        help="기존 메타의 best_val_accuracy보다 낮아도 새 가중치를 저장합니다.",
+    )
     args = parser.parse_args(argv)
 
     print("=== KoBERT Fine-tuning 시작 ===")
     print(f"입력: {args.input}")
 
-    urls, labels = load_csv(args.input)
+    urls, labels, cached_texts = load_csv(args.input)
     if not urls:
         print("오류: CSV에서 URL을 읽을 수 없습니다.")
         return 1
     print(f"로드: {len(urls)}개 (악성 {sum(labels)} / 정상 {labels.count(0)})")
 
-    # 텍스트 수집 (CSV에 text 컬럼 있으면 재사용 가능하도록 확장 여지)
-    texts, filtered_labels = collect_texts(urls, labels, workers=args.workers)
+    if args.skip_fetch:
+        texts, filtered_labels = use_cached_texts(cached_texts, labels)
+    else:
+        texts, filtered_labels = collect_texts(urls, labels, workers=args.workers)
 
     if len(texts) < 10:
         print(f"오류: 한국어 텍스트가 너무 적음 ({len(texts)}개). 한국어 사이트를 더 추가하세요.")
@@ -384,10 +484,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     mal_count = sum(filtered_labels)
     ben_count = len(filtered_labels) - mal_count
     print(f"\n학습 데이터: {len(texts)}개 (악성 {mal_count} / 정상 {ben_count})")
+    if len(texts) < args.min_training_rows:
+        print(f"오류: 학습 데이터 {len(texts)}개 < 최소 {args.min_training_rows}개")
+        return 1
 
     if mal_count == 0 or ben_count == 0:
         print("오류: 악성/정상 샘플이 모두 있어야 합니다.")
         return 1
+
+    if args.prepare_only:
+        print("prepare_only=PASS")
+        return 0
 
     finetune(
         texts, filtered_labels,
@@ -395,6 +502,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         batch_size=args.batch_size,
         lr=args.lr,
         max_len=args.max_len,
+        freeze_encoder=args.freeze_encoder,
+        preserve_if_worse=not args.allow_lower_val_save,
     )
 
     print("\n=== KoBERT Fine-tuning 완료 ===")

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-전체 학습 파이프라인: 중복 없이 2000+2000 수집 후 3개 모델 재학습
-  배치 1~4: 각 500+500 수집, 이전 배치 제외
-  병합 → XGBoost / GNN / KoBERT 순서로 학습
+전체 학습 파이프라인: 모든 모델을 1만 개 학습 입력 기준으로 재학습
+  dev/dataset_splits/warehouse.csv에서 엔진별 10k 입력 생성
+  XGBoost / GNN / KoBERT 순서로 최소 10k 조건을 걸어 학습
 
 사용법:
-  python dev/run_full_pipeline.py
-  python dev/run_full_pipeline.py --batch-size 500 --batches 4 --skip-dom
+  python dev/run_full_pipeline.py --skip-dom
+  python dev/run_full_pipeline.py --target 10000 --kobert-epochs 3
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ import time
 PYTHON = sys.executable
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # server root
 DEV = os.path.join(BASE, "dev")
+ENGINE_INPUTS = os.path.join(DEV, "engine_training_inputs")
 
 def run(cmd, desc=""):
     print(f"\n{'='*60}")
@@ -36,187 +37,122 @@ def run(cmd, desc=""):
     return ret
 
 
-def merge_csvs(paths, out_path):
-    """여러 CSV를 중복 없이 병합"""
-    seen = set()
-    rows = []
-    fieldnames = None
-    for p in paths:
-        if not os.path.isfile(p):
-            print(f"[merge] 없음 — 건너뜀: {p}")
-            continue
-        with open(p, "r", encoding="utf-8-sig", newline="") as f:
-            reader = csv.DictReader(f)
-            if fieldnames is None:
-                fieldnames = reader.fieldnames
-            for row in reader:
-                u = (row.get("url") or "").strip()
-                if u and u not in seen:
-                    seen.add(u)
-                    rows.append(row)
-    if not rows:
-        print("[merge] 병합할 데이터 없음")
-        return 0
-    with open(out_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
-    print(f"[merge] 저장: {out_path} ({len(rows)}행)")
-    return len(rows)
-
-
-def count_labels(path):
-    mal = ben = 0
+def count_labeled_rows(path):
     if not os.path.isfile(path):
-        return 0, 0
+        return 0
     with open(path, "r", encoding="utf-8-sig", newline="") as f:
-        for row in csv.DictReader(f):
-            lbl = str(row.get("label", "")).strip()
-            if lbl == "1": mal += 1
-            elif lbl == "0": ben += 1
-    return mal, ben
+        return sum(
+            1
+            for row in csv.DictReader(f)
+            if (row.get("url") or "").strip()
+            and str(row.get("label", "")).strip() in {"0", "1"}
+        )
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch-size", type=int, default=500)
-    parser.add_argument("--batches", type=int, default=4)
+    parser.add_argument("--target", type=int, default=10000)
     parser.add_argument("--workers", type=int, default=25)
     parser.add_argument("--skip-dom", action="store_true", default=True)
+    parser.add_argument("--with-dom", action="store_true", help="DOM 모델까지 학습합니다. 1만 URL 크롤링이라 오래 걸립니다.")
+    parser.add_argument("--skip-domain", action="store_true", help="도메인 나이/SSL XGBoost 모델 학습을 건너뜁니다.")
     parser.add_argument("--kobert-epochs", type=int, default=5)
-    parser.add_argument("--skip-collect", action="store_true", help="수집 건너뜀 (기존 CSV 사용)")
+    parser.add_argument("--gnn-epochs", type=int, default=5)
+    parser.add_argument("--gnn-min-holdout-accuracy", type=float, default=0.96)
+    parser.add_argument("--skip-kobert-train", action="store_true", help="KoBERT 텍스트 10k 준비/검증만 수행합니다.")
+    parser.add_argument("--skip-prepare", action="store_true", help="기존 dev/engine_training_inputs/*_10k.csv 파일을 재사용합니다.")
+    parser.add_argument(
+        "--reuse-kobert-text",
+        action="store_true",
+        help="기존 KoBERT 텍스트 CSV를 그대로 재사용합니다. 기본은 준비 단계에서 텍스트도 갱신합니다.",
+    )
     args = parser.parse_args()
 
     t_total = time.time()
+    xgb_csv = os.path.join(ENGINE_INPUTS, "xgboost_train_10k.csv")
+    gnn_csv = os.path.join(BASE, "gnn", "gnn_total_dataset.csv")
+    gnn_delta_csv = os.path.join(ENGINE_INPUTS, "gnn_collect_to_10k.csv")
+    kobert_candidates = os.path.join(ENGINE_INPUTS, "kobert_candidates_10k.csv")
+    kobert_text = os.path.join(ENGINE_INPUTS, "kobert_text_train_10k.csv")
 
-    # ──────────────────────────────────────────
-    # Phase 1: 배치 수집 (각 500+500, 중복 제외)
-    # ──────────────────────────────────────────
-    batch_csvs_all = []
-    batch_csvs_kr = []
+    if not args.skip_prepare:
+        prepare_cmd = [
+            PYTHON, os.path.join(DEV, "prepare_engine_training_inputs.py"),
+            "--target", str(args.target),
+        ]
+        expanded_source = os.path.join(ENGINE_INPUTS, "expanded_url_train_all.csv")
+        if os.path.isfile(expanded_source):
+            prepare_cmd.extend(["--extra", expanded_source])
+        run(prepare_cmd, f"엔진별 {args.target}개 학습 입력 생성")
 
-    if not args.skip_collect:
-        exclude_path = ""
-        collected_paths = []
+    gnn_delta_rows = count_labeled_rows(gnn_delta_csv)
+    if gnn_delta_rows:
+        gnn_collect_cmd = [
+            PYTHON, os.path.join(BASE, "gnn", "collect_gnn_dataset.py"),
+            "--input", gnn_delta_csv,
+            "--workers", str(args.workers),
+        ]
+        for exclude_path in (
+            os.path.join(DEV, "dataset_splits", "validation.csv"),
+            os.path.join(DEV, "dataset_splits", "test_balanced.csv"),
+            os.path.join(DEV, "dataset_splits", "test_operational.csv"),
+        ):
+            gnn_collect_cmd.extend(["--exclude-csv", exclude_path])
+        run(gnn_collect_cmd, f"GNN 데이터셋 10k 보강 ({gnn_delta_rows}개 후보)")
+    else:
+        print("\n[SKIP] GNN 수집 후보가 없어 기존 gnn_total_dataset.csv를 재사용합니다.")
 
-        for i in range(1, args.batches + 1):
-            suffix = f"_{i}"
-            out_all = os.path.join(DEV, f"train_urls_all{suffix}.csv")
-            out_kr  = os.path.join(DEV, f"train_urls_korean{suffix}.csv")
-
-            # 이미 수집된 배치면 건너뜀
-            if os.path.isfile(out_all):
-                mal, ben = count_labels(out_all)
-                print(f"\n[배치 {i}] 이미 존재 — 악성 {mal} / 정상 {ben} → 재사용")
-                batch_csvs_all.append(out_all)
-                batch_csvs_kr.append(out_kr)
-                exclude_path = out_all if not collected_paths else os.path.join(DEV, "train_urls_all_merged_tmp.csv")
-                # 누적 exclude를 위한 임시 병합
-                if len(batch_csvs_all) > 0:
-                    merge_csvs(batch_csvs_all, os.path.join(DEV, "train_urls_all_merged_tmp.csv"))
-                    exclude_path = os.path.join(DEV, "train_urls_all_merged_tmp.csv")
-                continue
-
-            print(f"\n{'#'*60}")
-            print(f"  배치 {i}/{args.batches} — {args.batch_size} 악성 + {args.batch_size} 정상")
-            if exclude_path:
-                print(f"  제외 CSV: {exclude_path}")
-            print(f"{'#'*60}")
-
-            cmd = [
-                PYTHON, os.path.join(DEV, "collect_urls.py"),
-                "--malicious", str(args.batch_size),
-                "--benign", str(args.batch_size),
-                "--workers", str(args.workers),
-                "--out-dir", DEV,
-                "--suffix", suffix,
-            ]
-            if exclude_path:
-                cmd += ["--exclude-csv", exclude_path]
-
-            run(cmd, f"배치 {i} URL 수집")
-
-            batch_csvs_all.append(out_all)
-            batch_csvs_kr.append(out_kr)
-
-            # 다음 배치를 위한 exclude 병합
-            tmp_path = os.path.join(DEV, "train_urls_all_merged_tmp.csv")
-            merge_csvs(batch_csvs_all, tmp_path)
-            exclude_path = tmp_path
-
-            mal, ben = count_labels(out_all)
-            print(f"[배치 {i} 완료] 악성 {mal} / 정상 {ben}")
-
-    # ──────────────────────────────────────────
-    # Phase 2: 전체 병합
-    # ──────────────────────────────────────────
-    # 수집 건너뛰기 옵션이면 기존 파일 사용
-    if args.skip_collect:
-        for i in range(1, args.batches + 1):
-            p = os.path.join(DEV, f"train_urls_all_{i}.csv")
-            pk = os.path.join(DEV, f"train_urls_korean_{i}.csv")
-            if os.path.isfile(p):
-                batch_csvs_all.append(p)
-            if os.path.isfile(pk):
-                batch_csvs_kr.append(pk)
-
-    merged_all = os.path.join(DEV, "train_urls_all_merged.csv")
-    merged_kr  = os.path.join(DEV, "train_urls_korean_merged.csv")
-
-    print(f"\n{'='*60}")
-    print(f"  전체 CSV 병합 ({len(batch_csvs_all)}개 배치)")
-    print(f"{'='*60}")
-    total = merge_csvs(batch_csvs_all, merged_all)
-    total_kr = merge_csvs(batch_csvs_kr, merged_kr)
-
-    mal_all, ben_all = count_labels(merged_all)
-    mal_kr, ben_kr = count_labels(merged_kr)
-    print(f"\n[병합 결과]")
-    print(f"  전체:   {total}개 (악성 {mal_all} / 정상 {ben_all})")
-    print(f"  한국어: {total_kr}개 (악성 {mal_kr} / 정상 {ben_kr}) → KoBERT용")
-
-    if total == 0:
-        print("[ERROR] 병합 데이터 없음 — 학습 중단")
-        sys.exit(1)
+    kobert_text_cmd = [
+        PYTHON, os.path.join(DEV, "collect_kobert_text_dataset.py"),
+        "--input", kobert_candidates,
+        "--out", kobert_text,
+        "--workers", str(args.workers),
+        "--fallback-url-text",
+    ]
+    if not args.skip_prepare and not args.reuse_kobert_text:
+        kobert_text_cmd.append("--refresh-existing")
+    run(kobert_text_cmd, "KoBERT 텍스트 10k 준비")
 
     # ──────────────────────────────────────────
     # Phase 3: XGBoost 학습
     # ──────────────────────────────────────────
     xg_cmd = [
         PYTHON, os.path.join(BASE, "xgboost", "XG_train.py"),
-        "--input", merged_all,
+        "--input", xgb_csv,
+        "--min-training-rows", str(args.target),
+        "--min-test-accuracy", "0.99",
     ]
-    if args.skip_dom:
+    if args.skip_domain:
+        xg_cmd.append("--skip-domain")
+    if args.skip_dom and not args.with_dom:
         xg_cmd.append("--skip-dom")
     run(xg_cmd, "XGBoost 3-bundle 재학습")
 
     # ──────────────────────────────────────────
     # Phase 4: GNN 데이터 수집 + 학습
     # ──────────────────────────────────────────
-    gnn_dataset = os.path.join(BASE, "gnn", "gnn_total_dataset.csv")
-
-    run([
-        PYTHON, os.path.join(BASE, "gnn", "collect_gnn_dataset.py"),
-        "--input", merged_all,
-    ], "GNN 데이터셋 구축")
-
     run([
         PYTHON, os.path.join(BASE, "gnn", "regenerate_gnn_model.py"),
-        "--csv", gnn_dataset,
+        "--csv", gnn_csv,
+        "--min-training-rows", str(args.target),
+        "--min-holdout-accuracy", str(args.gnn_min_holdout_accuracy),
+        "--epochs", str(args.gnn_epochs),
     ], "GNN 모델 재학습")
 
     # ──────────────────────────────────────────
     # Phase 5: KoBERT 학습
     # ──────────────────────────────────────────
-    if total_kr >= 10:
-        run([
-            PYTHON, os.path.join(BASE, "KoBERT", "kobert_train.py"),
-            "--input", merged_kr,
-            "--epochs", str(args.kobert_epochs),
-            "--workers", "8",
-        ], f"KoBERT Fine-tuning (epochs={args.kobert_epochs})")
-    else:
-        print(f"\n[KoBERT] 한국어 데이터 부족 ({total_kr}개) — 건너뜀")
+    kobert_cmd = [
+        PYTHON, os.path.join(BASE, "KoBERT", "kobert_train.py"),
+        "--input", kobert_text,
+        "--epochs", str(args.kobert_epochs),
+        "--workers", str(args.workers),
+        "--skip-fetch",
+        "--min-training-rows", str(args.target),
+    ]
+    if args.skip_kobert_train:
+        kobert_cmd.append("--prepare-only")
+    run(kobert_cmd, f"KoBERT Fine-tuning (epochs={args.kobert_epochs})")
 
     print(f"\n{'='*60}")
     print(f"  전체 파이프라인 완료 — 총 소요: {(time.time()-t_total)/60:.1f}분")

@@ -1230,6 +1230,7 @@ def extract_domain_only_features(
 # ============================================================
 
 _DOM_FETCH_TIMEOUT_SECONDS = float(os.getenv("XG_DOM_FETCH_TIMEOUT", "1.5"))
+_DOM_FEATURE_DEBUG = os.getenv("XG_DOM_FEATURE_DEBUG", "0") == "1"
 _DOM_FETCH_FALLBACK = {
     "dom_max_depth": 0.0,
     "dead_link_ratio": 0.0,
@@ -1499,7 +1500,7 @@ def _has_suspicious_form_action(current_url: str, action: str) -> bool:
     return current_registered_domain != action_registered_domain
 
 def _extract_dom_features_from_html(
-    html: str, current_url: str, *, print_dom_feature_debug: bool = True
+    html: str, current_url: str, *, print_dom_feature_debug: bool = _DOM_FEATURE_DEBUG
 ) -> Dict[str, float]:
     soup = _parse_dom_soup(html)
     if soup is None:
@@ -1544,7 +1545,7 @@ def _extract_dom_features_from_html(
         _debug_print_dom_feature_values(out)
     return out
 
-def extract_dom_features(url: str, *, print_dom_feature_debug: bool = True) -> Dict[str, float]:
+def extract_dom_features(url: str, *, print_dom_feature_debug: bool = _DOM_FEATURE_DEBUG) -> Dict[str, float]:
     target_url = _normalize_url_for_dom_fetch(url)
     _xg_debug(f"[DOM DEBUG] input_url={url}")
     _xg_debug(f"[DOM DEBUG] normalized_url={target_url}")
@@ -2756,7 +2757,7 @@ def predict_url_dom(
     bundle: ModelBundle,
     url: str,
     *,
-    print_dom_feature_debug: bool = True,
+    print_dom_feature_debug: bool = _DOM_FEATURE_DEBUG,
 ) -> Tuple[int, float, Dict[str, float]]:
     if is_trusted_official_url(url):
         return 0, 0.03, {

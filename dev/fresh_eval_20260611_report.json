@@ -1,0 +1,1582 @@
+{
+  "allowed_residual_misses": [
+    "fp|tranco_latest_nonoverlap|https://blog44investment.shop",
+    "fp|tranco_latest_nonoverlap|https://confirm-payment-id694787.com",
+    "fp|tranco_latest_nonoverlap|https://y-y-z-y-w-101.top"
+  ],
+  "by_probe": {
+    "dev/fresh_eval_20260611.csv": {
+      "benign": 1500,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 1,
+      "malicious": 1500,
+      "malicious_unknown": 1,
+      "rows": 3000,
+      "tn": 1499,
+      "tp": 1499,
+      "unknown": 1
+    },
+    "dev/fresh_eval_crosssource_20260611.csv": {
+      "benign": 1500,
+      "benign_unknown": 1,
+      "fn": 75,
+      "fp": 1,
+      "malicious": 1500,
+      "malicious_unknown": 4,
+      "rows": 3000,
+      "tn": 1498,
+      "tp": 1421,
+      "unknown": 5
+    }
+  },
+  "by_source": {
+    "nurilab": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 1,
+      "fp": 0,
+      "malicious": 33,
+      "malicious_unknown": 2,
+      "rows": 33,
+      "tn": 0,
+      "tp": 30,
+      "unknown": 2
+    },
+    "phishtank": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 74,
+      "fp": 0,
+      "malicious": 1467,
+      "malicious_unknown": 2,
+      "rows": 1467,
+      "tn": 0,
+      "tp": 1391,
+      "unknown": 2
+    },
+    "tranco_latest_nonoverlap": {
+      "benign": 3000,
+      "benign_unknown": 1,
+      "fn": 0,
+      "fp": 2,
+      "malicious": 0,
+      "malicious_unknown": 0,
+      "rows": 3000,
+      "tn": 2997,
+      "tp": 0,
+      "unknown": 1
+    },
+    "urlhaus_recent": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 1500,
+      "malicious_unknown": 1,
+      "rows": 1500,
+      "tn": 0,
+      "tp": 1499,
+      "unknown": 1
+    }
+  },
+  "duplicates_skipped": 0,
+  "generated_at_utc": "2026-06-10T21:30:42Z",
+  "label_conflicts": [],
+  "misses": [
+    {
+      "kind": "malicious_unknown",
+      "probe": "dev/fresh_eval_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.362211,
+        "probability": null,
+        "raw_probability": 0.362211,
+        "riskLevel": "UNKNOWN",
+        "threshold": 0.47,
+        "verdict": "unknown"
+      },
+      "source": "urlhaus_recent",
+      "url": "https://getabre.com/NDYNuw"
+    },
+    {
+      "kind": "fp",
+      "probe": "dev/fresh_eval_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "강한 URL 피싱 패턴 URLML 사전 감지",
+        "probability": 0.72,
+        "riskLevel": "DANGEROUS",
+        "verdict": "malicious"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://smbc-comics.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.22,
+        "ml_probability": 0.054684,
+        "probability": null,
+        "raw_probability": 0.22,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "http://itau2viadafatura.com"
+    },
+    {
+      "kind": "malicious_unknown",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.37,
+        "ml_probability": 0.433309,
+        "probability": null,
+        "raw_probability": 0.433309,
+        "riskLevel": "UNKNOWN",
+        "threshold": 0.47,
+        "verdict": "unknown"
+      },
+      "source": "phishtank",
+      "url": "http://myhermes5050.duckdns.org"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.32,
+        "ml_probability": 0.158001,
+        "probability": null,
+        "raw_probability": 0.32,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "http://spidarubalogin.bond"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.001889,
+        "probability": null,
+        "raw_probability": 0.001889,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://abcstudyguide.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.063482,
+        "probability": null,
+        "raw_probability": 0.063482,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://agricole-activation1.bolt.host"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.004988,
+        "probability": null,
+        "raw_probability": 0.004988,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://allbestbeaches.com"
+    },
+    {
+      "kind": "malicious_unknown",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.417928,
+        "probability": null,
+        "raw_probability": 0.417928,
+        "riskLevel": "UNKNOWN",
+        "threshold": 0.47,
+        "verdict": "unknown"
+      },
+      "source": "nurilab",
+      "url": "https://api.whatsapp.com/send?phone=12296008906&text=Start%20verification&app_absent=0"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.141666,
+        "probability": null,
+        "raw_probability": 0.141666,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://app.tupiazaaeniineea-barscopiaza.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.377653,
+        "probability": null,
+        "raw_probability": 0.377653,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://atualizacao-2026.app"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.010122,
+        "probability": null,
+        "raw_probability": 0.010122,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://baciniciarsesion.club"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.006982,
+        "probability": null,
+        "raw_probability": 0.006982,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://bacmicuenta.club"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.001518,
+        "probability": null,
+        "raw_probability": 0.001518,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://baiernano.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.3,
+        "ml_probability": 0.010456,
+        "probability": null,
+        "raw_probability": 0.3,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://bcaxe-reward.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.005406,
+        "probability": null,
+        "raw_probability": 0.005406,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://bemcaamvoli.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.25,
+        "ml_probability": 0.173259,
+        "probability": null,
+        "raw_probability": 0.25,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://benificiosonline.pages.dev"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.00042,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://bjbnb.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.068782,
+        "probability": null,
+        "raw_probability": 0.068782,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://boom-retired-vendors-eternal.trycloudflare.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.24,
+        "ml_probability": 0.436983,
+        "probability": null,
+        "raw_probability": 0.436983,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://bradesco.ativacaodechat.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.000238,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://caxygl.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.00036,
+        "probability": null,
+        "raw_probability": 0.00036,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://cdaifa.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.002466,
+        "probability": null,
+        "raw_probability": 0.002466,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://cosmograft.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.031443,
+        "probability": null,
+        "raw_probability": 0.08,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://credito-de-consumo.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.12,
+        "ml_probability": 0.058048,
+        "probability": null,
+        "raw_probability": 0.12,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://darot51861.wixsite.com/sascs"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.25,
+        "ml_probability": 0.272018,
+        "probability": null,
+        "raw_probability": 0.272018,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://delightful-faloodeh1.netlify.app"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.002089,
+        "probability": null,
+        "raw_probability": 0.002089,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://deviindustry.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000392,
+        "probability": null,
+        "raw_probability": 0.000392,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://diploos.com"
+    },
+    {
+      "kind": "malicious_unknown",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.322966,
+        "probability": null,
+        "raw_probability": 0.322966,
+        "riskLevel": "UNKNOWN",
+        "threshold": 0.47,
+        "verdict": "unknown"
+      },
+      "source": "phishtank",
+      "url": "https://www.eatskorea.com/chsps/"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.157395,
+        "probability": null,
+        "raw_probability": 0.157395,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://empresarialesplaza.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.03688,
+        "probability": null,
+        "raw_probability": 0.03688,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://freedomfamilyfunocala.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.00322,
+        "probability": null,
+        "raw_probability": 0.08,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://gecko-limon.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000991,
+        "probability": null,
+        "raw_probability": 0.000991,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://gongchangba.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.000545,
+        "probability": null,
+        "raw_probability": 0.08,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://h-pa.co"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000337,
+        "probability": null,
+        "raw_probability": 0.000337,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://haomasou.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000853,
+        "probability": null,
+        "raw_probability": 0.000853,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://heatherdiane.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.25,
+        "ml_probability": 0.085696,
+        "probability": null,
+        "raw_probability": 0.25,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://inmobiliaraplaza.netlify.app"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.00082,
+        "probability": null,
+        "raw_probability": 0.00082,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://jenmryplay.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.000358,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://jynlm.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000516,
+        "probability": null,
+        "raw_probability": 0.000516,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://kkugames.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.00226,
+        "probability": null,
+        "raw_probability": 0.08,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://lgs-kids.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.00069,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://ljlpnl.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.000723,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://lsmct.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.24,
+        "ml_probability": 0.003009,
+        "probability": null,
+        "raw_probability": 0.24,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://lsmetalmesh.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.001091,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://lstjdog.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.363418,
+        "probability": null,
+        "raw_probability": 0.363418,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "nurilab",
+      "url": "https://luckbox.kr/"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.00073,
+        "probability": null,
+        "raw_probability": 0.00073,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://lunchhunch.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.005772,
+        "probability": null,
+        "raw_probability": 0.005772,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://mcassmvoli.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.001758,
+        "probability": null,
+        "raw_probability": 0.001758,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://meninlovehk.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.001503,
+        "probability": null,
+        "raw_probability": 0.08,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://www.mrelay-particulier.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.12743,
+        "probability": null,
+        "raw_probability": 0.12743,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://najonathanisd09.wixsite.com/03esp"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.0012,
+        "probability": null,
+        "raw_probability": 0.08,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://nk-link.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000539,
+        "probability": null,
+        "raw_probability": 0.000539,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://oatsnews.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.00219,
+        "probability": null,
+        "raw_probability": 0.08,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://orange-tzh.com"
+    },
+    {
+      "kind": "benign_unknown",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.34,
+        "ml_probability": 0.01805,
+        "probability": null,
+        "raw_probability": 0.34,
+        "riskLevel": "UNKNOWN",
+        "threshold": 0.47,
+        "verdict": "unknown"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://pay2world.co"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000616,
+        "probability": null,
+        "raw_probability": 0.000616,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://peethmart.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.018104,
+        "probability": null,
+        "raw_probability": 0.018104,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://premanteamqualools.asesolu.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.012612,
+        "probability": null,
+        "raw_probability": 0.012612,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://pretravelusonlineassist.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.08,
+        "ml_probability": 0.002889,
+        "probability": null,
+        "raw_probability": 0.08,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://ptcsys-hk.com"
+    },
+    {
+      "kind": "malicious_unknown",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.318841,
+        "probability": null,
+        "raw_probability": 0.318841,
+        "riskLevel": "UNKNOWN",
+        "threshold": 0.47,
+        "verdict": "unknown"
+      },
+      "source": "nurilab",
+      "url": "https://www.roblox.com.bn/404"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.004576,
+        "probability": null,
+        "raw_probability": 0.004576,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://savesyrianow.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.000493,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://scsjmov.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.016056,
+        "probability": null,
+        "raw_probability": 0.016056,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://sejanexcard.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000441,
+        "probability": null,
+        "raw_probability": 0.000441,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://shanxicu.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000924,
+        "probability": null,
+        "raw_probability": 0.000924,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://sisimmobilier.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000407,
+        "probability": null,
+        "raw_probability": 0.000407,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://songbaiyao.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.006893,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://spx-gex.duckdns.org"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.000713,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://tbcvip.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.001683,
+        "probability": null,
+        "raw_probability": 0.001683,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://theparsonspatch.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000818,
+        "probability": null,
+        "raw_probability": 0.000818,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://tibetsq.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.001055,
+        "probability": null,
+        "raw_probability": 0.001055,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://troonteetimes.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.18,
+        "ml_probability": 0.001682,
+        "probability": null,
+        "raw_probability": 0.18,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://visaacr.eu.cc"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.18,
+        "ml_probability": 0.001016,
+        "probability": null,
+        "raw_probability": 0.18,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://visaacr.gu.cc"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.002563,
+        "probability": null,
+        "raw_probability": 0.002563,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://visactr.icu"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.33,
+        "ml_probability": 0.008713,
+        "probability": null,
+        "raw_probability": 0.33,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://visaxzvn.shop"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.001064,
+        "probability": null,
+        "raw_probability": 0.001064,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://volkanpc.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.003353,
+        "probability": null,
+        "raw_probability": 0.003353,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://volubleblogger.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.15,
+        "ml_probability": 0.000299,
+        "probability": null,
+        "raw_probability": 0.15,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://xaysxy.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.00111,
+        "probability": null,
+        "raw_probability": 0.00111,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://xiaoniucloud.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000511,
+        "probability": null,
+        "raw_probability": 0.000511,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://xieshous.com"
+    },
+    {
+      "kind": "fp",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.3,
+        "ml_probability": 0.585449,
+        "probability": 0.585449,
+        "raw_probability": 0.585449,
+        "riskLevel": "DANGEROUS",
+        "threshold": 0.47,
+        "verdict": "malicious"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://xm66963254698745.vip"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.001183,
+        "probability": null,
+        "raw_probability": 0.001183,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://yinianlius.com"
+    },
+    {
+      "kind": "fn",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "낮은 신뢰도의 루트 도메인 URLML 정상 처리",
+        "heuristic_probability": 0.0,
+        "ml_probability": 0.000205,
+        "probability": null,
+        "raw_probability": 0.000205,
+        "riskLevel": "SAFE",
+        "threshold": 0.47,
+        "verdict": "benign"
+      },
+      "source": "phishtank",
+      "url": "https://zhongfupower.com"
+    }
+  ],
+  "overlap": [],
+  "probes": [
+    "dev/fresh_eval_20260611.csv",
+    "dev/fresh_eval_crosssource_20260611.csv"
+  ],
+  "reference_rows": 10495,
+  "stats": {
+    "accuracy_ppm": 986167,
+    "benign": 3000,
+    "benign_unknown": 1,
+    "coverage_ppm": 999000,
+    "fn": 75,
+    "fp": 2,
+    "malicious": 3000,
+    "malicious_unknown": 5,
+    "rows": 6000,
+    "tn": 2997,
+    "tp": 2920,
+    "unknown": 6
+  },
+  "unexpected_residual_misses": [
+    "malicious_unknown|urlhaus_recent|https://getabre.com/NDYNuw",
+    "fp|tranco_latest_nonoverlap|https://smbc-comics.com",
+    "fn|phishtank|http://itau2viadafatura.com",
+    "malicious_unknown|phishtank|http://myhermes5050.duckdns.org",
+    "fn|phishtank|http://spidarubalogin.bond",
+    "fn|phishtank|https://abcstudyguide.com",
+    "fn|phishtank|https://agricole-activation1.bolt.host",
+    "fn|phishtank|https://allbestbeaches.com",
+    "malicious_unknown|nurilab|https://api.whatsapp.com/send?phone=12296008906&text=Start%20verification&app_absent=0",
+    "fn|phishtank|https://app.tupiazaaeniineea-barscopiaza.com",
+    "fn|phishtank|https://atualizacao-2026.app",
+    "fn|phishtank|https://baciniciarsesion.club",
+    "fn|phishtank|https://bacmicuenta.club",
+    "fn|phishtank|https://baiernano.com",
+    "fn|phishtank|https://bcaxe-reward.com",
+    "fn|phishtank|https://bemcaamvoli.com",
+    "fn|phishtank|https://benificiosonline.pages.dev",
+    "fn|phishtank|https://bjbnb.com",
+    "fn|phishtank|https://boom-retired-vendors-eternal.trycloudflare.com",
+    "fn|phishtank|https://bradesco.ativacaodechat.com",
+    "fn|phishtank|https://caxygl.com",
+    "fn|phishtank|https://cdaifa.com",
+    "fn|phishtank|https://cosmograft.com",
+    "fn|phishtank|https://credito-de-consumo.com",
+    "fn|phishtank|https://darot51861.wixsite.com/sascs",
+    "fn|phishtank|https://delightful-faloodeh1.netlify.app",
+    "fn|phishtank|https://deviindustry.com",
+    "fn|phishtank|https://diploos.com",
+    "malicious_unknown|phishtank|https://www.eatskorea.com/chsps/",
+    "fn|phishtank|https://empresarialesplaza.com",
+    "fn|phishtank|https://freedomfamilyfunocala.com",
+    "fn|phishtank|https://gecko-limon.com",
+    "fn|phishtank|https://gongchangba.com",
+    "fn|phishtank|https://h-pa.co",
+    "fn|phishtank|https://haomasou.com",
+    "fn|phishtank|https://heatherdiane.com",
+    "fn|phishtank|https://inmobiliaraplaza.netlify.app",
+    "fn|phishtank|https://jenmryplay.com",
+    "fn|phishtank|https://jynlm.com",
+    "fn|phishtank|https://kkugames.com",
+    "fn|phishtank|https://lgs-kids.com",
+    "fn|phishtank|https://ljlpnl.com",
+    "fn|phishtank|https://lsmct.com",
+    "fn|phishtank|https://lsmetalmesh.com",
+    "fn|phishtank|https://lstjdog.com",
+    "fn|nurilab|https://luckbox.kr/",
+    "fn|phishtank|https://lunchhunch.com",
+    "fn|phishtank|https://mcassmvoli.com",
+    "fn|phishtank|https://meninlovehk.com",
+    "fn|phishtank|https://www.mrelay-particulier.com",
+    "fn|phishtank|https://najonathanisd09.wixsite.com/03esp",
+    "fn|phishtank|https://nk-link.com",
+    "fn|phishtank|https://oatsnews.com",
+    "fn|phishtank|https://orange-tzh.com",
+    "benign_unknown|tranco_latest_nonoverlap|https://pay2world.co",
+    "fn|phishtank|https://peethmart.com",
+    "fn|phishtank|https://premanteamqualools.asesolu.com",
+    "fn|phishtank|https://pretravelusonlineassist.com",
+    "fn|phishtank|https://ptcsys-hk.com",
+    "malicious_unknown|nurilab|https://www.roblox.com.bn/404",
+    "fn|phishtank|https://savesyrianow.com",
+    "fn|phishtank|https://scsjmov.com",
+    "fn|phishtank|https://sejanexcard.com",
+    "fn|phishtank|https://shanxicu.com",
+    "fn|phishtank|https://sisimmobilier.com",
+    "fn|phishtank|https://songbaiyao.com",
+    "fn|phishtank|https://spx-gex.duckdns.org",
+    "fn|phishtank|https://tbcvip.com",
+    "fn|phishtank|https://theparsonspatch.com",
+    "fn|phishtank|https://tibetsq.com",
+    "fn|phishtank|https://troonteetimes.com",
+    "fn|phishtank|https://visaacr.eu.cc",
+    "fn|phishtank|https://visaacr.gu.cc",
+    "fn|phishtank|https://visactr.icu",
+    "fn|phishtank|https://visaxzvn.shop",
+    "fn|phishtank|https://volkanpc.com",
+    "fn|phishtank|https://volubleblogger.com",
+    "fn|phishtank|https://xaysxy.com",
+    "fn|phishtank|https://xiaoniucloud.com",
+    "fn|phishtank|https://xieshous.com",
+    "fp|tranco_latest_nonoverlap|https://xm66963254698745.vip",
+    "fn|phishtank|https://yinianlius.com",
+    "fn|phishtank|https://zhongfupower.com"
+  ]
+}

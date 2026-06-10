@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import random
 from urllib.parse import urlsplit, urlunsplit
@@ -180,6 +181,7 @@ def main() -> int:
         help="Use sklearn class_weight='balanced' in addition to sample weights.",
     )
     parser.add_argument("--C", type=float, default=4.0, help="LogisticRegression regularization inverse strength.")
+    parser.add_argument("--min-training-rows", type=int, default=0)
     args = parser.parse_args()
 
     holdout_keys = load_holdout_keys(args.holdout)
@@ -195,6 +197,8 @@ def main() -> int:
     loaded_rows = len(rows)
     if args.balance_samples:
         rows = balance_rows(rows, args.random_state)
+    if len(rows) < args.min_training_rows:
+        raise SystemExit(f"training_rows {len(rows)} < min_training_rows {args.min_training_rows}")
     urls = [str(r["url"]) for r in rows]
     labels = [int(r["label"]) for r in rows]
     weights = [float(r["weight"]) for r in rows]
@@ -260,6 +264,25 @@ def main() -> int:
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     joblib.dump(model, args.out)
     print(f"wrote={args.out}")
+    meta_path = args.out + ".meta.json"
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "loaded_rows": int(loaded_rows),
+                "training_rows": int(len(urls)),
+                "label_counts": {"0": int(len(labels) - sum(labels)), "1": int(sum(labels))},
+                "holdout_excluded": int(len(holdout_keys)),
+                "balanced": bool(args.balance_samples),
+                "class_weight_balanced": bool(args.class_weight_balanced),
+                "C": float(args.C),
+                "inputs": list(args.input),
+                "holdouts": list(args.holdout),
+            },
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+    print(f"wrote={meta_path}")
     return 0
 
 

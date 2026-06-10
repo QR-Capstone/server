@@ -1,0 +1,143 @@
+{
+  "api_holdout_metrics": {
+    "accuracy": 1.0,
+    "accuracy_lower_95": 0.997016072667,
+    "coverage": 1.0,
+    "decisive_accuracy": 1.0,
+    "engine": "xgboost",
+    "errors": 0,
+    "false_negative": 0,
+    "false_negative_rate": 0.0,
+    "false_positive": 0,
+    "false_positive_rate": 0.0,
+    "p95_latency_ms": 3.0647999374195933,
+    "p95_server_ms": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "recall_lower_95": 0.9940499000000236,
+    "rows": 904,
+    "source_stats": {
+      "benign_ad_landing": {
+        "benign": 24,
+        "errors": 0,
+        "fn": 0,
+        "fp": 0,
+        "malicious": 0,
+        "rows": 24,
+        "tn": 24,
+        "tp": 0,
+        "unknown": 0
+      },
+      "benign_hard_korean_smb": {
+        "benign": 210,
+        "errors": 0,
+        "fn": 0,
+        "fp": 0,
+        "malicious": 0,
+        "rows": 210,
+        "tn": 210,
+        "tp": 0,
+        "unknown": 0
+      },
+      "benign_major_official": {
+        "benign": 148,
+        "errors": 0,
+        "fn": 0,
+        "fp": 0,
+        "malicious": 0,
+        "rows": 148,
+        "tn": 148,
+        "tp": 0,
+        "unknown": 0
+      },
+      "benign_user_confirmed_fp": {
+        "benign": 70,
+        "errors": 0,
+        "fn": 0,
+        "fp": 0,
+        "malicious": 0,
+        "rows": 70,
+        "tn": 70,
+        "tp": 0,
+        "unknown": 0
+      },
+      "malicious_real_live": {
+        "benign": 0,
+        "errors": 0,
+        "fn": 0,
+        "fp": 0,
+        "malicious": 452,
+        "rows": 452,
+        "tn": 0,
+        "tp": 452,
+        "unknown": 0
+      }
+    },
+    "specificity": 1.0,
+    "specificity_lower_95": 0.9940499000000236,
+    "tn": 452,
+    "tp": 452,
+    "unknown": 0,
+    "unknown_ratio": 0.0
+  },
+  "artifacts": [
+    {
+      "mtime_utc": "2026-06-01T06:30:07Z",
+      "path": "xgboost/url_xgb_paired_first.joblib",
+      "sha256": "aeecc70a00c11b8bd430191d503e6ae54b9416bf5e4ff7f52f0e146849d6e27e",
+      "size_bytes": 2051111
+    },
+    {
+      "mtime_utc": "2026-06-01T00:48:09Z",
+      "path": "xgboost/url_xgb_domain_age.joblib",
+      "sha256": "be8a671fdd869694d3a79d49f7f86d6c0d61a1315d59c69d27bbf7c967f20a52",
+      "size_bytes": 1689823
+    },
+    {
+      "mtime_utc": "2026-06-01T00:52:56Z",
+      "path": "xgboost/url_xgb_dom.joblib",
+      "sha256": "664446c5c8252b15cfa2d55fab4dfd62f605e7ad57804f0925b4bb949e634fbd",
+      "size_bytes": 1604002
+    }
+  ],
+  "engine": "xgboost",
+  "runtime_rule_files": [
+    {
+      "mtime_utc": "2026-06-10T22:10:51Z",
+      "path": "trusted_domains.py",
+      "sha256": "327476efb81c6fbd50f527a8b48fbba986fde158466278a8aee2be041adb1cab",
+      "size_bytes": 70293
+    },
+    {
+      "mtime_utc": "2026-06-06T05:37:24Z",
+      "path": "main.py",
+      "sha256": "1e8c86a89cb08c4a99af41a06b398c604aa08912776948f8871df6d4cc92bcbd",
+      "size_bytes": 81212
+    }
+  ],
+  "stamped_at_utc": "2026-06-10T22:12:52Z",
+  "training_inputs": [
+    {
+      "label_counts": {
+        "0": 54764,
+        "1": 56584
+      },
+      "mtime_utc": "2026-06-01T06:28:56Z",
+      "path": "dev/engine_training_inputs/expanded_url_train_all.csv",
+      "rows": 111348,
+      "sha256": "57d5402315342d5f36266c184fbec5f174f114fe2eb4071f489e0f8066cf8174",
+      "size_bytes": 13476680
+    },
+    {
+      "label_counts": {
+        "0": 5000,
+        "1": 5000
+      },
+      "mtime_utc": "2026-06-05T09:38:51Z",
+      "path": "dev/engine_training_inputs/xgboost_train_10k.csv",
+      "rows": 10000,
+      "sha256": "623549075584bbf0782f50baa725372d3a4c18c41edc621077726475ea0cec3e",
+      "size_bytes": 1011413
+    }
+  ]
+}

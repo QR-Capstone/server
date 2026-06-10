@@ -1,0 +1,384 @@
+
+=== operational gate: urlml leakage, retrain, holdout quality ===
++ C:\Python313\python.exe dev\run_urlml_regression_gate.py --train dev\dataset_splits\train.csv --holdout dev\dataset_splits\validation.csv --min-coverage 0.99 --min-accuracy 0.99 --min-decisive-accuracy 0.99 --max-fp-rate 0.001 --max-fn-rate 0.001 --max-unknown-rate 0.002 --max-fp 0 --max-fn 0 --max-micro-ms 0.75
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\url_ml\train_url_ml.py --input dev\dataset_splits\train.csv --holdout dev\dataset_splits\validation.csv --out C:\Users\이승재\Desktop\server\dev\url_ml_gate_tmp.joblib --test-size 0.2 --random-state 42 --hard-benign-weight 8 --user-confirmed-weight 8 --naver-benign-weight 4 --synthetic-weight 0.2 --max-synthetic-malicious-ratio 0.20 --no-class-weight-balanced --C 4.0
+loaded=8409 training_rows=7256 malicious=3628 benign=3628 holdout_excluded=1062 balanced=True
+              precision    recall  f1-score   support
+
+      benign     0.9624    0.9876    0.9748       726
+   malicious     0.9873    0.9614    0.9742       726
+
+    accuracy                         0.9745      1452
+   macro avg     0.9748    0.9745    0.9745      1452
+weighted avg     0.9748    0.9745    0.9745      1452
+
+confusion_matrix=[[717, 9], [28, 698]]
+wrote=C:\Users\이승재\Desktop\server\dev\url_ml_gate_tmp.joblib
+wrote=C:\Users\이승재\Desktop\server\dev\url_ml_gate_tmp.joblib.meta.json
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\urlml_quality_gate.py --min-coverage 0.99 --min-accuracy 0.99 --max-fp-rate 0.001 --max-fn-rate 0.001 --max-unknown-rate 0.002 --min-decisive-accuracy 0.99 --max-fp 0 --max-fn 0 --eval dev\dataset_splits\validation.csv
+rows=1062 accuracy=1.0000 coverage=1.0000 accuracy_lower_95=0.997459 recall_lower_95=0.995489 specificity_lower_95=0.994215 decisive_accuracy=1.0000 TP=597 TN=465 FP=0 FP_rate=0.0000 FN=0 FN_rate=0.0000 unknown=0 unknown_rate=0.0000
+  SOURCE malicious_real_live: rows=473 malicious=473 benign=0 TP=473 TN=0 FP=0 FN=0 unknown=0
+  SOURCE benign_hard_korean_smb: rows=203 malicious=0 benign=203 TP=0 TN=203 FP=0 FN=0 unknown=0
+  SOURCE benign_major_official: rows=159 malicious=0 benign=159 TP=0 TN=159 FP=0 FN=0 unknown=0
+  SOURCE malicious_synthetic_kr: rows=124 malicious=124 benign=0 TP=124 TN=0 FP=0 FN=0 unknown=0
+  SOURCE benign_user_confirmed_fp: rows=80 malicious=0 benign=80 TP=0 TN=80 FP=0 FN=0 unknown=0
+  SOURCE benign_ad_landing: rows=23 malicious=0 benign=23 TP=0 TN=23 FP=0 FN=0 unknown=0
+PASS
+micro_speed checks=5000 elapsed_sec=1.406948 per_url_ms=0.2814
+PASS regression gate
+
+=== operational gate: api latency, cache, readiness ===
++ C:\Python313\python.exe dev\run_api_performance_gate.py --skip-gnn-fetch
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_api_latency.py --self-test
+PASS benchmark_api_latency self-test
+starting temp server on http://127.0.0.1:8050
+
+=== gate: full analyze mixed workload ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_api_latency.py --api http://127.0.0.1:8050 --endpoint /analyze --repeat 8 --workers 6 --keepalive --timeout 60 --expect-risk SAFE=16 --expect-risk DANGEROUS=8 --max-server-p95-ms 20.0 --expect-ready runtime.xgboost_workers=2 --expect-ready runtime.gnn_workers=2 --expect-ready runtime.xgboost.rdap_max_attempts=1 --expect-ready runtime.xgboost.lock_max>=1 --expect-ready runtime.gnn.fetch_lock_max>=1 --expect-ready cache.url_ml.misses=3 --expect-ready cache.url_ml.hits>=1 --expect-ready cache.url_rule.misses=3 --expect-ready cache.url_rule.hits>=1 --expect-ready cache.url_heuristic.misses=3 --expect-ready cache.url_heuristic.hits>=1 --expect-ready inflight.total=0
+requests=24 workers=6 elapsed_sec=0.423 mean_ms=24.438 p50_ms=20.408 p95_ms=42.744 max_ms=74.142
+risks={'SAFE': 16, 'DANGEROUS': 8}
+server_header_mean_ms=2.750 server_header_p50_ms=2.000 server_header_p95_ms=5.000 server_header_max_ms=6.000
+
+=== gate: trusted docs full analyze fast path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_api_latency.py --api http://127.0.0.1:8050 --endpoint /analyze --repeat 1 --workers 4 --keepalive --timeout 60 --url https://docs.python.org/3/library/urllib.parse.html --url https://docs.python.org/3/library/asyncio.html --url https://docs.python.org/3/library/http.html --url https://docs.python.org/3/library/json.html --expect-risk SAFE=4 --max-server-p95-ms 20.0
+requests=4 workers=4 elapsed_sec=0.327 mean_ms=17.861 p50_ms=17.690 p95_ms=22.558 max_ms=22.558
+risks={'SAFE': 4}
+server_header_mean_ms=3.000 server_header_p50_ms=3.000 server_header_p95_ms=3.000 server_header_max_ms=3.000
+
+=== gate: trusted docs url-ml only fast path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_api_latency.py --api http://127.0.0.1:8050 --endpoint /analyze/url-ml --repeat 1 --workers 4 --keepalive --timeout 30 --url https://docs.python.org/3/library/urllib.parse.html --url https://docs.python.org/3/library/asyncio.html --url https://docs.python.org/3/library/http.html --url https://docs.python.org/3/library/json.html --expect-risk SAFE=4 --max-server-p95-ms 20.0
+requests=4 workers=4 elapsed_sec=0.320 mean_ms=14.810 p50_ms=14.409 p95_ms=19.166 max_ms=19.166
+risks={'SAFE': 4}
+server_header_mean_ms=1.000 server_header_p50_ms=1.000 server_header_p95_ms=1.000 server_header_max_ms=1.000
+
+=== gate: idn confusable brand lure url-ml strong rule ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_api_latency.py --api http://127.0.0.1:8050 --endpoint /analyze/url-ml --repeat 1 --workers 4 --keepalive --timeout 30 --url https://раураl.com/login --url https://аррӏе.com/verify --url https://www.gοοgle.com/signin --url https://청주과외.com/login --expect-risk DANGEROUS=3 --expect-risk SAFE=1 --max-server-p95-ms 10.0
+requests=4 workers=4 elapsed_sec=0.319 mean_ms=16.867 p50_ms=16.616 p95_ms=20.916 max_ms=20.916
+risks={'DANGEROUS': 3, 'SAFE': 1}
+server_header_mean_ms=2.000 server_header_p50_ms=2.000 server_header_p95_ms=2.000 server_header_max_ms=2.000
+
+=== gate: batch analyze dedupe fast path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_batch_api.py --api http://127.0.0.1:8050 --repeat 5 --timeout 60 --expect-count 6 --expect-unique-count 3 --expect-risk SAFE=2 --expect-risk DANGEROUS=4 --max-server-p95-ms 20.0 --expect-ready runtime.analyze_batch_workers>=1 --expect-ready runtime.analyze_batch_max_urls>=6 --expect-ready cache.url_ml.hits>=1 --expect-ready inflight.total=0
+batch_requests=5 urls_per_batch=6 count=6 unique_count=3 deduplicated=True mean_ms=14.537 p95_ms=31.046 max_ms=31.046
+risks={'SAFE': 2, 'DANGEROUS': 4}
+server_header_mean_ms=1.800 server_header_p95_ms=2.000 server_header_max_ms=2.000
+
+=== gate: urlml batch dedupe ultra-fast path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_batch_api.py --api http://127.0.0.1:8050 --endpoint /analyze/url-ml/batch --repeat 5 --timeout 30 --expect-count 6 --expect-unique-count 3 --expect-risk SAFE=2 --expect-risk DANGEROUS=4 --max-server-p95-ms 10.0 --expect-ready cache.url_ml.hits>=1 --expect-ready inflight.total=0
+batch_requests=5 urls_per_batch=6 count=6 unique_count=3 deduplicated=True mean_ms=19.035 p95_ms=30.034 max_ms=30.034
+risks={'SAFE': 2, 'DANGEROUS': 4}
+server_header_mean_ms=1.000 server_header_p95_ms=1.000 server_header_max_ms=1.000
+
+=== gate: urlml text extraction ultra-fast path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_batch_api.py --api http://127.0.0.1:8050 --endpoint /analyze/url-ml/text --repeat 5 --timeout 30 --expect-count 6 --expect-unique-count 3 --expect-risk SAFE=2 --expect-risk DANGEROUS=4 --max-server-p95-ms 10.0 --expect-ready runtime.analyze_text_max_chars>=1000 --expect-ready cache.url_ml.hits>=1 --expect-ready inflight.total=0
+batch_requests=5 urls_per_batch=6 count=6 unique_count=3 deduplicated=True mean_ms=14.603 p95_ms=35.992 max_ms=35.992
+risks={'SAFE': 2, 'DANGEROUS': 4}
+server_header_mean_ms=1.000 server_header_p95_ms=1.000 server_header_max_ms=1.000
+
+=== gate: defanged urlml text extraction path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_batch_api.py --api http://127.0.0.1:8050 --endpoint /analyze/url-ml/text --defanged-text --repeat 5 --timeout 30 --expect-count 6 --expect-unique-count 3 --expect-risk SAFE=2 --expect-risk DANGEROUS=4 --max-server-p95-ms 10.0 --expect-ready cache.url_ml.hits>=1 --expect-ready inflight.total=0
+batch_requests=5 urls_per_batch=6 count=6 unique_count=3 deduplicated=True mean_ms=13.410 p95_ms=29.405 max_ms=29.405
+risks={'SAFE': 2, 'DANGEROUS': 4}
+server_header_mean_ms=1.200 server_header_p95_ms=2.000 server_header_max_ms=2.000
+
+=== gate: full text extraction dedupe fast path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_batch_api.py --api http://127.0.0.1:8050 --endpoint /analyze/text --repeat 3 --timeout 60 --expect-count 6 --expect-unique-count 3 --expect-risk SAFE=2 --expect-risk DANGEROUS=4 --max-server-p95-ms 20.0 --expect-ready cache.url_ml.hits>=1 --expect-ready inflight.total=0
+batch_requests=3 urls_per_batch=6 count=6 unique_count=3 deduplicated=True mean_ms=16.492 p95_ms=29.853 max_ms=29.853
+risks={'SAFE': 2, 'DANGEROUS': 4}
+server_header_mean_ms=2.000 server_header_p95_ms=2.000 server_header_max_ms=2.000
+
+=== gate: xgboost urlml preflight fast path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_api_latency.py --api http://127.0.0.1:8050 --endpoint /analyze/xgboost --repeat 8 --workers 6 --keepalive --timeout 60 --url https://docs.python.org/3/library/urllib.parse.html --expect-risk SAFE=8 --max-server-p95-ms 20.0 --expect-ready cache.xgboost.misses=0 --expect-ready cache.xgboost.currsize=0 --expect-ready cache.url_ml.hits>=1 --expect-ready inflight.total=0
+requests=8 workers=6 elapsed_sec=0.336 mean_ms=19.395 p50_ms=22.808 p95_ms=27.622 max_ms=27.622
+risks={'SAFE': 8}
+server_header_mean_ms=1.625 server_header_p50_ms=2.000 server_header_p95_ms=2.000 server_header_max_ms=2.000
+
+=== gate: gnn urlml preflight fast path ===
++ C:\Python313\python.exe C:\Users\이승재\Desktop\server\dev\benchmark_api_latency.py --api http://127.0.0.1:8050 --endpoint /analyze/gnn --repeat 6 --workers 4 --keepalive --timeout 90 --url https://docs.python.org/3/library/urllib.parse.html --expect-risk SAFE=6 --max-server-p95-ms 20.0 --expect-ready cache.gnn.misses=0 --expect-ready cache.gnn.currsize=0 --expect-ready cache.url_ml.hits>=1 --expect-ready inflight.total=0
+requests=6 workers=4 elapsed_sec=0.331 mean_ms=14.293 p50_ms=16.190 p95_ms=20.434 max_ms=20.434
+risks={'SAFE': 6}
+server_header_mean_ms=1.167 server_header_p50_ms=1.000 server_header_p95_ms=2.000 server_header_max_ms=2.000
+PASS api performance gate
+
+=== operational gate: dataset split integrity ===
++ C:\Python313\python.exe dev\audit_url_splits.py --train dev\dataset_splits\train.csv --test dev\dataset_splits\validation.csv --test dev\dataset_splits\test_balanced.csv --test dev\dataset_splits\test_operational.csv --min-train-rows 8000 --min-test-rows 500 --balanced-test dev\dataset_splits\test_balanced.csv --balanced-max-delta 0
+dev\dataset_splits\train.csv: rows=8529 benign=3628 malicious=4901 duplicate_keys=0
+dev\dataset_splits\validation.csv: rows=1062 benign=465 malicious=597 duplicate_keys=0
+dev\dataset_splits\test_balanced.csv: rows=904 benign=452 malicious=452 duplicate_keys=0
+dev\dataset_splits\test_operational.csv: rows=502 benign=452 malicious=50 duplicate_keys=0
+train_unique=8529 test_unique=1966 overlap=0 label_conflicts=0
+
+=== operational gate: engine training input integrity ===
++ C:\Python313\python.exe dev\audit_engine_training_inputs.py --target 10000
+C:\Users\이승재\Desktop\server\dev\engine_training_inputs\xgboost_train_10k.csv: rows=10000 benign=5000 malicious=5000 duplicate_keys=0 eval_overlap=0 text_rows=0
+C:\Users\이승재\Desktop\server\dev\engine_training_inputs\kobert_candidates_10k.csv: rows=10000 benign=2375 malicious=7625 duplicate_keys=0 eval_overlap=0 text_rows=0
+C:\Users\이승재\Desktop\server\dev\engine_training_inputs\kobert_text_train_10k.csv: rows=10000 benign=2375 malicious=7625 duplicate_keys=0 eval_overlap=0 text_rows=10000
+kobert_candidates_vs_kobert_text: missing_in_kobert_text=0 extra_in_kobert_text=0 label_mismatch=0
+C:\Users\이승재\Desktop\server\gnn\gnn_total_dataset.csv: unique_rows=10048 duplicate_keys=0 eval_overlap=0
+PASS engine training inputs audit
+
+=== operational gate: XGBoost artifact provenance ===
++ C:\Python313\python.exe dev\audit_xgboost_artifact_provenance.py --waiver-file dev\model_quality\xgboost_provenance_waivers.json
+xgboost/url_xgb_paired_first.joblib: training_rows=111348 label_counts={'0': 54764, '1': 56584} matched_inputs=['dev/engine_training_inputs/expanded_url_train_all.csv']
+xgboost/url_xgb_domain_age.joblib: training_rows=10000 label_counts={'0': 4545, '1': 5455} matched_inputs=[]
+WAIVED xgboost/url_xgb_domain_age.joblib: Current artifact predates retained engine-training-input manifests. It reports training_rows=10000 and label_counts={0:4545,1:5455}; the exact source CSV is not present in the current worktree. A 2026-06-05 attempt to retrain from dev/engine_training_inputs/xgboost_train_10k.csv with offline domain signals was rejected by the training guard at internal accuracy 0.5353, so the higher-performing existing artifact is retained until live/cached domain-signal retraining is made reproducible.
+xgboost/url_xgb_dom.joblib: training_rows=10000 label_counts={'0': 4545, '1': 5455} matched_inputs=[]
+WAIVED xgboost/url_xgb_dom.joblib: Current artifact predates retained engine-training-input manifests. It reports training_rows=10000 and label_counts={0:4545,1:5455}; the exact source CSV is not present in the current worktree. Full DOM retraining requires live page fetches and has not yet been converted to a retained feature-cache workflow.
+PASS XGBoost artifact provenance audit
+
+=== operational gate: api curated hard cases ===
++ C:\Python313\python.exe dev\evaluate_api_holdout.py --spawn-server --holdout dev\model_quality\hard_cases.csv --engine urlml --engine xgboost --engine gnn --engine kobert --workers 4 --timeout 90 --require-ready --show-misses 20 --min-accuracy 1.0 --max-fp 0 --max-fn 0 --max-unknown-ratio 0.0 --max-p95-ms 1000
+starting temp server on http://127.0.0.1:8060
+holdout_rows=20 malicious=14 benign=6
+  urlml [20/20]
+urlml: rows=20 accuracy=1.0000 accuracy_lower_95=0.880842 precision=1.0000 recall=1.0000 recall_lower_95=0.838045 specificity=1.0000 specificity_lower_95=0.689216 FP=0 FP_rate=0.0000 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=1.0000 p95_ms=15.9 server_p95_ms=2.0 errors=0
+  SOURCE confirmed_malicious_host_hardcase: rows=6 malicious=6 benign=0 TP=6 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE malicious_impersonation_hardcase: rows=6 malicious=6 benign=0 TP=6 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE trusted_official_hardcase: rows=6 malicious=0 benign=6 TP=0 TN=6 FP=0 FN=0 unknown=0 errors=0
+  SOURCE confirmed_malicious_path_hardcase: rows=2 malicious=2 benign=0 TP=2 TN=0 FP=0 FN=0 unknown=0 errors=0
+  xgboost [20/20]
+xgboost: rows=20 accuracy=1.0000 accuracy_lower_95=0.880842 precision=1.0000 recall=1.0000 recall_lower_95=0.838045 specificity=1.0000 specificity_lower_95=0.689216 FP=0 FP_rate=0.0000 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=1.0000 p95_ms=3.9 server_p95_ms=1.0 errors=0
+  SOURCE confirmed_malicious_host_hardcase: rows=6 malicious=6 benign=0 TP=6 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE malicious_impersonation_hardcase: rows=6 malicious=6 benign=0 TP=6 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE trusted_official_hardcase: rows=6 malicious=0 benign=6 TP=0 TN=6 FP=0 FN=0 unknown=0 errors=0
+  SOURCE confirmed_malicious_path_hardcase: rows=2 malicious=2 benign=0 TP=2 TN=0 FP=0 FN=0 unknown=0 errors=0
+  gnn [20/20]
+gnn: rows=20 accuracy=1.0000 accuracy_lower_95=0.880842 precision=1.0000 recall=1.0000 recall_lower_95=0.838045 specificity=1.0000 specificity_lower_95=0.689216 FP=0 FP_rate=0.0000 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=1.0000 p95_ms=3.3 server_p95_ms=1.0 errors=0
+  SOURCE confirmed_malicious_host_hardcase: rows=6 malicious=6 benign=0 TP=6 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE malicious_impersonation_hardcase: rows=6 malicious=6 benign=0 TP=6 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE trusted_official_hardcase: rows=6 malicious=0 benign=6 TP=0 TN=6 FP=0 FN=0 unknown=0 errors=0
+  SOURCE confirmed_malicious_path_hardcase: rows=2 malicious=2 benign=0 TP=2 TN=0 FP=0 FN=0 unknown=0 errors=0
+  kobert [20/20]
+kobert: rows=20 accuracy=1.0000 accuracy_lower_95=0.880842 precision=1.0000 recall=1.0000 recall_lower_95=0.838045 specificity=1.0000 specificity_lower_95=0.689216 FP=0 FP_rate=0.0000 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=1.0000 p95_ms=12.5 server_p95_ms=1.0 errors=0
+  SOURCE confirmed_malicious_host_hardcase: rows=6 malicious=6 benign=0 TP=6 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE malicious_impersonation_hardcase: rows=6 malicious=6 benign=0 TP=6 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE trusted_official_hardcase: rows=6 malicious=0 benign=6 TP=0 TN=6 FP=0 FN=0 unknown=0 errors=0
+  SOURCE confirmed_malicious_path_hardcase: rows=2 malicious=2 benign=0 TP=2 TN=0 FP=0 FN=0 unknown=0 errors=0
+PASS api holdout evaluation
+
+=== operational gate: api balanced holdout metrics ===
++ C:\Python313\python.exe dev\evaluate_api_holdout.py --spawn-server --train dev\dataset_splits\train.csv --holdout dev\dataset_splits\test_balanced.csv --workers 4 --timeout 90 --require-ready --show-misses 10 --engine urlml --engine xgboost --engine gnn --engine ensemble --max-unknown-ratio 1.0 --min-accuracy 0.0 --max-fp-rate 1.0 --max-fn-rate 1.0 --engine-max-unknown-ratio urlml=0.0 --engine-min-accuracy urlml=1.0 --engine-max-fn-rate urlml=0.0 --engine-max-fp-rate urlml=0.0 --engine-max-unknown-ratio xgboost=0.0 --engine-min-accuracy xgboost=0.99 --engine-max-fp-rate xgboost=0.01 --engine-max-fn-rate xgboost=0.01 --engine-max-unknown-ratio gnn=0.0 --engine-min-accuracy gnn=0.99 --engine-max-fp-rate gnn=0.01 --engine-max-fn-rate gnn=0.01 --engine-min-accuracy ensemble=1.0 --engine-max-fp-rate ensemble=0.0 --engine-max-fn-rate ensemble=0.0 --engine-max-unknown-ratio ensemble=0.0 --engine-min-precision urlml=0.98 --engine-min-recall urlml=0.97 --engine-min-precision xgboost=0.99 --engine-min-recall xgboost=0.99 --engine-min-precision gnn=0.99 --engine-min-recall gnn=0.99 --engine-min-precision ensemble=1.0 --engine-min-recall ensemble=1.0 --engine-min-accuracy-lower-bound urlml=0.99 --engine-min-accuracy-lower-bound xgboost=0.99 --engine-min-accuracy-lower-bound gnn=0.99 --engine-min-accuracy-lower-bound ensemble=0.99 --engine-min-recall-lower-bound urlml=0.99 --engine-min-recall-lower-bound xgboost=0.99 --engine-min-recall-lower-bound gnn=0.99 --engine-min-recall-lower-bound ensemble=0.99 --engine-min-specificity-lower-bound urlml=0.99 --engine-min-specificity-lower-bound xgboost=0.99 --engine-min-specificity-lower-bound gnn=0.99 --engine-min-specificity-lower-bound ensemble=0.99 --engine-max-fp ensemble=0 --engine-max-fn ensemble=0 --engine-max-p95-ms ensemble=6000 --json-out dev\model_quality\api_holdout_core.json
+starting temp server on http://127.0.0.1:8060
+holdout_rows=904 malicious=452 benign=452
+  urlml [25/904]
+  urlml [50/904]
+  urlml [75/904]
+  urlml [100/904]
+  urlml [125/904]
+  urlml [150/904]
+  urlml [175/904]
+  urlml [200/904]
+  urlml [225/904]
+  urlml [250/904]
+  urlml [275/904]
+  urlml [300/904]
+  urlml [325/904]
+  urlml [350/904]
+  urlml [375/904]
+  urlml [400/904]
+  urlml [425/904]
+  urlml [450/904]
+  urlml [475/904]
+  urlml [500/904]
+  urlml [525/904]
+  urlml [550/904]
+  urlml [575/904]
+  urlml [600/904]
+  urlml [625/904]
+  urlml [650/904]
+  urlml [675/904]
+  urlml [700/904]
+  urlml [725/904]
+  urlml [750/904]
+  urlml [775/904]
+  urlml [800/904]
+  urlml [825/904]
+  urlml [850/904]
+  urlml [875/904]
+  urlml [900/904]
+  urlml [904/904]
+urlml: rows=904 accuracy=0.9989 accuracy_lower_95=0.995057 precision=0.9978 recall=1.0000 recall_lower_95=0.994050 specificity=0.9978 specificity_lower_95=0.990145 FP=1 FP_rate=0.0022 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=0.9989 p95_ms=6.2 server_p95_ms=4.0 errors=0
+  MISS expected=benign pred=malicious url=http://www.hanaroflower.com/
+  SOURCE malicious_real_live: rows=452 malicious=452 benign=0 TP=452 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_hard_korean_smb: rows=210 malicious=0 benign=210 TP=0 TN=210 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_major_official: rows=148 malicious=0 benign=148 TP=0 TN=148 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_user_confirmed_fp: rows=70 malicious=0 benign=70 TP=0 TN=70 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_ad_landing: rows=24 malicious=0 benign=24 TP=0 TN=23 FP=1 FN=0 unknown=0 errors=0
+FAIL urlml.accuracy 0.9989 < 1.0000
+FAIL urlml.false_positive_rate 0.0022 > 0.0000
+  xgboost [25/904]
+  xgboost [50/904]
+  xgboost [75/904]
+  xgboost [100/904]
+  xgboost [125/904]
+  xgboost [150/904]
+  xgboost [175/904]
+  xgboost [200/904]
+  xgboost [225/904]
+  xgboost [250/904]
+  xgboost [275/904]
+  xgboost [300/904]
+  xgboost [325/904]
+  xgboost [350/904]
+  xgboost [375/904]
+  xgboost [400/904]
+  xgboost [425/904]
+  xgboost [450/904]
+  xgboost [475/904]
+  xgboost [500/904]
+  xgboost [525/904]
+  xgboost [550/904]
+  xgboost [575/904]
+  xgboost [600/904]
+  xgboost [625/904]
+  xgboost [650/904]
+  xgboost [675/904]
+  xgboost [700/904]
+  xgboost [725/904]
+  xgboost [750/904]
+  xgboost [775/904]
+  xgboost [800/904]
+  xgboost [825/904]
+  xgboost [850/904]
+  xgboost [875/904]
+  xgboost [900/904]
+  xgboost [904/904]
+xgboost: rows=904 accuracy=0.9989 accuracy_lower_95=0.995057 precision=0.9978 recall=1.0000 recall_lower_95=0.994050 specificity=0.9978 specificity_lower_95=0.990145 FP=1 FP_rate=0.0022 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=0.9989 p95_ms=3.3 server_p95_ms=1.0 errors=0
+  MISS expected=benign pred=malicious url=http://www.hanaroflower.com/
+  SOURCE malicious_real_live: rows=452 malicious=452 benign=0 TP=452 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_hard_korean_smb: rows=210 malicious=0 benign=210 TP=0 TN=210 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_major_official: rows=148 malicious=0 benign=148 TP=0 TN=148 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_user_confirmed_fp: rows=70 malicious=0 benign=70 TP=0 TN=70 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_ad_landing: rows=24 malicious=0 benign=24 TP=0 TN=23 FP=1 FN=0 unknown=0 errors=0
+  gnn [25/904]
+  gnn [50/904]
+  gnn [75/904]
+  gnn [100/904]
+  gnn [125/904]
+  gnn [150/904]
+  gnn [175/904]
+  gnn [200/904]
+  gnn [225/904]
+  gnn [250/904]
+  gnn [275/904]
+  gnn [300/904]
+  gnn [325/904]
+  gnn [350/904]
+  gnn [375/904]
+  gnn [400/904]
+  gnn [425/904]
+  gnn [450/904]
+  gnn [475/904]
+  gnn [500/904]
+  gnn [525/904]
+  gnn [550/904]
+  gnn [575/904]
+  gnn [600/904]
+  gnn [625/904]
+  gnn [650/904]
+  gnn [675/904]
+  gnn [700/904]
+  gnn [725/904]
+  gnn [750/904]
+  gnn [775/904]
+  gnn [800/904]
+  gnn [825/904]
+  gnn [850/904]
+  gnn [875/904]
+  gnn [900/904]
+  gnn [904/904]
+gnn: rows=904 accuracy=0.9989 accuracy_lower_95=0.995057 precision=0.9978 recall=1.0000 recall_lower_95=0.994050 specificity=0.9978 specificity_lower_95=0.990145 FP=1 FP_rate=0.0022 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=0.9989 p95_ms=3.0 server_p95_ms=1.0 errors=0
+  MISS expected=benign pred=malicious url=http://www.hanaroflower.com/
+  SOURCE malicious_real_live: rows=452 malicious=452 benign=0 TP=452 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_hard_korean_smb: rows=210 malicious=0 benign=210 TP=0 TN=210 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_major_official: rows=148 malicious=0 benign=148 TP=0 TN=148 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_user_confirmed_fp: rows=70 malicious=0 benign=70 TP=0 TN=70 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_ad_landing: rows=24 malicious=0 benign=24 TP=0 TN=23 FP=1 FN=0 unknown=0 errors=0
+  ensemble [25/904]
+  ensemble [50/904]
+  ensemble [75/904]
+  ensemble [100/904]
+  ensemble [125/904]
+  ensemble [150/904]
+  ensemble [175/904]
+  ensemble [200/904]
+  ensemble [225/904]
+  ensemble [250/904]
+  ensemble [275/904]
+  ensemble [300/904]
+  ensemble [325/904]
+  ensemble [350/904]
+  ensemble [375/904]
+  ensemble [400/904]
+  ensemble [425/904]
+  ensemble [450/904]
+  ensemble [475/904]
+  ensemble [500/904]
+  ensemble [525/904]
+  ensemble [550/904]
+  ensemble [575/904]
+  ensemble [600/904]
+  ensemble [625/904]
+  ensemble [650/904]
+  ensemble [675/904]
+  ensemble [700/904]
+  ensemble [725/904]
+  ensemble [750/904]
+  ensemble [775/904]
+  ensemble [800/904]
+  ensemble [825/904]
+  ensemble [850/904]
+  ensemble [875/904]
+  ensemble [900/904]
+  ensemble [904/904]
+ensemble: rows=904 accuracy=0.9989 accuracy_lower_95=0.995057 precision=0.9978 recall=1.0000 recall_lower_95=0.994050 specificity=0.9978 specificity_lower_95=0.990145 FP=1 FP_rate=0.0022 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=0.9989 p95_ms=3.4 server_p95_ms=2.0 errors=0
+  MISS expected=benign pred=malicious url=http://www.hanaroflower.com/
+  SOURCE malicious_real_live: rows=452 malicious=452 benign=0 TP=452 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_hard_korean_smb: rows=210 malicious=0 benign=210 TP=0 TN=210 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_major_official: rows=148 malicious=0 benign=148 TP=0 TN=148 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_user_confirmed_fp: rows=70 malicious=0 benign=70 TP=0 TN=70 FP=0 FN=0 unknown=0 errors=0
+  SOURCE benign_ad_landing: rows=24 malicious=0 benign=24 TP=0 TN=23 FP=1 FN=0 unknown=0 errors=0
+FAIL ensemble.accuracy 0.9989 < 1.0000
+FAIL ensemble.precision 0.9978 < 1.0000
+FAIL ensemble.false_positive_rate 0.0022 > 0.0000
+FAIL ensemble.false_positive 1 > 0
+--- temp server stdout tail ---
+--- [1/2] Loading models (import only) ---
+  [URLML] smoke OK — verdict=benign p=None
+--- [2/2] Warmup (warmup_engine) ---
+
+  [시스템] AI 모델(KoBERT) 가중치 로딩 중...
+--- temp server stderr tail ---
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 199/199 [00:00<00:00, 13596.35it/s]
+[transformers] [1mBertForSequenceClassification LOAD REPORT[0m from: monologg/kobert
+Key               | Status  | 
+------------------+---------+-
+classifier.bias   | MISSING | 
+classifier.weight | MISSING | 
+
+Notes:
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+Traceback (most recent call last):
+  File "C:\Users\이승재\Desktop\server\dev\run_operational_gates.py", line 529, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "C:\Users\이승재\Desktop\server\dev\run_operational_gates.py", line 177, in main
+    run(
+    ~~~^
+        "api balanced holdout metrics",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<112 lines>...
+        ],
+        ^^
+    )
+    ^
+  File "C:\Users\이승재\Desktop\server\dev\run_operational_gates.py", line 24, in run
+    subprocess.run(cmd, cwd=BASE, check=True)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\subprocess.py", line 579, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['C:\\Python313\\python.exe', 'dev\\evaluate_api_holdout.py', '--spawn-server', '--train', 'dev\\dataset_splits\\train.csv', '--holdout', 'dev\\dataset_splits\\test_balanced.csv', '--workers', '4', '--timeout', '90', '--require-ready', '--show-misses', '10', '--engine', 'urlml', '--engine', 'xgboost', '--engine', 'gnn', '--engine', 'ensemble', '--max-unknown-ratio', '1.0', '--min-accuracy', '0.0', '--max-fp-rate', '1.0', '--max-fn-rate', '1.0', '--engine-max-unknown-ratio', 'urlml=0.0', '--engine-min-accuracy', 'urlml=1.0', '--engine-max-fn-rate', 'urlml=0.0', '--engine-max-fp-rate', 'urlml=0.0', '--engine-max-unknown-ratio', 'xgboost=0.0', '--engine-min-accuracy', 'xgboost=0.99', '--engine-max-fp-rate', 'xgboost=0.01', '--engine-max-fn-rate', 'xgboost=0.01', '--engine-max-unknown-ratio', 'gnn=0.0', '--engine-min-accuracy', 'gnn=0.99', '--engine-max-fp-rate', 'gnn=0.01', '--engine-max-fn-rate', 'gnn=0.01', '--engine-min-accuracy', 'ensemble=1.0', '--engine-max-fp-rate', 'ensemble=0.0', '--engine-max-fn-rate', 'ensemble=0.0', '--engine-max-unknown-ratio', 'ensemble=0.0', '--engine-min-precision', 'urlml=0.98', '--engine-min-recall', 'urlml=0.97', '--engine-min-precision', 'xgboost=0.99', '--engine-min-recall', 'xgboost=0.99', '--engine-min-precision', 'gnn=0.99', '--engine-min-recall', 'gnn=0.99', '--engine-min-precision', 'ensemble=1.0', '--engine-min-recall', 'ensemble=1.0', '--engine-min-accuracy-lower-bound', 'urlml=0.99', '--engine-min-accuracy-lower-bound', 'xgboost=0.99', '--engine-min-accuracy-lower-bound', 'gnn=0.99', '--engine-min-accuracy-lower-bound', 'ensemble=0.99', '--engine-min-recall-lower-bound', 'urlml=0.99', '--engine-min-recall-lower-bound', 'xgboost=0.99', '--engine-min-recall-lower-bound', 'gnn=0.99', '--engine-min-recall-lower-bound', 'ensemble=0.99', '--engine-min-specificity-lower-bound', 'urlml=0.99', '--engine-min-specificity-lower-bound', 'xgboost=0.99', '--engine-min-specificity-lower-bound', 'gnn=0.99', '--engine-min-specificity-lower-bound', 'ensemble=0.99', '--engine-max-fp', 'ensemble=0', '--engine-max-fn', 'ensemble=0', '--engine-max-p95-ms', 'ensemble=6000', '--json-out', 'dev\\model_quality\\api_holdout_core.json']' returned non-zero exit status 1.

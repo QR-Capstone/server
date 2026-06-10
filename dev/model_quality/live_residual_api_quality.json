@@ -1,0 +1,88 @@
+{
+  "failures": [],
+  "ok": true,
+  "results": {
+    "ensemble": {
+      "batch": [
+        {
+          "risk": "malicious",
+          "url": "https://blog44investment.shop"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://confirm-payment-id694787.com"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://y-y-z-y-w-1.top"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://y-y-z-y-w-101.top"
+        }
+      ],
+      "single": [
+        {
+          "risk": "malicious",
+          "url": "https://blog44investment.shop"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://confirm-payment-id694787.com"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://y-y-z-y-w-1.top"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://y-y-z-y-w-101.top"
+        }
+      ]
+    },
+    "urlml": {
+      "batch": [
+        {
+          "risk": "malicious",
+          "url": "https://blog44investment.shop"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://confirm-payment-id694787.com"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://y-y-z-y-w-1.top"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://y-y-z-y-w-101.top"
+        }
+      ],
+      "single": [
+        {
+          "risk": "malicious",
+          "url": "https://blog44investment.shop"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://confirm-payment-id694787.com"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://y-y-z-y-w-1.top"
+        },
+        {
+          "risk": "malicious",
+          "url": "https://y-y-z-y-w-101.top"
+        }
+      ]
+    }
+  },
+  "urls": [
+    "https://blog44investment.shop",
+    "https://confirm-payment-id694787.com",
+    "https://y-y-z-y-w-1.top",
+    "https://y-y-z-y-w-101.top"
+  ]
+}

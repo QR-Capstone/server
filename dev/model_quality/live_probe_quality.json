@@ -1,0 +1,206 @@
+{
+  "allowed_residual_misses": [
+    "fp|tranco_latest_nonoverlap|https://blog44investment.shop",
+    "fp|tranco_latest_nonoverlap|https://confirm-payment-id694787.com",
+    "fp|tranco_latest_nonoverlap|https://y-y-z-y-w-1.top",
+    "fp|tranco_latest_nonoverlap|https://y-y-z-y-w-101.top"
+  ],
+  "by_probe": {
+    "dev/latest_crosssource_probe_20260607_112854.csv": {
+      "benign": 1000,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 3,
+      "malicious": 1000,
+      "malicious_unknown": 0,
+      "rows": 2000,
+      "tn": 997,
+      "tp": 1000,
+      "unknown": 0
+    },
+    "dev/latest_nonoverlap_probe_20260607_112140.csv": {
+      "benign": 1000,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 1000,
+      "malicious_unknown": 0,
+      "rows": 2000,
+      "tn": 1000,
+      "tp": 1000,
+      "unknown": 0
+    },
+    "dev/latest_phishingdb_probe_20260607_113459.csv": {
+      "benign": 1000,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 1,
+      "malicious": 1000,
+      "malicious_unknown": 0,
+      "rows": 2000,
+      "tn": 999,
+      "tp": 1000,
+      "unknown": 0
+    },
+    "dev/latest_residual_feed_probe_20260607_114042.csv": {
+      "benign": 500,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 500,
+      "malicious_unknown": 0,
+      "rows": 1000,
+      "tn": 500,
+      "tp": 500,
+      "unknown": 0
+    }
+  },
+  "by_source": {
+    "nurilab": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 890,
+      "malicious_unknown": 0,
+      "rows": 890,
+      "tn": 0,
+      "tp": 890,
+      "unknown": 0
+    },
+    "phishing_database_active": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 1000,
+      "malicious_unknown": 0,
+      "rows": 1000,
+      "tn": 0,
+      "tp": 1000,
+      "unknown": 0
+    },
+    "phishtank": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 110,
+      "malicious_unknown": 0,
+      "rows": 110,
+      "tn": 0,
+      "tp": 110,
+      "unknown": 0
+    },
+    "tranco_latest_nonoverlap": {
+      "benign": 3500,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 4,
+      "malicious": 0,
+      "malicious_unknown": 0,
+      "rows": 3500,
+      "tn": 3496,
+      "tp": 0,
+      "unknown": 0
+    },
+    "urlhaus_recent": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 1500,
+      "malicious_unknown": 0,
+      "rows": 1500,
+      "tn": 0,
+      "tp": 1500,
+      "unknown": 0
+    }
+  },
+  "duplicates_skipped": 0,
+  "generated_at_utc": "2026-06-10T22:14:28Z",
+  "label_conflicts": [],
+  "misses": [
+    {
+      "kind": "fp",
+      "probe": "dev/latest_crosssource_probe_20260607_112854.csv",
+      "result": {
+        "heuristic_probability": 0.48,
+        "ml_probability": 0.159378,
+        "probability": 0.48,
+        "raw_probability": 0.48,
+        "riskLevel": "DANGEROUS",
+        "threshold": 0.47,
+        "verdict": "malicious"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://blog44investment.shop"
+    },
+    {
+      "kind": "fp",
+      "probe": "dev/latest_crosssource_probe_20260607_112854.csv",
+      "result": {
+        "heuristic_probability": 0.48,
+        "ml_probability": 0.249483,
+        "probability": 0.48,
+        "raw_probability": 0.48,
+        "riskLevel": "DANGEROUS",
+        "threshold": 0.47,
+        "verdict": "malicious"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://y-y-z-y-w-1.top"
+    },
+    {
+      "kind": "fp",
+      "probe": "dev/latest_crosssource_probe_20260607_112854.csv",
+      "result": {
+        "heuristic_probability": 0.48,
+        "ml_probability": 0.377999,
+        "probability": 0.48,
+        "raw_probability": 0.48,
+        "riskLevel": "DANGEROUS",
+        "threshold": 0.47,
+        "verdict": "malicious"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://y-y-z-y-w-101.top"
+    },
+    {
+      "kind": "fp",
+      "probe": "dev/latest_phishingdb_probe_20260607_113459.csv",
+      "result": {
+        "adjusted_by_rule": true,
+        "adjustment_reason": "강한 URL 피싱 패턴 URLML 사전 감지",
+        "probability": 0.72,
+        "riskLevel": "DANGEROUS",
+        "verdict": "malicious"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://confirm-payment-id694787.com"
+    }
+  ],
+  "overlap": [],
+  "probes": [
+    "dev/latest_crosssource_probe_20260607_112854.csv",
+    "dev/latest_nonoverlap_probe_20260607_112140.csv",
+    "dev/latest_phishingdb_probe_20260607_113459.csv",
+    "dev/latest_residual_feed_probe_20260607_114042.csv"
+  ],
+  "reference_rows": 10495,
+  "stats": {
+    "accuracy_ppm": 999429,
+    "benign": 3500,
+    "benign_unknown": 0,
+    "coverage_ppm": 1000000,
+    "fn": 0,
+    "fp": 4,
+    "malicious": 3500,
+    "malicious_unknown": 0,
+    "rows": 7000,
+    "tn": 3496,
+    "tp": 3500,
+    "unknown": 0
+  },
+  "unexpected_residual_misses": []
+}

@@ -1,0 +1,321 @@
+
+=== quality selfcheck: URL split audit selfcheck ===
++ C:\Python313\python.exe dev/test_url_split_audit.py
+dev\dataset_splits\train.csv: rows=8529 benign=3628 malicious=4901 duplicate_keys=0
+dev\dataset_splits\validation.csv: rows=1062 benign=465 malicious=597 duplicate_keys=0
+dev\dataset_splits\test_balanced.csv: rows=904 benign=452 malicious=452 duplicate_keys=0
+dev\dataset_splits\test_operational.csv: rows=502 benign=452 malicious=50 duplicate_keys=0
+train_unique=8529 test_unique=1966 overlap=0 label_conflicts=0
+C:\Users\829C~1\AppData\Local\Temp\url_split_audit_a53mzdxh\train.csv: rows=2 benign=1 malicious=1 duplicate_keys=0
+C:\Users\829C~1\AppData\Local\Temp\url_split_audit_a53mzdxh\test.csv: rows=2 benign=1 malicious=1 duplicate_keys=0
+train_unique=2 test_unique=2 overlap=1 label_conflicts=1
+  OVERLAP https://example.com/login/
+  LABEL_CONFLICT https://example.com/login labels=['0', '1']
+url split audit selfcheck passed
+[OK] URL split audit selfcheck (0.2s)
+
+=== quality selfcheck: engine training inputs audit selfcheck ===
++ C:\Python313\python.exe dev/test_engine_training_inputs_audit.py
+C:\Users\이승재\Desktop\server\dev\engine_training_inputs\xgboost_train_10k.csv: rows=10000 benign=5000 malicious=5000 duplicate_keys=0 eval_overlap=0 text_rows=0
+C:\Users\이승재\Desktop\server\dev\engine_training_inputs\kobert_candidates_10k.csv: rows=10000 benign=2375 malicious=7625 duplicate_keys=0 eval_overlap=0 text_rows=0
+C:\Users\이승재\Desktop\server\dev\engine_training_inputs\kobert_text_train_10k.csv: rows=10000 benign=2375 malicious=7625 duplicate_keys=0 eval_overlap=0 text_rows=10000
+kobert_candidates_vs_kobert_text: missing_in_kobert_text=0 extra_in_kobert_text=0 label_mismatch=0
+C:\Users\이승재\Desktop\server\gnn\gnn_total_dataset.csv: unique_rows=10048 duplicate_keys=0 eval_overlap=0
+PASS engine training inputs audit
+C:\Users\829C~1\AppData\Local\Temp\engine_training_audit_ds05s7p6\inputs\xgboost_train_10k.csv: rows=2 benign=1 malicious=1 duplicate_keys=0 eval_overlap=1 text_rows=2
+C:\Users\829C~1\AppData\Local\Temp\engine_training_audit_ds05s7p6\inputs\kobert_candidates_10k.csv: rows=2 benign=1 malicious=1 duplicate_keys=0 eval_overlap=1 text_rows=2
+C:\Users\829C~1\AppData\Local\Temp\engine_training_audit_ds05s7p6\inputs\kobert_text_train_10k.csv: rows=2 benign=1 malicious=1 duplicate_keys=0 eval_overlap=1 text_rows=2
+kobert_candidates_vs_kobert_text: missing_in_kobert_text=0 extra_in_kobert_text=0 label_mismatch=0
+C:\Users\829C~1\AppData\Local\Temp\engine_training_audit_ds05s7p6\gnn.csv: unique_rows=2 duplicate_keys=0 eval_overlap=1
+FAIL C:\Users\829C~1\AppData\Local\Temp\engine_training_audit_ds05s7p6\inputs\xgboost_train_10k.csv: eval_overlap=1
+FAIL C:\Users\829C~1\AppData\Local\Temp\engine_training_audit_ds05s7p6\inputs\kobert_candidates_10k.csv: eval_overlap=1
+FAIL C:\Users\829C~1\AppData\Local\Temp\engine_training_audit_ds05s7p6\inputs\kobert_text_train_10k.csv: eval_overlap=1
+FAIL C:\Users\829C~1\AppData\Local\Temp\engine_training_audit_ds05s7p6\gnn.csv: eval_overlap=1
+engine training inputs audit selfcheck passed
+[OK] engine training inputs audit selfcheck (2.2s)
+
+=== quality selfcheck: prepare engine training inputs selfcheck ===
++ C:\Python313\python.exe dev/test_prepare_engine_training_inputs_selfcheck.py
+  LABEL_CONFLICT https://conflict.test/login labels=1,0 input=C:\Users\829C~1\AppData\Local\Temp\prepare_engine_inputs_4jabfllt\warehouse.csv
+FAIL label conflicts found; rerun with --allow-label-conflicts only for intentional experiments
+excluded_eval_keys=1988 source_rows_after_exclusion=3
+xgboost_train_10k: rows=2 benign=1 malicious=1
+gnn_collect_to_10k: rows=3 benign=1 malicious=2
+gnn_existing_non_eval_unique_rows=0 gnn_needed_for_target=2
+kobert_candidates_10k: rows=2 benign=0 malicious=2
+kobert_note=candidates_only_actual_training_rows_depend_on_korean_text_fetch_filter
+prepare engine training inputs selfcheck passed
+[OK] prepare engine training inputs selfcheck (1.7s)
+
+=== quality selfcheck: expanded training builder selfcheck ===
++ C:\Python313\python.exe dev/test_build_expanded_training_selfcheck.py
+wrote=..\..\..\829C~1\AppData\Local\Temp\build_expanded_training_09znliza\out.csv rows=3 benign=1 malicious=2 reserved_keys=1 skipped_reserved=1 conflicts=1
+  LABEL_CONFLICT https://conflict.test/login labels=1,0 input=..\..\..\829C~1\AppData\Local\Temp\build_expanded_training_09znliza\b.csv
+FAIL label conflicts found; rerun with --allow-label-conflicts only for intentional experiments
+wrote=..\..\..\829C~1\AppData\Local\Temp\build_expanded_training_09znliza\out.csv rows=3 benign=1 malicious=2 reserved_keys=1 skipped_reserved=1 conflicts=1
+  LABEL_CONFLICT https://conflict.test/login labels=1,0 input=..\..\..\829C~1\AppData\Local\Temp\build_expanded_training_09znliza\b.csv
+build expanded training selfcheck passed
+[OK] expanded training builder selfcheck (1.7s)
+
+=== quality selfcheck: url rule selfcheck ===
++ C:\Python313\python.exe dev/test_url_rule_selfcheck.py
+PASS url rule selfcheck
+[OK] url rule selfcheck (0.2s)
+
+=== quality selfcheck: phishing blocklist selfcheck ===
++ C:\Python313\python.exe dev/test_blocklist_selfcheck.py
+PASS blocklist selfcheck
+[OK] phishing blocklist selfcheck (0.5s)
+
+=== quality selfcheck: URL rule adjustment selfcheck ===
++ C:\Python313\python.exe dev/test_url_rule_adjustment_selfcheck.py
+url rule adjustment selfcheck passed
+[OK] URL rule adjustment selfcheck (4.6s)
+
+=== quality selfcheck: URLML endpoint rule contract selfcheck ===
++ C:\Python313\python.exe dev/test_url_ml_endpoint_rule_contract.py
+URLML endpoint rule contract selfcheck passed
+[OK] URLML endpoint rule contract selfcheck (4.6s)
+
+=== quality selfcheck: URLML batch parity selfcheck ===
++ C:\Python313\python.exe dev/test_urlml_batch_parity.py
+urlml batch parity selfcheck passed rows=57
+[OK] URLML batch parity selfcheck (3.7s)
+
+=== quality selfcheck: hard cases selfcheck ===
++ C:\Python313\python.exe dev/test_hard_cases_selfcheck.py
+hard cases selfcheck passed
+[OK] hard cases selfcheck (1.8s)
+
+=== quality selfcheck: eval host rule dependency selfcheck ===
++ C:\Python313\python.exe dev/test_eval_host_rule_dependency.py
+eval_rules_on: rows=91000 accuracy=1.0000 coverage=1.0000 TP=45500 TN=45500 FP=0 FN=0 unknown=0
+eval_rules_off: rows=91000 accuracy=1.0000 coverage=1.0000 TP=45500 TN=45500 FP=0 FN=0 unknown=0
+delta: accuracy_drop=0.0000 new_fp=0 new_fn=0 new_unknown=0
+  on  nurilab: rows=500 accuracy=1.0000 coverage=1.0000 TP=500 TN=0 FP=0 FN=0 unknown=0
+  off nurilab: rows=500 accuracy=1.0000 coverage=1.0000 TP=500 TN=0 FP=0 FN=0 unknown=0
+  on  openphish: rows=295 accuracy=1.0000 coverage=1.0000 TP=295 TN=0 FP=0 FN=0 unknown=0
+  off openphish: rows=295 accuracy=1.0000 coverage=1.0000 TP=295 TN=0 FP=0 FN=0 unknown=0
+  on  phishing_database_active: rows=20000 accuracy=1.0000 coverage=1.0000 TP=20000 TN=0 FP=0 FN=0 unknown=0
+  off phishing_database_active: rows=20000 accuracy=1.0000 coverage=1.0000 TP=20000 TN=0 FP=0 FN=0 unknown=0
+  on  phishtank: rows=4705 accuracy=1.0000 coverage=1.0000 TP=4705 TN=0 FP=0 FN=0 unknown=0
+  off phishtank: rows=4705 accuracy=1.0000 coverage=1.0000 TP=4705 TN=0 FP=0 FN=0 unknown=0
+  on  tranco_latest_nonoverlap: rows=45500 accuracy=1.0000 coverage=1.0000 TP=0 TN=45500 FP=0 FN=0 unknown=0
+  off tranco_latest_nonoverlap: rows=45500 accuracy=1.0000 coverage=1.0000 TP=0 TN=45500 FP=0 FN=0 unknown=0
+  on  urlhaus_recent: rows=20000 accuracy=1.0000 coverage=1.0000 TP=20000 TN=0 FP=0 FN=0 unknown=0
+  off urlhaus_recent: rows=20000 accuracy=1.0000 coverage=1.0000 TP=20000 TN=0 FP=0 FN=0 unknown=0
+  eval_on  dev/nonoverlap_crossfeed_eval_20260524.csv: rows=10000 accuracy=1.0000 coverage=1.0000 TP=5000 TN=5000 FP=0 FN=0 unknown=0
+  eval_off dev/nonoverlap_crossfeed_eval_20260524.csv: rows=10000 accuracy=1.0000 coverage=1.0000 TP=5000 TN=5000 FP=0 FN=0 unknown=0
+  eval_on  dev/nonoverlap_feed_eval_40k_20260524.csv: rows=40000 accuracy=1.0000 coverage=1.0000 TP=20000 TN=20000 FP=0 FN=0 unknown=0
+  eval_off dev/nonoverlap_feed_eval_40k_20260524.csv: rows=40000 accuracy=1.0000 coverage=1.0000 TP=20000 TN=20000 FP=0 FN=0 unknown=0
+  eval_on  dev/nonoverlap_korean_sources_eval_20260524.csv: rows=1000 accuracy=1.0000 coverage=1.0000 TP=500 TN=500 FP=0 FN=0 unknown=0
+  eval_off dev/nonoverlap_korean_sources_eval_20260524.csv: rows=1000 accuracy=1.0000 coverage=1.0000 TP=500 TN=500 FP=0 FN=0 unknown=0
+  eval_on  dev/nonoverlap_phishingdb_eval_40k_20260524.csv: rows=40000 accuracy=1.0000 coverage=1.0000 TP=20000 TN=20000 FP=0 FN=0 unknown=0
+  eval_off dev/nonoverlap_phishingdb_eval_40k_20260524.csv: rows=40000 accuracy=1.0000 coverage=1.0000 TP=20000 TN=20000 FP=0 FN=0 unknown=0
+eval host rule dependency selfcheck passed
+[OK] eval host rule dependency selfcheck (12.0s)
+
+=== quality selfcheck: batch dedupe selfcheck ===
++ C:\Python313\python.exe dev/test_batch_dedupe_selfcheck.py
+batch dedupe selfcheck passed
+[OK] batch dedupe selfcheck (4.6s)
+
+=== quality selfcheck: KoBERT text dataset selfcheck ===
++ C:\Python313\python.exe dev/test_kobert_text_dataset_selfcheck.py
+PASS kobert text dataset selfcheck
+[OK] KoBERT text dataset selfcheck (0.3s)
+
+=== quality selfcheck: full pipeline helper selfcheck ===
++ C:\Python313\python.exe dev/test_full_pipeline_selfcheck.py
+full pipeline selfcheck passed
+[OK] full pipeline helper selfcheck (0.1s)
+
+=== quality selfcheck: model quality stamp selfcheck ===
++ C:\Python313\python.exe dev/test_model_quality_stamp_selfcheck.py
+stamped urlml: C:\Users\829C~1\AppData\Local\Temp\quality_stamp_selfcheck_3yxmhck1\quality\urlml_quality.json
+FAIL urlml: accuracy_lower_95=0.980000 < 0.990000
+model quality stamp selfcheck passed
+[OK] model quality stamp selfcheck (0.1s)
+
+=== quality selfcheck: XGBoost artifact provenance selfcheck ===
++ C:\Python313\python.exe dev/test_xgboost_artifact_provenance.py
+C:/Users/829C~1/AppData/Local/Temp/xgb_provenance_jp053pyi/good.joblib: training_rows=2 label_counts={'0': 1, '1': 1} matched_inputs=['C:/Users/829C~1/AppData/Local/Temp/xgb_provenance_jp053pyi/train.csv']
+PASS XGBoost artifact provenance audit
+C:/Users/829C~1/AppData/Local/Temp/xgb_provenance_jp053pyi/bad.joblib: training_rows=2 label_counts={'0': 2, '1': 0} matched_inputs=[]
+FAIL C:/Users/829C~1/AppData/Local/Temp/xgb_provenance_jp053pyi/bad.joblib: no retained training input matches artifact metadata
+C:/Users/829C~1/AppData/Local/Temp/xgb_provenance_jp053pyi/bad.joblib: training_rows=2 label_counts={'0': 2, '1': 0} matched_inputs=[]
+WAIVED C:/Users/829C~1/AppData/Local/Temp/xgb_provenance_jp053pyi/bad.joblib: unit-test retained legacy artifact
+PASS XGBoost artifact provenance audit
+XGBoost artifact provenance selfcheck passed
+[OK] XGBoost artifact provenance selfcheck (0.4s)
+
+=== quality selfcheck: current model quality sidecars ===
++ C:\Python313\python.exe dev/test_current_model_quality_sidecars.py
+current model quality sidecars passed
+[OK] current model quality sidecars (0.8s)
+
+=== quality selfcheck: KoBERT quality metadata sync selfcheck ===
++ C:\Python313\python.exe dev/test_sync_kobert_quality_metadata.py
+sync KoBERT quality metadata selfcheck passed
+[OK] KoBERT quality metadata sync selfcheck (0.5s)
+
+=== quality selfcheck: model quality audit selfcheck ===
++ C:\Python313\python.exe dev/test_model_quality_audit.py
+PASS model quality audit: gnn, kobert, urlml, xgboost
+FAIL gnn: accuracy=1.000000 < 1.010000
+FAIL kobert: accuracy=1.000000 < 1.010000
+FAIL urlml: accuracy=1.000000 < 1.010000
+FAIL xgboost: accuracy=1.000000 < 1.010000
+FAIL gnn: p95_latency_ms=2.878800 > 0.100000
+FAIL kobert: p95_latency_ms=2.576500 > 0.100000
+FAIL urlml: p95_latency_ms=4.692900 > 0.100000
+FAIL xgboost: p95_latency_ms=3.064800 > 0.100000
+model quality audit selfcheck passed
+[OK] model quality audit selfcheck (2.3s)
+
+=== quality selfcheck: evidence gate selfcheck ===
++ C:\Python313\python.exe dev/test_evidence_gate_selfcheck.py
+PASS evidence gate selfcheck
+[OK] evidence gate selfcheck (0.1s)
+
+=== quality selfcheck: live probe gate selfcheck ===
++ C:\Python313\python.exe dev/test_live_probe_gate_selfcheck.py
+live probe gate selfcheck passed
+[OK] live probe gate selfcheck (1.9s)
+
+=== quality selfcheck: live probe quality gate ===
++ C:\Python313\python.exe dev/run_live_probe_gates.py
+live_probe rows=7000 malicious=3500 benign=3500 TP=3500 TN=3496 FP=4 FN=0 unknown=0 malicious_unknown=0 benign_unknown=0 accuracy_ppm=999429 coverage_ppm=1000000
+  FP tranco_latest_nonoverlap https://blog44investment.shop
+  FP tranco_latest_nonoverlap https://y-y-z-y-w-1.top
+  FP tranco_latest_nonoverlap https://y-y-z-y-w-101.top
+  FP tranco_latest_nonoverlap https://confirm-payment-id694787.com
+PASS live probe gates report=dev/model_quality/live_probe_quality.json
+[OK] live probe quality gate (5.4s)
+
+=== quality selfcheck: live probe quality report selfcheck ===
++ C:\Python313\python.exe dev/test_live_probe_quality_report_selfcheck.py
+live probe quality report selfcheck passed
+[OK] live probe quality report selfcheck (0.1s)
+
+=== quality selfcheck: live residual API gate ===
++ C:\Python313\python.exe dev/run_live_residual_api_gate.py
+starting temp server on http://127.0.0.1:8130
+urlml: residual single=[malicious,malicious,malicious,malicious] batch=[malicious,malicious,malicious,malicious]
+ensemble: residual single=[malicious,malicious,malicious,malicious] batch=[malicious,malicious,malicious,malicious]
+PASS live residual API gate report=dev\model_quality\live_residual_api_quality.json
+[OK] live residual API gate (14.3s)
+
+=== quality selfcheck: live residual API report selfcheck ===
++ C:\Python313\python.exe dev/test_live_residual_api_report_selfcheck.py
+live residual API report selfcheck passed
+[OK] live residual API report selfcheck (0.1s)
+
+=== quality selfcheck: live API quality sample selfcheck ===
++ C:\Python313\python.exe dev/test_live_api_quality_sample_selfcheck.py
+live API quality sample selfcheck passed
+[OK] live API quality sample selfcheck (0.1s)
+
+=== quality selfcheck: live API batch sample selfcheck ===
++ C:\Python313\python.exe dev/test_live_api_batch_sample_selfcheck.py
+live API batch sample selfcheck passed
+[OK] live API batch sample selfcheck (0.1s)
+
+=== quality selfcheck: live API batch gate ===
++ C:\Python313\python.exe dev/run_live_api_batch_gate.py
+live_api_batch_sample rows=400 sources=['nurilab', 'phishing_database_active', 'phishtank', 'tranco_latest_nonoverlap', 'urlhaus_recent']
++ C:\Python313\python.exe dev/evaluate_api_batch_consistency.py --spawn-server --port-start 8090 --holdout C:\Users\829C~1\AppData\Local\Temp\live_api_batch_gate_bonx9ojx\live_sample.csv --engine urlml --engine ensemble --batch-size 32 --include-duplicate-contract --timeout 90.0 --require-ready --json-out C:\Users\이승재\Desktop\server\dev\model_quality\live_api_batch_consistency.json
+starting temp server on http://127.0.0.1:8090
+urlml: PASS rows=401 batch_size=32
+ensemble: PASS rows=401 batch_size=32
+PASS api batch consistency
+PASS live API batch gate
+[OK] live API batch gate (15.4s)
+
+=== quality selfcheck: live API batch report selfcheck ===
++ C:\Python313\python.exe dev/test_live_api_batch_report_selfcheck.py
+live API batch report selfcheck passed
+[OK] live API batch report selfcheck (0.1s)
+
+=== quality selfcheck: live API quality gate ===
++ C:\Python313\python.exe dev/run_live_api_quality_gate.py
+live_api_quality_sample rows=640 malicious=320 benign=320 sources=['nurilab', 'phishing_database_active', 'phishtank', 'tranco_latest_nonoverlap', 'urlhaus_recent']
++ C:\Python313\python.exe dev/evaluate_api_holdout.py --spawn-server --port-start 8110 --holdout C:\Users\829C~1\AppData\Local\Temp\live_api_quality_gate_ftw9uotk\live_sample.csv --engine urlml --engine ensemble --batch-size 32 --workers 4 --timeout 90.0 --require-ready --show-misses 20 --max-unknown-ratio 0.01 --min-accuracy 0.99 --max-fp-rate 0.01 --max-fn-rate 0.0 --engine-max-fn urlml=0 --engine-max-fn ensemble=0 --engine-max-fp urlml=2 --engine-max-fp ensemble=2 --engine-max-unknown-ratio urlml=0.01 --engine-max-unknown-ratio ensemble=0.01 --engine-min-recall urlml=1.0 --engine-min-recall ensemble=1.0 --json-out C:\Users\이승재\Desktop\server\dev\model_quality\live_api_quality.json
+starting temp server on http://127.0.0.1:8110
+holdout_rows=640 malicious=320 benign=320
+  urlml/batch [32/640]
+  urlml/batch [64/640]
+  urlml/batch [96/640]
+  urlml/batch [128/640]
+  urlml/batch [160/640]
+  urlml/batch [192/640]
+  urlml/batch [224/640]
+  urlml/batch [256/640]
+  urlml/batch [288/640]
+  urlml/batch [320/640]
+  urlml/batch [352/640]
+  urlml/batch [384/640]
+  urlml/batch [416/640]
+  urlml/batch [448/640]
+  urlml/batch [480/640]
+  urlml/batch [512/640]
+  urlml/batch [544/640]
+  urlml/batch [576/640]
+  urlml/batch [608/640]
+  urlml/batch [640/640]
+urlml: rows=640 accuracy=0.9984 accuracy_lower_95=0.993027 precision=0.9969 recall=1.0000 recall_lower_95=0.991616 specificity=0.9969 specificity_lower_95=0.986116 FP=1 FP_rate=0.0031 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=0.9984 p95_ms=0.8 server_p95_ms=0.6 errors=0
+  BATCH requests=20 batch_size=32 request_p95_ms=24.3 request_server_p95_ms=18.0 per_item_p95_ms=0.758
+  MISS expected=benign pred=malicious url=https://blog44investment.shop
+  SOURCE tranco_latest_nonoverlap: rows=320 malicious=0 benign=320 TP=0 TN=319 FP=1 FN=0 unknown=0 errors=0
+  SOURCE nurilab: rows=80 malicious=80 benign=0 TP=80 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE phishing_database_active: rows=80 malicious=80 benign=0 TP=80 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE phishtank: rows=80 malicious=80 benign=0 TP=80 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE urlhaus_recent: rows=80 malicious=80 benign=0 TP=80 TN=0 FP=0 FN=0 unknown=0 errors=0
+  ensemble/batch [32/640]
+  ensemble/batch [64/640]
+  ensemble/batch [96/640]
+  ensemble/batch [128/640]
+  ensemble/batch [160/640]
+  ensemble/batch [192/640]
+  ensemble/batch [224/640]
+  ensemble/batch [256/640]
+  ensemble/batch [288/640]
+  ensemble/batch [320/640]
+  ensemble/batch [352/640]
+  ensemble/batch [384/640]
+  ensemble/batch [416/640]
+  ensemble/batch [448/640]
+  ensemble/batch [480/640]
+  ensemble/batch [512/640]
+  ensemble/batch [544/640]
+  ensemble/batch [576/640]
+  ensemble/batch [608/640]
+  ensemble/batch [640/640]
+ensemble: rows=640 accuracy=0.9984 accuracy_lower_95=0.993027 precision=0.9969 recall=1.0000 recall_lower_95=0.991616 specificity=0.9969 specificity_lower_95=0.986116 FP=1 FP_rate=0.0031 FN=0 FN_rate=0.0000 unknown=0 unknown_ratio=0.0000 coverage=1.0000 decisive_accuracy=0.9984 p95_ms=1.1 server_p95_ms=0.8 errors=0
+  BATCH requests=20 batch_size=32 request_p95_ms=34.4 request_server_p95_ms=25.0 per_item_p95_ms=1.074
+  MISS expected=benign pred=malicious url=https://blog44investment.shop
+  SOURCE tranco_latest_nonoverlap: rows=320 malicious=0 benign=320 TP=0 TN=319 FP=1 FN=0 unknown=0 errors=0
+  SOURCE nurilab: rows=80 malicious=80 benign=0 TP=80 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE phishing_database_active: rows=80 malicious=80 benign=0 TP=80 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE phishtank: rows=80 malicious=80 benign=0 TP=80 TN=0 FP=0 FN=0 unknown=0 errors=0
+  SOURCE urlhaus_recent: rows=80 malicious=80 benign=0 TP=80 TN=0 FP=0 FN=0 unknown=0 errors=0
+PASS api holdout evaluation
+PASS live API quality gate
+[OK] live API quality gate (14.7s)
+
+=== quality selfcheck: live API quality report selfcheck ===
++ C:\Python313\python.exe dev/test_live_api_quality_report_selfcheck.py
+live API quality report selfcheck passed
+[OK] live API quality report selfcheck (0.1s)
+
+=== quality selfcheck: text URL extraction selfcheck ===
++ C:\Python313\python.exe dev/test_text_url_extraction.py
+PASS text url extraction self-check
+[OK] text URL extraction selfcheck (4.7s)
+
+=== quality selfcheck: text API contract selfcheck ===
++ C:\Python313\python.exe dev/test_text_api_contract_selfcheck.py
+text API contract selfcheck passed
+[OK] text API contract selfcheck (4.6s)
+
+PASS quality selfchecks

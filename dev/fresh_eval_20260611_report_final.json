@@ -1,0 +1,143 @@
+{
+  "allowed_residual_misses": [
+    "fp|tranco_latest_nonoverlap|https://blog44investment.shop",
+    "fp|tranco_latest_nonoverlap|https://confirm-payment-id694787.com",
+    "fp|tranco_latest_nonoverlap|https://y-y-z-y-w-1.top",
+    "fp|tranco_latest_nonoverlap|https://y-y-z-y-w-101.top"
+  ],
+  "by_probe": {
+    "dev/fresh_eval_20260611.csv": {
+      "benign": 1500,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 1500,
+      "malicious_unknown": 0,
+      "rows": 3000,
+      "tn": 1500,
+      "tp": 1500,
+      "unknown": 0
+    },
+    "dev/fresh_eval_crosssource_20260611.csv": {
+      "benign": 1500,
+      "benign_unknown": 1,
+      "fn": 0,
+      "fp": 1,
+      "malicious": 1500,
+      "malicious_unknown": 0,
+      "rows": 3000,
+      "tn": 1498,
+      "tp": 1500,
+      "unknown": 1
+    }
+  },
+  "by_source": {
+    "nurilab": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 33,
+      "malicious_unknown": 0,
+      "rows": 33,
+      "tn": 0,
+      "tp": 33,
+      "unknown": 0
+    },
+    "phishtank": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 1467,
+      "malicious_unknown": 0,
+      "rows": 1467,
+      "tn": 0,
+      "tp": 1467,
+      "unknown": 0
+    },
+    "tranco_latest_nonoverlap": {
+      "benign": 3000,
+      "benign_unknown": 1,
+      "fn": 0,
+      "fp": 1,
+      "malicious": 0,
+      "malicious_unknown": 0,
+      "rows": 3000,
+      "tn": 2998,
+      "tp": 0,
+      "unknown": 1
+    },
+    "urlhaus_recent": {
+      "benign": 0,
+      "benign_unknown": 0,
+      "fn": 0,
+      "fp": 0,
+      "malicious": 1500,
+      "malicious_unknown": 0,
+      "rows": 1500,
+      "tn": 0,
+      "tp": 1500,
+      "unknown": 0
+    }
+  },
+  "duplicates_skipped": 0,
+  "generated_at_utc": "2026-06-10T22:06:57Z",
+  "label_conflicts": [],
+  "misses": [
+    {
+      "kind": "fp",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.18,
+        "ml_probability": 0.4735,
+        "probability": 0.4735,
+        "raw_probability": 0.4735,
+        "riskLevel": "DANGEROUS",
+        "threshold": 0.47,
+        "verdict": "malicious"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://atualizadodehojeitn.shop"
+    },
+    {
+      "kind": "benign_unknown",
+      "probe": "dev/fresh_eval_crosssource_20260611.csv",
+      "result": {
+        "heuristic_probability": 0.34,
+        "ml_probability": 0.010259,
+        "probability": null,
+        "raw_probability": 0.34,
+        "riskLevel": "UNKNOWN",
+        "threshold": 0.47,
+        "verdict": "unknown"
+      },
+      "source": "tranco_latest_nonoverlap",
+      "url": "https://pay2world.co"
+    }
+  ],
+  "overlap": [],
+  "probes": [
+    "dev/fresh_eval_20260611.csv",
+    "dev/fresh_eval_crosssource_20260611.csv"
+  ],
+  "reference_rows": 10495,
+  "stats": {
+    "accuracy_ppm": 999667,
+    "benign": 3000,
+    "benign_unknown": 1,
+    "coverage_ppm": 999833,
+    "fn": 0,
+    "fp": 1,
+    "malicious": 3000,
+    "malicious_unknown": 0,
+    "rows": 6000,
+    "tn": 2998,
+    "tp": 3000,
+    "unknown": 1
+  },
+  "unexpected_residual_misses": [
+    "fp|tranco_latest_nonoverlap|https://atualizadodehojeitn.shop",
+    "benign_unknown|tranco_latest_nonoverlap|https://pay2world.co"
+  ]
+}

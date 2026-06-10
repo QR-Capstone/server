@@ -1,0 +1,7 @@
+# Hosts whose root URL appears in public phishing feeds but is verified benign.
+# Bare host line: drops only the root-URL key (deep phishing paths still match).
+# host/* line: drops every key under that host.
+parkwhiz.com
+telega.one
+slack-files.com
+smbc-comics.com

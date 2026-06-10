@@ -94,6 +94,30 @@ evidence 파일에서는 합산 rows `>=91000`과 source별 최소 수량도 함
 
 CI의 `.github/workflows/operational-smoke.yml`은 빠른 문법/게이트-wrapper smoke만 수행한다. 모델 파일, 외부 네트워크, Playwright/KoBERT가 필요한 전체 운영 게이트는 로컬 필수 게이트로 유지한다.
 
+## 피싱 피드 차단 목록 (blocklist lane)
+
+URLML lane은 신뢰/저위험 호스팅 검사 직후, 강한 URL 규칙보다 먼저
+`blocklist/phishing_blocklist_snapshot.txt.gz`를 조회한다. 공개 피드(URLhaus,
+OpenPhish, PhishTank, Phishing.Database, Nurilab)에 보고된 URL은 canonical key
+(host+path+query, 그리고 딥링크의 query 제거 변형)로 정확 일치 시 DANGEROUS로
+판정한다. host 단위 일치는 사용하지 않는다 — 정상 대형 호스트(google.com,
+단축 URL, 호스팅 플랫폼)의 딥링크가 피드에 들어오기 때문이다.
+
+스냅샷 갱신 (주기 실행 권장, 예: 시간당 1회):
+
+```bash
+python dev/update_blocklist_snapshot.py
+```
+
+빌드 시 안전장치: 신뢰/저위험 호스팅 URL 제외, canonical key 재검사,
+Tranco 상위 10만 호스트의 루트 키 제외(`--protect-top-n`),
+`blocklist/blocklist_allowlist.txt` 수동 허용목록(루트 키만 제외하는 host 행과
+host 전체를 제외하는 `host/*` 행 지원).
+
+런타임 토글: `URL_BLOCKLIST_ENABLED=1`(기본), `URL_BLOCKLIST_SNAPSHOT_PATH`.
+스냅샷이 없으면 차단 없이 동작한다. 자체 검증은
+`python dev/test_blocklist_selfcheck.py`.
+
 ## 현재 고정 임계값
 
 URLML:

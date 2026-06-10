@@ -1504,6 +1504,7 @@ def train_web_structure_gnn_model(
     learning_rate: float = 0.003,
     l2: float = 0.001,
     threshold: float = 0.5,
+    metadata_extra: Optional[Dict[str, Any]] = None,
 ) -> WebStructureGNNModel:
     if len(urls) != len(labels):
         raise ValueError("urls and labels length mismatch")
@@ -1511,6 +1512,9 @@ def train_web_structure_gnn_model(
         raise ValueError("empty training data")
 
     samples = [graph_sample_from_feature_map(feature_map_for_url(url, fetch=fetch_pages)) for url in urls]
+    metadata = {"fetch_pages_during_training": bool(fetch_pages)}
+    if metadata_extra:
+        metadata.update(metadata_extra)
     return train_web_structure_gnn_model_from_samples(
         samples,
         labels,
@@ -1518,7 +1522,7 @@ def train_web_structure_gnn_model(
         learning_rate=learning_rate,
         l2=l2,
         threshold=threshold,
-        metadata_extra={"fetch_pages_during_training": bool(fetch_pages)},
+        metadata_extra=metadata,
     )
 
 
