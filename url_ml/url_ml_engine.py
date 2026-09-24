@@ -59,7 +59,8 @@ def load_url_ml_model(path: str = MODEL_PATH) -> tuple[Any | None, URLMLStatus]:
 
 
 def _is_low_confidence_root_benign(raw_url: str, final_prob: float, heuristic: float) -> bool:
-    if final_prob >= 0.46 or heuristic > 0.33:
+    # Mid-score homepages stay UNKNOWN so bare-domain scam shops are not fast-pathed SAFE.
+    if final_prob >= 0.20 or heuristic > 0.33:
         return False
     candidate = raw_url if "://" in raw_url else f"//{raw_url}"
     try:
