@@ -569,7 +569,7 @@ def predict_phishing_result(target_url):
         pass
 
     use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
-    max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
+    max_len = int(os.getenv("KOBERT_MAX_LEN", "128"))
     
     high_risk_keywords = [
         # 기존 대출/투자 관련
@@ -747,7 +747,15 @@ def predict_phishing_result(target_url):
         processed_text = f"{focus_sentence} {processed_text}"
         print(f"  🧠 [AI 시선 유도] 핵심 위협 문장을 최상단에 전진 배치합니다: {focus_sentence[:40]}...")
 
-    inputs = tokenizer(processed_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
+    visible = ""
+    if raw_html:
+        soup_vis = BeautifulSoup(raw_html, "html.parser")
+        for tag in soup_vis(["script", "style", "noscript"]):
+            tag.decompose()
+        title = soup_vis.title.get_text(" ", strip=True) if soup_vis.title else ""
+        visible = f"{title}\n{soup_vis.get_text(' ', strip=True)[:400]}"
+    model_text = f"{target_url}\n{visible or processed_text[:400]}"
+    inputs = tokenizer(model_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
     
     with torch.no_grad():
