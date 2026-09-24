@@ -58,6 +58,50 @@ def load_url_ml_model(path: str = MODEL_PATH) -> tuple[Any | None, URLMLStatus]:
         return None, URLMLStatus(False, f"load_error:{e}", path)
 
 
+def _domain_age_days(raw_url: str) -> float | None:
+    """RDAP age for gray-zone URLs. Lookup failure leaves the URL unchanged."""
+    try:
+        xg_dir = os.path.join(PARENT_DIR, "xgboost")
+        if xg_dir not in os.sys.path:
+            os.sys.path.insert(0, xg_dir)
+        from XG_core import extract_domain_age_features
+    except Exception:
+        return None
+    try:
+        features = extract_domain_age_features(raw_url)
+    except Exception:
+        return None
+    if not features.get("rdap_status_ok"):
+        return None
+    try:
+        return float(features.get("domain_age_days"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _young_domain_result(raw_url: str, proba: float, heuristic: float, threshold: float) -> dict[str, Any] | None:
+    final_prob = max(float(proba), float(heuristic))
+    floor = float(os.getenv("YOUNG_DOMAIN_MIN_SCORE", "0.05"))
+    max_days = float(os.getenv("YOUNG_DOMAIN_MAX_DAYS", "220"))
+    if final_prob < floor or final_prob >= threshold:
+        return None
+    age = _domain_age_days(raw_url)
+    if age is None or age > max_days:
+        return None
+    return {
+        "verdict": "malicious",
+        "riskLevel": "DANGEROUS",
+        "probability": round(max(final_prob, 0.72), 6),
+        "raw_probability": round(final_prob, 6),
+        "ml_probability": round(float(proba), 6),
+        "heuristic_probability": round(float(heuristic), 6),
+        "domain_age_days": round(age, 1),
+        "threshold": threshold,
+        "adjusted_by_rule": True,
+        "adjustment_reason": f"등록 {int(age)}일 이하인 신규 도메인 URLML 확인",
+    }
+
+
 def _is_low_confidence_root_benign(raw_url: str, final_prob: float, heuristic: float) -> bool:
     # Mid-score homepages stay UNKNOWN so bare-domain scam shops are not fast-pathed SAFE.
     if final_prob >= 0.20 or heuristic > 0.33:
@@ -107,6 +151,9 @@ def predict_url_ml(model: Any, raw_url: str) -> dict[str, Any]:
 
     threshold = float(os.getenv("URL_ML_THRESHOLD", "0.47"))
     unknown_threshold = float(os.getenv("URL_ML_UNKNOWN_THRESHOLD", "0.20"))
+    young = _young_domain_result(url, proba, heuristic, threshold)
+    if young is not None:
+        return young
     if _is_low_confidence_root_benign(url, max(proba, heuristic), heuristic):
         return {
             "verdict": "benign",
@@ -205,6 +252,10 @@ def predict_url_ml_batch(model: Any, raw_urls: list[str]) -> list[dict[str, Any]
                 }
         else:
             for index, url, proba, heuristic in zip(pending_indices, pending_urls, probabilities, pending_heuristics):
+                young = _young_domain_result(url, float(proba), heuristic, threshold)
+                if young is not None:
+                    results[index] = young
+                    continue
                 if _is_low_confidence_root_benign(url, max(float(proba), heuristic), heuristic):
                     results[index] = {
                         "verdict": "benign",

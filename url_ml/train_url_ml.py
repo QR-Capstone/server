@@ -86,6 +86,8 @@ def read_csvs(
                     weight = user_confirmed_weight
                 elif source in {"benign_hard_korean_smb", "benign_ad_landing"} and label == "0":
                     weight = hard_benign_weight
+                elif source == "nurilab_phishing_alert" and label == "1":
+                    weight = 6.0
                 elif source.startswith("naver_search:") and label == "0":
                     weight = naver_benign_weight
                 elif source == "malicious_synthetic_kr" and label == "1":
@@ -115,10 +117,15 @@ def balance_rows(rows: list[dict[str, object]], seed: int) -> list[dict[str, obj
     benign = [r for r in rows if r["label"] == 0]
     if not malicious or not benign:
         return rows
+    protected = [r for r in malicious if r.get("source") == "nurilab_phishing_alert"]
+    other_mal = [r for r in malicious if r.get("source") != "nurilab_phishing_alert"]
     target = min(len(malicious), len(benign))
     rng = random.Random(seed)
     if len(malicious) > target:
-        malicious = rng.sample(malicious, target)
+        keep_other = max(0, target - len(protected))
+        other_mal = rng.sample(other_mal, min(len(other_mal), keep_other))
+        malicious = protected + other_mal
+        target = min(len(malicious), len(benign))
     if len(benign) > target:
         benign = rng.sample(benign, target)
     balanced = malicious + benign

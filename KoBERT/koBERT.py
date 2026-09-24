@@ -442,6 +442,37 @@ def predict_phishing_result(target_url):
         }
 
     url_only_score = strong_url_phishing_score(target_url)
+    try:
+        xg_dir = os.path.join(PARENT_DIR, "xgboost")
+        if xg_dir not in os.sys.path:
+            os.sys.path.insert(0, xg_dir)
+        from XG_core import _url_ml_danger_probability
+
+        url_ml_probability = _url_ml_danger_probability(target_url)
+    except Exception:
+        url_ml_probability = None
+    if url_ml_probability is not None:
+        return {
+            "url": target_url,
+            "judgment": "unnormal",
+            "riskLevel": "HIGH",
+            "risklevel": "HIGH",
+            "detectedUrl": target_url,
+            "threat_score": round(url_ml_probability * 100.0, 1),
+            "threat_type": "URL 어휘/신규 도메인 기반 피싱",
+            "site_category": "악성 피싱",
+            "evidence": {
+                "heuristic_evidence": {
+                    "detected_actions": ["URL 어휘 모델 또는 신규 도메인"],
+                    "rule_trigger": "URL ML 악성 확인 후 KoBERT 로드 전에 차단"
+                },
+                "ai_semantic_evidence": {
+                    "suspect_sentence": target_url,
+                    "ai_inference_logic": "문자 모델 확률 또는 등록 220일 이하 도메인이 악성 기준을 넘겨, 페이지 분류 전에 차단했습니다."
+                }
+            }
+        }
+
     if url_only_score >= 0.66:
         return {
             "url": target_url,

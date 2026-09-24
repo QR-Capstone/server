@@ -1945,6 +1945,27 @@ def predict_gnn(
         }
     url_heuristic_score = float(url_heuristic_phishing_score(url))
     url_heuristic_threshold = float(os.getenv("GNN_URL_HEURISTIC_MALICIOUS_THRESHOLD", "0.20"))
+    try:
+        xg_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "xgboost")
+        if xg_dir not in os.sys.path:
+            os.sys.path.insert(0, xg_dir)
+        from XG_core import _url_ml_danger_probability
+
+        url_ml_probability = _url_ml_danger_probability(url)
+    except Exception:
+        url_ml_probability = None
+    if url_ml_probability is not None:
+        return {
+            "url": url,
+            "probability": round(url_ml_probability, 6),
+            "risk_score": round(url_ml_probability * 100.0, 1),
+            "label": 1,
+            "verdict": "malicious",
+            "model_type": MODEL_KIND,
+            "threshold": float(getattr(model, "threshold", 0.5)),
+            "explanation": ["URL 어휘 모델과 신규 도메인 확인이 악성이라 페이지 그래프 전에 차단했습니다."],
+            "evidence": {"url_ml_danger_override": url_ml_probability},
+        }
     if url_heuristic_score >= url_heuristic_threshold:
         return {
             "url": url,

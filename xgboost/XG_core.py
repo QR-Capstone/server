@@ -2701,6 +2701,34 @@ def load_bundle(path: str) -> ModelBundle:
         meta=dict(payload.get("meta", {})),
     )
 
+def _url_ml_danger_probability(url: str) -> Optional[float]:
+    """Use the URL lexical lane when this engine's own score is not malicious."""
+    try:
+        url_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "url_ml")
+        if url_ml_dir not in os.sys.path:
+            os.sys.path.insert(0, url_ml_dir)
+        from url_ml_engine import load_url_ml_model, predict_url_ml
+    except Exception:
+        return None
+    cached = getattr(_url_ml_danger_probability, "cached", None)
+    if cached is None:
+        cached = load_url_ml_model()
+        setattr(_url_ml_danger_probability, "cached", cached)
+    model, status = cached
+    if model is None or not getattr(status, "enabled", False):
+        return None
+    try:
+        result = predict_url_ml(model, url)
+    except Exception:
+        return None
+    if result.get("riskLevel") != "DANGEROUS":
+        return None
+    try:
+        return float(result.get("probability") or 0.72)
+    except (TypeError, ValueError):
+        return 0.72
+
+
 def predict_url(
     bundle: ModelBundle,
     url: str,
@@ -2734,6 +2762,11 @@ def predict_url(
     if early_floor > proba:
         proba = early_floor
     label = 1 if proba >= 0.5 else 0
+    if label == 0:
+        override = _url_ml_danger_probability(url)
+        if override is not None:
+            label = 1
+            proba = override
     feat_map: Dict[str, Any] = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
     domain_age_meta = get_domain_age_features_for_mode(url, bool(enable_domain_age))
     for key in (
