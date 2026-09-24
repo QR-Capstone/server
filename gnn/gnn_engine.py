@@ -1161,9 +1161,9 @@ GRAPH_NODE_TYPES = [
     "domain",
     "risk",
 ]
-NODE_ATTR_DIM = 8
+NODE_ATTR_DIM = 4008
 NODE_FEATURE_DIM = len(GRAPH_NODE_TYPES) + NODE_ATTR_DIM
-_URL_HASH_DIM = 0
+_URL_HASH_DIM = 4000
 _URL_VECTORIZER = None
 
 
@@ -1988,44 +1988,8 @@ def predict_gnn(
             ],
             "evidence": {"strong_url_phishing_pattern": url_only_score},
         }
-    url_heuristic_score = float(url_heuristic_phishing_score(url))
-    url_heuristic_threshold = float(os.getenv("GNN_URL_HEURISTIC_MALICIOUS_THRESHOLD", "0.20"))
-    try:
-        xg_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "xgboost")
-        if xg_dir not in os.sys.path:
-            os.sys.path.insert(0, xg_dir)
-        from XG_core import _url_ml_danger_probability
-
-        url_ml_probability = _url_ml_danger_probability(url)
-    except Exception:
-        url_ml_probability = None
-    if url_ml_probability is not None:
-        return {
-            "url": url,
-            "probability": round(url_ml_probability, 6),
-            "risk_score": round(url_ml_probability * 100.0, 1),
-            "label": 1,
-            "verdict": "malicious",
-            "model_type": MODEL_KIND,
-            "threshold": float(getattr(model, "threshold", 0.5)),
-            "explanation": ["URL 어휘 모델과 신규 도메인 확인이 악성이라 페이지 그래프 전에 차단했습니다."],
-            "evidence": {"url_ml_danger_override": url_ml_probability},
-        }
-    if url_heuristic_score >= url_heuristic_threshold:
-        return {
-            "url": url,
-            "probability": round(max(url_heuristic_score, url_heuristic_threshold), 6),
-            "risk_score": round(max(url_heuristic_score, url_heuristic_threshold) * 100.0, 1),
-            "label": 1,
-            "verdict": "malicious",
-            "model_type": MODEL_KIND,
-            "threshold": float(getattr(model, "threshold", 0.5)),
-            "explanation": [
-                "URL 문자열에 계정/인증/배송/브랜드 사칭에 가까운 위험 구조가 누적되어 악성으로 보정했습니다."
-            ],
-            "evidence": {"url_heuristic_phishing_pattern": url_heuristic_score},
-        }
-    fetch = os.getenv("GNN_FETCH_PAGE", "1") != "0"
+    fetch_default = "0" if model.metadata.get("trained_on") == "real_url_no_fetch" else "1"
+    fetch = os.getenv("GNN_FETCH_PAGE", fetch_default) != "0"
     sample, graph = graph_sample_for_url(url, fetch=fetch)
     prob_mal = float(model.predict_proba_from_sample(sample))
     fmap_tmp = feature_map_from_graph(graph) if fetch else {}
@@ -2038,14 +2002,20 @@ def predict_gnn(
         and len(graph.nodes) <= 1
         and fmap_tmp.get("suspicious_tld", 0.0) <= 0
     )
-    if low_evidence_graph:
+    if low_evidence_graph and prob_mal < model.threshold:
         prob_mal = min(prob_mal, float(os.getenv("GNN_LOW_EVIDENCE_MAX_PROB", "0.20")))
-        label = 0
-    elif fmap_tmp.get("suspicious_tld", 0.0) > 0:
-        prob_mal = min(1.0, prob_mal + 0.40)
-        label = 1
-    else:
-        label = 1 if prob_mal >= model.threshold else 0
+    try:
+        url_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "url_ml")
+        if url_ml_dir not in os.sys.path:
+            os.sys.path.insert(0, url_ml_dir)
+        from url_ml_engine import established_news_article_cap
+
+        capped = established_news_article_cap(url, prob_mal, 0.0)
+    except Exception:
+        capped = None
+    if capped is not None:
+        prob_mal = float(capped)
+    label = 1 if prob_mal >= model.threshold else 0
     out = {
         "url": url,
         "probability": round(prob_mal, 6),
