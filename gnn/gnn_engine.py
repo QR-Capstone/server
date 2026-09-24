@@ -324,7 +324,7 @@ def _lexical_features(url: str) -> Dict[str, float]:
         "phish_word_ratio": _safe_ratio(phish_hits, len(tokens)),
         "brand_word_ratio": _safe_ratio(brand_hits, len(tokens)),
         "suspicious_tld": 1.0 if any(host.endswith(tld) for tld in SUSPICIOUS_TLDS) else 0.0,
-    }
+    } | {f"url_hash_{idx:02d}": value for idx, value in enumerate(_url_char_hash_attrs(url))}
 
 
 class _StructureParser(HTMLParser):
@@ -1161,7 +1161,10 @@ GRAPH_NODE_TYPES = [
     "domain",
     "risk",
 ]
-NODE_FEATURE_DIM = len(GRAPH_NODE_TYPES) + 8
+NODE_ATTR_DIM = 8
+NODE_FEATURE_DIM = len(GRAPH_NODE_TYPES) + NODE_ATTR_DIM
+_URL_HASH_DIM = 0
+_URL_VECTORIZER = None
 
 
 @dataclass
@@ -1172,9 +1175,50 @@ class GraphSample:
 
 def _node_features(node_type: str, attrs: Sequence[float]) -> List[float]:
     one_hot = [1.0 if node_type == t else 0.0 for t in GRAPH_NODE_TYPES]
-    vals = [float(v) for v in attrs[:8]]
-    vals.extend([0.0] * (8 - len(vals)))
+    vals = [float(v) for v in attrs[:NODE_ATTR_DIM]]
+    vals.extend([0.0] * (NODE_ATTR_DIM - len(vals)))
     return one_hot + vals
+
+
+def load_url_node_vectorizer(path: Optional[str] = None):
+    """Load the character vectorizer that fills the URL node. Missing file keeps zeros."""
+    global _URL_VECTORIZER
+    if path is None:
+        path = os.path.join(_BASE_DIR, "url_node_tfidf.joblib")
+    if not os.path.isfile(path):
+        _URL_VECTORIZER = None
+        return None
+    try:
+        import joblib
+    except Exception:
+        _URL_VECTORIZER = None
+        return None
+    _URL_VECTORIZER = joblib.load(path)
+    return _URL_VECTORIZER
+
+
+def _url_char_hash_attrs(url: str) -> List[float]:
+    """Character TF-IDF on the URL node. Flags occupy the first three slots."""
+    if _URL_HASH_DIM <= 0:
+        return []
+    global _URL_VECTORIZER
+    if _URL_VECTORIZER is None:
+        load_url_node_vectorizer()
+    parsed = urlsplit(url if "://" in url else f"//{url}")
+    host = (parsed.hostname or "").lower()
+    acc = [0.0] * _URL_HASH_DIM
+    if re.search(r"[가-힣]", host):
+        acc[0] = 1.0
+    if re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", f"{parsed.fragment}?{parsed.query}"):
+        acc[1] = 1.0
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", host or ""):
+        acc[2] = 1.0
+    if _URL_VECTORIZER is not None:
+        vec = _URL_VECTORIZER.transform([url])
+        dense = vec.toarray().ravel()
+        limit = min(len(dense), _URL_HASH_DIM - 3)
+        acc[3 : 3 + limit] = [float(v) for v in dense[:limit]]
+    return acc
 
 
 def _edge_pair(edges: List[Tuple[int, int]], a: int, b: int) -> None:
@@ -1261,6 +1305,7 @@ def graph_sample_from_feature_map(fmap: Dict[str, float]) -> GraphSample:
                 fmap.get("token_count", 0.0),
                 fmap.get("phish_word_ratio", 0.0),
                 fmap.get("brand_word_ratio", 0.0),
+                *[fmap.get(f"url_hash_{idx:02d}", 0.0) for idx in range(_URL_HASH_DIM)],
             ],
         ),
         _node_features(

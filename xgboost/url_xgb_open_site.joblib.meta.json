@@ -1,0 +1,14 @@
+{
+  "kind": "xgboost_open_site_url",
+  "training_rows": 156550,
+  "malicious": 78275,
+  "benign": 78275,
+  "holdouts": [
+    "/workspace/dev/real_site_split/test_malicious.csv",
+    "/workspace/dev/real_site_split/test_benign.csv"
+  ],
+  "inputs": [
+    "/workspace/dev/engine_training_inputs/expanded_url_train_20260611.csv",
+    "/workspace/dev/real_site_split/nurilab_train.csv"
+  ]
+}

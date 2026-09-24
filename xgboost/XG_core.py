@@ -113,6 +113,9 @@ def xgboost_weighted_ensemble_verdict(
         final_score: weighted final probability
         verdict_label: 1=malicious, 0=benign
     """
+    url_score = max(float(prob_typo), float(prob_domain))
+    if url_score >= 0.50:
+        return url_score, 1
     final_score = prob_typo * 0.50 + prob_domain * 0.35 + prob_dom * 0.15
 
     if final_score >= 0.50:
@@ -2701,6 +2704,29 @@ def load_bundle(path: str) -> ModelBundle:
         meta=dict(payload.get("meta", {})),
     )
 
+def _open_site_url_probability(url: str) -> Optional[float]:
+    """Score from the XGBoost model trained on real URLs, excluding the holdout."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "url_xgb_open_site.joblib")
+    if not os.path.isfile(path):
+        return None
+    url_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "url_ml")
+    if url_ml_dir not in os.sys.path:
+        os.sys.path.insert(0, url_ml_dir)
+    cached = getattr(_open_site_url_probability, "cached", None)
+    if cached is None:
+        try:
+            cached = joblib.load(path)
+        except Exception:
+            cached = False
+        setattr(_open_site_url_probability, "cached", cached)
+    if not cached:
+        return None
+    try:
+        return float(cached.predict_proba([url])[0][1])
+    except Exception:
+        return None
+
+
 def _url_ml_danger_probability(url: str) -> Optional[float]:
     """Use the URL lexical lane when this engine's own score is not malicious."""
     try:
@@ -2758,15 +2784,14 @@ def predict_url(
     if X.shape[1] > base_n:
         X = X[:, :base_n]
         feats = feats[:base_n]
-    proba = float(predict_proba(bundle.model, X)[0])
-    if early_floor > proba:
-        proba = early_floor
+    open_site = _open_site_url_probability(url)
+    if open_site is not None:
+        proba = max(float(open_site), early_floor)
+    else:
+        proba = float(predict_proba(bundle.model, X)[0])
+        if early_floor > proba:
+            proba = early_floor
     label = 1 if proba >= 0.5 else 0
-    if label == 0:
-        override = _url_ml_danger_probability(url)
-        if override is not None:
-            label = 1
-            proba = override
     feat_map: Dict[str, Any] = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
     domain_age_meta = get_domain_age_features_for_mode(url, bool(enable_domain_age))
     for key in (
