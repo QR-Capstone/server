@@ -425,7 +425,12 @@ def _predict_xgboost_uncached(raw_url: str):
     else:
         typo_feature_map = {}
 
-    if domain_bundle is not None:
+    typo_decided = bool(
+        typo_feature_map.get("open_site_url_model")
+        or typo_feature_map.get("trusted_official_domain")
+        or typo_feature_map.get("strong_url_phishing_pattern")
+    )
+    if domain_bundle is not None and not typo_decided:
         domain_label, domain_prob, domain_feature_map = predict_url(
             domain_bundle,
             url,
@@ -435,10 +440,18 @@ def _predict_xgboost_uncached(raw_url: str):
         )
         output["domain_probability"] = round(float(domain_prob), 6)
         output["domain_label"] = int(domain_label)
+    elif domain_bundle is not None:
+        output["domain_probability"] = output.get("typo_probability", 0.0)
+        output["domain_label"] = output.get("typo_label", 0)
+        domain_feature_map = dict(typo_feature_map)
     else:
         domain_feature_map = {}
 
-    if dom_bundle is not None:
+    url_score = max(
+        float(output.get("typo_probability", 0.0)),
+        float(output.get("domain_probability", 0.0)),
+    )
+    if dom_bundle is not None and url_score < 0.5:
         dom_label, dom_prob, dom_feature_map = predict_url_dom(
             dom_bundle,
             url,

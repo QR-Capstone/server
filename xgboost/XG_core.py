@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import functools
 import json
 import math
 import os
@@ -862,6 +863,10 @@ def _fetch_rdap_payload_attempt(registered_domain: str) -> Tuple[Optional[Dict[s
     return parsed, "ok"
 
 
+_RDAP_PAYLOAD_CACHE: Dict[str, Tuple[Optional[Dict[str, Any]], str]] = {}
+_RDAP_CACHE_LOCK = threading.Lock()
+
+
 def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]], str]:
     # 현재는 실시간 검증 속도를 위해 RDAP를 _RDAP_MAX_ATTEMPTS회만 조회합니다(기본 1회).
     # 과거에는 timeout 대응을 위해 최대 3회(최초 + 재시도 2회)까지 시도했지만,
@@ -869,11 +874,18 @@ def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]
     # 재시도 루프 본체는 유지되어 있으며, _RDAP_MAX_ATTEMPTS 를 3으로 바꾸면 동일하게 동작합니다.
     if not registered_domain:
         return None, "lookup_failed"
+    cache_key = registered_domain.strip().lower()
+    with _RDAP_CACHE_LOCK:
+        cached = _RDAP_PAYLOAD_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     last: Tuple[Optional[Dict[str, Any]], str] = (None, "lookup_failed")
     for attempt in range(_RDAP_MAX_ATTEMPTS):
         payload, status = _fetch_rdap_payload_attempt(registered_domain)
         last = (payload, status)
         if status != "lookup_failed":
+            with _RDAP_CACHE_LOCK:
+                _RDAP_PAYLOAD_CACHE[cache_key] = last
             return payload, status
         if attempt + 1 < _RDAP_MAX_ATTEMPTS:
             time.sleep(_RDAP_RETRY_SLEEP_SECONDS)
@@ -2704,6 +2716,7 @@ def load_bundle(path: str) -> ModelBundle:
         meta=dict(payload.get("meta", {})),
     )
 
+@functools.lru_cache(maxsize=4096)
 def _open_site_url_probability(url: str) -> Optional[float]:
     """Score from the XGBoost model trained on real URLs, excluding the holdout."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "url_xgb_open_site.joblib")
@@ -2773,6 +2786,11 @@ def predict_url(
     early_floor = _strong_xg_phishing_floor(url)
     if early_floor >= 0.66:
         return 1, early_floor, {"strong_url_phishing_pattern": early_floor}
+    open_site = _open_site_url_probability(url)
+    if open_site is not None:
+        proba = max(float(open_site), early_floor)
+        label = 1 if proba >= 0.5 else 0
+        return label, proba, {"open_site_url_model": float(proba)}
     feats = extract_features(
         url,
         enable_domain_age=enable_domain_age,
@@ -2784,13 +2802,9 @@ def predict_url(
     if X.shape[1] > base_n:
         X = X[:, :base_n]
         feats = feats[:base_n]
-    open_site = _open_site_url_probability(url)
-    if open_site is not None:
-        proba = max(float(open_site), early_floor)
-    else:
-        proba = float(predict_proba(bundle.model, X)[0])
-        if early_floor > proba:
-            proba = early_floor
+    proba = float(predict_proba(bundle.model, X)[0])
+    if early_floor > proba:
+        proba = early_floor
     label = 1 if proba >= 0.5 else 0
     feat_map: Dict[str, Any] = {name: float(val) for name, val in zip(bundle.feature_names, feats)}
     domain_age_meta = get_domain_age_features_for_mode(url, bool(enable_domain_age))
