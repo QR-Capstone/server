@@ -8,9 +8,12 @@ It complements KoBERT/GNN/XGBoost when page fetching is slow or unavailable.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
+
+_ARTICLE_ID_QUERY = re.compile(r"(?:^|&)(?:idx|article(?:_?id)?|news_?id|bno)=[0-9]+", re.I)
 
 try:
     import joblib
@@ -102,6 +105,30 @@ def _young_domain_result(raw_url: str, proba: float, heuristic: float, threshold
     }
 
 
+def established_news_article_cap(raw_url: str, proba: float, heuristic: float) -> float | None:
+    """Lower a high lexical score on a long-lived numbered news article.
+
+    RDAP runs only after the URL already matches an article-id query, so ordinary
+    URLs stay on the fast path. Lookup failure leaves the model score unchanged.
+    """
+    if max(float(proba), float(heuristic)) < 0.47 or float(heuristic) > 0.33:
+        return None
+    candidate = raw_url if "://" in raw_url else f"//{raw_url}"
+    try:
+        parsed = urlsplit(candidate)
+    except Exception:
+        return None
+    path = (parsed.path or "").lower()
+    if not _ARTICLE_ID_QUERY.search(parsed.query or "") or not path.endswith((".asp", ".php", ".html", ".htm")):
+        return None
+    if path.count("/") > 3:
+        return None
+    age = _domain_age_days(raw_url)
+    if age is None or age < float(os.getenv("ESTABLISHED_ARTICLE_MIN_DAYS", "1825")):
+        return None
+    return 0.12
+
+
 def _is_low_confidence_root_benign(raw_url: str, final_prob: float, heuristic: float) -> bool:
     # Mid-score homepages stay UNKNOWN so bare-domain scam shops are not fast-pathed SAFE.
     if final_prob >= 0.20 or heuristic > 0.33:
@@ -151,6 +178,9 @@ def predict_url_ml(model: Any, raw_url: str) -> dict[str, Any]:
 
     threshold = float(os.getenv("URL_ML_THRESHOLD", "0.47"))
     unknown_threshold = float(os.getenv("URL_ML_UNKNOWN_THRESHOLD", "0.20"))
+    article_cap = established_news_article_cap(url, proba, heuristic)
+    if article_cap is not None:
+        proba = article_cap
     young = _young_domain_result(url, proba, heuristic, threshold)
     if young is not None:
         return young
@@ -252,6 +282,9 @@ def predict_url_ml_batch(model: Any, raw_urls: list[str]) -> list[dict[str, Any]
                 }
         else:
             for index, url, proba, heuristic in zip(pending_indices, pending_urls, probabilities, pending_heuristics):
+                article_cap = established_news_article_cap(url, float(proba), heuristic)
+                if article_cap is not None:
+                    proba = article_cap
                 young = _young_domain_result(url, float(proba), heuristic, threshold)
                 if young is not None:
                     results[index] = young

@@ -2789,6 +2789,17 @@ def predict_url(
     open_site = _open_site_url_probability(url)
     if open_site is not None:
         proba = max(float(open_site), early_floor)
+        try:
+            url_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "url_ml")
+            if url_ml_dir not in os.sys.path:
+                os.sys.path.insert(0, url_ml_dir)
+            from url_ml_engine import established_news_article_cap
+
+            capped = established_news_article_cap(url, proba, 0.0)
+        except Exception:
+            capped = None
+        if capped is not None:
+            proba = float(capped)
         label = 1 if proba >= 0.5 else 0
         return label, proba, {"open_site_url_model": float(proba)}
     feats = extract_features(
