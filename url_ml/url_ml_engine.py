@@ -129,6 +129,38 @@ def established_news_article_cap(raw_url: str, proba: float, heuristic: float) -
     return 0.12
 
 
+_FRONT_PAGE_PATHS = {"", "/", "/index.html", "/index.htm", "/index.php", "/index.asp"}
+
+
+def is_established_front_page(raw_url: str) -> bool:
+    """Root or index page with no query. Fragments and short paths such as /es stay out."""
+    candidate = raw_url if "://" in raw_url else f"//{raw_url}"
+    try:
+        parsed = urlsplit(candidate)
+    except Exception:
+        return False
+    if parsed.query:
+        return False
+    path = (parsed.path or "").lower()
+    return path in _FRONT_PAGE_PATHS or path.endswith("/index.do")
+
+
+def established_front_page_cap(raw_url: str, proba: float) -> float | None:
+    """Lower a positive score on a long-lived front page without a strong phishing URL.
+
+    RDAP runs only after the score is already at least 0.5 and the URL is a front page.
+    Lookup failure leaves the model score unchanged.
+    """
+    if float(proba) < 0.5 or not is_established_front_page(raw_url):
+        return None
+    if float(strong_url_phishing_score(raw_url)) >= 0.66:
+        return None
+    age = _domain_age_days(raw_url)
+    if age is None or age < float(os.getenv("ESTABLISHED_FRONT_MIN_DAYS", "4000")):
+        return None
+    return 0.12
+
+
 def _is_low_confidence_root_benign(raw_url: str, final_prob: float, heuristic: float) -> bool:
     # Mid-score homepages stay UNKNOWN so bare-domain scam shops are not fast-pathed SAFE.
     if final_prob >= 0.20 or heuristic > 0.33:

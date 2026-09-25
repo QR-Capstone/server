@@ -412,6 +412,31 @@ def warmup_engine(include_pw=True):
     return {"model_loaded": True, "device": str(device)}
 
 
+def _established_site_probability_cap(raw_url: str, prob_percent: float) -> float | None:
+    """Cap KoBERT after keyword boosts. Returns a percent, or None to keep the score."""
+    if prob_percent <= 50.0:
+        return None
+    try:
+        url_ml_dir = os.path.join(PARENT_DIR, "url_ml")
+        if url_ml_dir not in os.sys.path:
+            os.sys.path.insert(0, url_ml_dir)
+        from url_ml_engine import established_front_page_cap, established_news_article_cap
+        from trusted_domains import url_heuristic_phishing_score
+    except Exception:
+        return None
+    proba = prob_percent / 100.0
+    capped = []
+    front = established_front_page_cap(raw_url, proba)
+    if front is not None:
+        capped.append(front)
+    article = established_news_article_cap(raw_url, proba, float(url_heuristic_phishing_score(raw_url)))
+    if article is not None:
+        capped.append(article)
+    if not capped:
+        return None
+    return min(capped) * 100.0
+
+
 def predict_phishing_result(target_url):
     global device, tokenizer, model, engine_initialized, async_pw_manager
 
@@ -989,6 +1014,14 @@ def predict_phishing_result(target_url):
     if discount_weight > 0:
         prob_phishing = prob_phishing * (1.0 - discount_weight)
         print(f"  📉 [점수 할인] 기업 사이트 오탐 방지 발동! 최종 보정 후({prob_phishing:.1f}%)")
+
+    # 키워드 보정이 끝난 뒤에만 적용한다. 오래된 프론트페이지와 번호형 기사만 낮추고,
+    # RDAP 실패나 강한 URL 패턴은 모델 점수를 그대로 둔다.
+    established_cap = _established_site_probability_cap(target_url, prob_phishing)
+    established_capped = established_cap is not None
+    if established_capped:
+        prob_phishing = established_cap
+        print(f"  📉 [오래 운영된 공개 페이지] KoBERT 점수 상한 {prob_phishing:.1f}%")
         
     # 🔥 [4단계] AI 주도형(AI-Driven) 초정밀 판단 사유 생성 (정형화 템플릿 + 특수 케이스 유지)
     
@@ -1068,8 +1101,8 @@ def predict_phishing_result(target_url):
         
     print("■"*60 + "\n")
 
-    # 🔥 [1-Depth 악성 조기 리턴] 
-    if prob_phishing > 50.0:
+    # 오래 운영된 프론트페이지/기사 상한은 하위 링크 재검사로 되돌리지 않는다.
+    if established_capped or prob_phishing > 50.0:
         print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
         return final_json_report
 
