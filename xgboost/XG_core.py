@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import functools
 import json
 import math
 import os
@@ -113,6 +114,9 @@ def xgboost_weighted_ensemble_verdict(
         final_score: weighted final probability
         verdict_label: 1=malicious, 0=benign
     """
+    url_score = max(float(prob_typo), float(prob_domain))
+    if url_score >= 0.50:
+        return url_score, 1
     final_score = prob_typo * 0.50 + prob_domain * 0.35 + prob_dom * 0.15
 
     if final_score >= 0.50:
@@ -859,6 +863,10 @@ def _fetch_rdap_payload_attempt(registered_domain: str) -> Tuple[Optional[Dict[s
     return parsed, "ok"
 
 
+_RDAP_PAYLOAD_CACHE: Dict[str, Tuple[Optional[Dict[str, Any]], str]] = {}
+_RDAP_CACHE_LOCK = threading.Lock()
+
+
 def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]], str]:
     # 현재는 실시간 검증 속도를 위해 RDAP를 _RDAP_MAX_ATTEMPTS회만 조회합니다(기본 1회).
     # 과거에는 timeout 대응을 위해 최대 3회(최초 + 재시도 2회)까지 시도했지만,
@@ -866,11 +874,18 @@ def _fetch_rdap_payload(registered_domain: str) -> Tuple[Optional[Dict[str, Any]
     # 재시도 루프 본체는 유지되어 있으며, _RDAP_MAX_ATTEMPTS 를 3으로 바꾸면 동일하게 동작합니다.
     if not registered_domain:
         return None, "lookup_failed"
+    cache_key = registered_domain.strip().lower()
+    with _RDAP_CACHE_LOCK:
+        cached = _RDAP_PAYLOAD_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     last: Tuple[Optional[Dict[str, Any]], str] = (None, "lookup_failed")
     for attempt in range(_RDAP_MAX_ATTEMPTS):
         payload, status = _fetch_rdap_payload_attempt(registered_domain)
         last = (payload, status)
         if status != "lookup_failed":
+            with _RDAP_CACHE_LOCK:
+                _RDAP_PAYLOAD_CACHE[cache_key] = last
             return payload, status
         if attempt + 1 < _RDAP_MAX_ATTEMPTS:
             time.sleep(_RDAP_RETRY_SLEEP_SECONDS)
@@ -902,6 +917,7 @@ def _parse_rdap_datetime(value: str) -> Optional[datetime]:
     return None
 
 def _extract_rdap_creation_date(payload: Optional[Dict[str, Any]]) -> Optional[datetime]:
+    """Use a registration event only. last-changed is not a creation date."""
     if not isinstance(payload, dict):
         return None
 
@@ -913,14 +929,6 @@ def _extract_rdap_creation_date(payload: Optional[Dict[str, Any]]) -> Optional[d
             action = str(event.get("eventAction", "")).strip().lower()
             event_date = event.get("eventDate")
             if action in {"registration", "registered", "creation", "created"} and isinstance(event_date, str):
-                parsed = _parse_rdap_datetime(event_date)
-                if parsed is not None:
-                    return parsed
-        for event in events:
-            if not isinstance(event, dict):
-                continue
-            event_date = event.get("eventDate")
-            if isinstance(event_date, str):
                 parsed = _parse_rdap_datetime(event_date)
                 if parsed is not None:
                     return parsed
@@ -2701,6 +2709,58 @@ def load_bundle(path: str) -> ModelBundle:
         meta=dict(payload.get("meta", {})),
     )
 
+@functools.lru_cache(maxsize=4096)
+def _open_site_url_probability(url: str) -> Optional[float]:
+    """Score from the XGBoost model trained on real URLs, excluding the holdout."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "url_xgb_open_site.joblib")
+    if not os.path.isfile(path):
+        return None
+    url_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "url_ml")
+    if url_ml_dir not in os.sys.path:
+        os.sys.path.insert(0, url_ml_dir)
+    cached = getattr(_open_site_url_probability, "cached", None)
+    if cached is None:
+        try:
+            cached = joblib.load(path)
+        except Exception:
+            cached = False
+        setattr(_open_site_url_probability, "cached", cached)
+    if not cached:
+        return None
+    try:
+        return float(cached.predict_proba([url])[0][1])
+    except Exception:
+        return None
+
+
+def _url_ml_danger_probability(url: str) -> Optional[float]:
+    """Use the URL lexical lane when this engine's own score is not malicious."""
+    try:
+        url_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "url_ml")
+        if url_ml_dir not in os.sys.path:
+            os.sys.path.insert(0, url_ml_dir)
+        from url_ml_engine import load_url_ml_model, predict_url_ml
+    except Exception:
+        return None
+    cached = getattr(_url_ml_danger_probability, "cached", None)
+    if cached is None:
+        cached = load_url_ml_model()
+        setattr(_url_ml_danger_probability, "cached", cached)
+    model, status = cached
+    if model is None or not getattr(status, "enabled", False):
+        return None
+    try:
+        result = predict_url_ml(model, url)
+    except Exception:
+        return None
+    if result.get("riskLevel") != "DANGEROUS":
+        return None
+    try:
+        return float(result.get("probability") or 0.72)
+    except (TypeError, ValueError):
+        return 0.72
+
+
 def predict_url(
     bundle: ModelBundle,
     url: str,
@@ -2719,6 +2779,22 @@ def predict_url(
     early_floor = _strong_xg_phishing_floor(url)
     if early_floor >= 0.66:
         return 1, early_floor, {"strong_url_phishing_pattern": early_floor}
+    open_site = _open_site_url_probability(url)
+    if open_site is not None:
+        proba = max(float(open_site), early_floor)
+        try:
+            url_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "url_ml")
+            if url_ml_dir not in os.sys.path:
+                os.sys.path.insert(0, url_ml_dir)
+            from url_ml_engine import established_news_article_cap
+
+            capped = established_news_article_cap(url, proba, 0.0)
+        except Exception:
+            capped = None
+        if capped is not None:
+            proba = float(capped)
+        label = 1 if proba >= 0.5 else 0
+        return label, proba, {"open_site_url_model": float(proba)}
     feats = extract_features(
         url,
         enable_domain_age=enable_domain_age,

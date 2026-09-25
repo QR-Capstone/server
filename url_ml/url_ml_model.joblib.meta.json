@@ -1,21 +1,20 @@
 {
-  "loaded_rows": 166877,
-  "training_rows": 164264,
+  "loaded_rows": 164279,
+  "training_rows": 156550,
   "label_counts": {
-    "0": 82132,
-    "1": 82132
+    "0": 78275,
+    "1": 78275
   },
-  "holdout_excluded": 6904,
+  "holdout_excluded": 4113,
   "balanced": true,
   "class_weight_balanced": true,
   "C": 5.0,
   "inputs": [
-    "dev/engine_training_inputs/expanded_url_train_20260611.csv"
+    "dev/engine_training_inputs/expanded_url_train_20260611.csv",
+    "dev/real_site_split/nurilab_train.csv"
   ],
   "holdouts": [
-    "dev/fresh_eval_20260611.csv",
-    "dev/fresh_eval_crosssource_20260611.csv",
-    "dev/dataset_splits/test_balanced.csv",
-    "dev/dataset_splits/test_operational.csv"
+    "dev/real_site_split/test_malicious.csv",
+    "dev/real_site_split/test_benign.csv"
   ]
 }

@@ -173,10 +173,21 @@ def _cmd_predict_url(args: argparse.Namespace) -> int:
         enable_ssl=False,
         domain_only=False,
     )
-    _, prob_domain, domain_feature_map = predict_url_domain(bundle_domain, url)
-    _, prob_dom, dom_feature_map = predict_url_dom(
-        bundle_dom, url, print_dom_feature_debug=False
+    typo_decided = bool(
+        typo_feature_map.get("open_site_url_model")
+        or typo_feature_map.get("trusted_official_domain")
+        or typo_feature_map.get("strong_url_phishing_pattern")
     )
+    if typo_decided:
+        prob_domain, domain_feature_map = prob_typo, dict(typo_feature_map)
+    else:
+        _, prob_domain, domain_feature_map = predict_url_domain(bundle_domain, url)
+    if max(prob_typo, prob_domain) >= 0.5:
+        prob_dom, dom_feature_map = 0.0, {}
+    else:
+        _, prob_dom, dom_feature_map = predict_url_dom(
+            bundle_dom, url, print_dom_feature_debug=False
+        )
     final_probability, verdict_label = xgboost_weighted_ensemble_verdict(
         prob_typo, prob_domain, prob_dom
     )

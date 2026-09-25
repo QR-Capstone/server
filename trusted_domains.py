@@ -1539,10 +1539,20 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
 
     combined = f"{host}/{path}".lower()
     query = ""
+    fragment = ""
     try:
         query = parsed.query or ""
+        fragment = parsed.fragment or ""
     except Exception:
         query = ""
+        fragment = ""
+    # Webmail lures put a victim address in the fragment or query, e.g. #aa@aa.com.
+    if re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", f"{fragment}?{query}"):
+        return 0.74
+    # Real Korean benign sites in the training corpus almost never put Hangul in the host.
+    # Nurilab alerts do: 인증보안.org, 엔벳.com, 인터넷수령확인.com.
+    if re.search(r"[가-힣]", host) and not host.endswith((".go.kr", ".or.kr", ".ac.kr", ".ms.kr", ".mil.kr", ".edu")):
+        return 0.74
     root_only = path in {"", "/"} and not query
     labels = [part for part in host.split(".") if part]
     sld = labels[-2] if len(labels) >= 2 else labels[0] if labels else ""
@@ -1721,6 +1731,9 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
     if host in SHORTENER_HOSTS:
         return 0.72
     if host.endswith(".duckdns.org") or "serveirc.com" in host or host.endswith(".kesug.com"):
+        return 0.72
+    # eu.cc subdomains in the real URL sets are phishing hosts, same as dynamic DNS.
+    if host.endswith(".eu.cc"):
         return 0.72
     if raw.startswith("http://") and host.endswith(".fwh.is"):
         return 0.72

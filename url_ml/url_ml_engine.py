@@ -8,9 +8,12 @@ It complements KoBERT/GNN/XGBoost when page fetching is slow or unavailable.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
+
+_ARTICLE_ID_QUERY = re.compile(r"(?:^|&)(?:idx|article(?:_?id)?|news_?id|bno)=[0-9]+", re.I)
 
 try:
     import joblib
@@ -58,8 +61,109 @@ def load_url_ml_model(path: str = MODEL_PATH) -> tuple[Any | None, URLMLStatus]:
         return None, URLMLStatus(False, f"load_error:{e}", path)
 
 
+def _domain_age_days(raw_url: str) -> float | None:
+    """RDAP age for gray-zone URLs. Lookup failure leaves the URL unchanged."""
+    try:
+        xg_dir = os.path.join(PARENT_DIR, "xgboost")
+        if xg_dir not in os.sys.path:
+            os.sys.path.insert(0, xg_dir)
+        from XG_core import extract_domain_age_features
+    except Exception:
+        return None
+    try:
+        features = extract_domain_age_features(raw_url)
+    except Exception:
+        return None
+    if not features.get("rdap_status_ok"):
+        return None
+    try:
+        return float(features.get("domain_age_days"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _young_domain_result(raw_url: str, proba: float, heuristic: float, threshold: float) -> dict[str, Any] | None:
+    final_prob = max(float(proba), float(heuristic))
+    floor = float(os.getenv("YOUNG_DOMAIN_MIN_SCORE", "0.05"))
+    max_days = float(os.getenv("YOUNG_DOMAIN_MAX_DAYS", "220"))
+    if final_prob < floor or final_prob >= threshold:
+        return None
+    age = _domain_age_days(raw_url)
+    if age is None or age > max_days:
+        return None
+    return {
+        "verdict": "malicious",
+        "riskLevel": "DANGEROUS",
+        "probability": round(max(final_prob, 0.72), 6),
+        "raw_probability": round(final_prob, 6),
+        "ml_probability": round(float(proba), 6),
+        "heuristic_probability": round(float(heuristic), 6),
+        "domain_age_days": round(age, 1),
+        "threshold": threshold,
+        "adjusted_by_rule": True,
+        "adjustment_reason": f"등록 {int(age)}일 이하인 신규 도메인 URLML 확인",
+    }
+
+
+def established_news_article_cap(raw_url: str, proba: float, heuristic: float) -> float | None:
+    """Lower a high lexical score on a long-lived numbered news article.
+
+    RDAP runs only after the URL already matches an article-id query, so ordinary
+    URLs stay on the fast path. Lookup failure leaves the model score unchanged.
+    """
+    if max(float(proba), float(heuristic)) < 0.47 or float(heuristic) > 0.33:
+        return None
+    candidate = raw_url if "://" in raw_url else f"//{raw_url}"
+    try:
+        parsed = urlsplit(candidate)
+    except Exception:
+        return None
+    path = (parsed.path or "").lower()
+    if not _ARTICLE_ID_QUERY.search(parsed.query or "") or not path.endswith((".asp", ".php", ".html", ".htm")):
+        return None
+    if path.count("/") > 3:
+        return None
+    age = _domain_age_days(raw_url)
+    if age is None or age < float(os.getenv("ESTABLISHED_ARTICLE_MIN_DAYS", "1825")):
+        return None
+    return 0.12
+
+
+_FRONT_PAGE_PATHS = {"", "/", "/index.html", "/index.htm", "/index.php", "/index.asp"}
+
+
+def is_established_front_page(raw_url: str) -> bool:
+    """Root or index page with no query. Fragments and short paths such as /es stay out."""
+    candidate = raw_url if "://" in raw_url else f"//{raw_url}"
+    try:
+        parsed = urlsplit(candidate)
+    except Exception:
+        return False
+    if parsed.query:
+        return False
+    path = (parsed.path or "").lower()
+    return path in _FRONT_PAGE_PATHS or path.endswith("/index.do")
+
+
+def established_front_page_cap(raw_url: str, proba: float) -> float | None:
+    """Lower a positive score on a long-lived front page without a strong phishing URL.
+
+    RDAP runs only after the score is already at least 0.5 and the URL is a front page.
+    Lookup failure leaves the model score unchanged.
+    """
+    if float(proba) < 0.5 or not is_established_front_page(raw_url):
+        return None
+    if float(strong_url_phishing_score(raw_url)) >= 0.66:
+        return None
+    age = _domain_age_days(raw_url)
+    if age is None or age < float(os.getenv("ESTABLISHED_FRONT_MIN_DAYS", "4000")):
+        return None
+    return 0.12
+
+
 def _is_low_confidence_root_benign(raw_url: str, final_prob: float, heuristic: float) -> bool:
-    if final_prob >= 0.46 or heuristic > 0.33:
+    # Mid-score homepages stay UNKNOWN so bare-domain scam shops are not fast-pathed SAFE.
+    if final_prob >= 0.20 or heuristic > 0.33:
         return False
     candidate = raw_url if "://" in raw_url else f"//{raw_url}"
     try:
@@ -106,6 +210,12 @@ def predict_url_ml(model: Any, raw_url: str) -> dict[str, Any]:
 
     threshold = float(os.getenv("URL_ML_THRESHOLD", "0.47"))
     unknown_threshold = float(os.getenv("URL_ML_UNKNOWN_THRESHOLD", "0.20"))
+    article_cap = established_news_article_cap(url, proba, heuristic)
+    if article_cap is not None:
+        proba = article_cap
+    young = _young_domain_result(url, proba, heuristic, threshold)
+    if young is not None:
+        return young
     if _is_low_confidence_root_benign(url, max(proba, heuristic), heuristic):
         return {
             "verdict": "benign",
@@ -204,6 +314,13 @@ def predict_url_ml_batch(model: Any, raw_urls: list[str]) -> list[dict[str, Any]
                 }
         else:
             for index, url, proba, heuristic in zip(pending_indices, pending_urls, probabilities, pending_heuristics):
+                article_cap = established_news_article_cap(url, float(proba), heuristic)
+                if article_cap is not None:
+                    proba = article_cap
+                young = _young_domain_result(url, float(proba), heuristic, threshold)
+                if young is not None:
+                    results[index] = young
+                    continue
                 if _is_low_confidence_root_benign(url, max(float(proba), heuristic), heuristic):
                     results[index] = {
                         "verdict": "benign",

@@ -324,7 +324,7 @@ def _lexical_features(url: str) -> Dict[str, float]:
         "phish_word_ratio": _safe_ratio(phish_hits, len(tokens)),
         "brand_word_ratio": _safe_ratio(brand_hits, len(tokens)),
         "suspicious_tld": 1.0 if any(host.endswith(tld) for tld in SUSPICIOUS_TLDS) else 0.0,
-    }
+    } | {f"url_hash_{idx:02d}": value for idx, value in enumerate(_url_char_hash_attrs(url))}
 
 
 class _StructureParser(HTMLParser):
@@ -1161,7 +1161,10 @@ GRAPH_NODE_TYPES = [
     "domain",
     "risk",
 ]
-NODE_FEATURE_DIM = len(GRAPH_NODE_TYPES) + 8
+NODE_ATTR_DIM = 4008
+NODE_FEATURE_DIM = len(GRAPH_NODE_TYPES) + NODE_ATTR_DIM
+_URL_HASH_DIM = 4000
+_URL_VECTORIZER = None
 
 
 @dataclass
@@ -1172,9 +1175,50 @@ class GraphSample:
 
 def _node_features(node_type: str, attrs: Sequence[float]) -> List[float]:
     one_hot = [1.0 if node_type == t else 0.0 for t in GRAPH_NODE_TYPES]
-    vals = [float(v) for v in attrs[:8]]
-    vals.extend([0.0] * (8 - len(vals)))
+    vals = [float(v) for v in attrs[:NODE_ATTR_DIM]]
+    vals.extend([0.0] * (NODE_ATTR_DIM - len(vals)))
     return one_hot + vals
+
+
+def load_url_node_vectorizer(path: Optional[str] = None):
+    """Load the character vectorizer that fills the URL node. Missing file keeps zeros."""
+    global _URL_VECTORIZER
+    if path is None:
+        path = os.path.join(_BASE_DIR, "url_node_tfidf.joblib")
+    if not os.path.isfile(path):
+        _URL_VECTORIZER = None
+        return None
+    try:
+        import joblib
+    except Exception:
+        _URL_VECTORIZER = None
+        return None
+    _URL_VECTORIZER = joblib.load(path)
+    return _URL_VECTORIZER
+
+
+def _url_char_hash_attrs(url: str) -> List[float]:
+    """Character TF-IDF on the URL node. Flags occupy the first three slots."""
+    if _URL_HASH_DIM <= 0:
+        return []
+    global _URL_VECTORIZER
+    if _URL_VECTORIZER is None:
+        load_url_node_vectorizer()
+    parsed = urlsplit(url if "://" in url else f"//{url}")
+    host = (parsed.hostname or "").lower()
+    acc = [0.0] * _URL_HASH_DIM
+    if re.search(r"[가-힣]", host):
+        acc[0] = 1.0
+    if re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", f"{parsed.fragment}?{parsed.query}"):
+        acc[1] = 1.0
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", host or ""):
+        acc[2] = 1.0
+    if _URL_VECTORIZER is not None:
+        vec = _URL_VECTORIZER.transform([url])
+        dense = vec.toarray().ravel()
+        limit = min(len(dense), _URL_HASH_DIM - 3)
+        acc[3 : 3 + limit] = [float(v) for v in dense[:limit]]
+    return acc
 
 
 def _edge_pair(edges: List[Tuple[int, int]], a: int, b: int) -> None:
@@ -1261,6 +1305,7 @@ def graph_sample_from_feature_map(fmap: Dict[str, float]) -> GraphSample:
                 fmap.get("token_count", 0.0),
                 fmap.get("phish_word_ratio", 0.0),
                 fmap.get("brand_word_ratio", 0.0),
+                *[fmap.get(f"url_hash_{idx:02d}", 0.0) for idx in range(_URL_HASH_DIM)],
             ],
         ),
         _node_features(
@@ -1908,6 +1953,20 @@ def build_explanation(
     return _finalize(reasons, "위험")
 
 
+def _registered_domain_age_days(raw_url: str) -> Optional[float]:
+    try:
+        url_ml_dir = os.path.join(_PARENT_DIR, "url_ml")
+        if url_ml_dir not in os.sys.path:
+            os.sys.path.insert(0, url_ml_dir)
+        from url_ml_engine import _domain_age_days
+    except Exception:
+        return None
+    try:
+        return _domain_age_days(raw_url)
+    except Exception:
+        return None
+
+
 def predict_gnn(
     model: WebStructureGNNModel,
     column_order: List[str],
@@ -1943,23 +2002,8 @@ def predict_gnn(
             ],
             "evidence": {"strong_url_phishing_pattern": url_only_score},
         }
-    url_heuristic_score = float(url_heuristic_phishing_score(url))
-    url_heuristic_threshold = float(os.getenv("GNN_URL_HEURISTIC_MALICIOUS_THRESHOLD", "0.20"))
-    if url_heuristic_score >= url_heuristic_threshold:
-        return {
-            "url": url,
-            "probability": round(max(url_heuristic_score, url_heuristic_threshold), 6),
-            "risk_score": round(max(url_heuristic_score, url_heuristic_threshold) * 100.0, 1),
-            "label": 1,
-            "verdict": "malicious",
-            "model_type": MODEL_KIND,
-            "threshold": float(getattr(model, "threshold", 0.5)),
-            "explanation": [
-                "URL 문자열에 계정/인증/배송/브랜드 사칭에 가까운 위험 구조가 누적되어 악성으로 보정했습니다."
-            ],
-            "evidence": {"url_heuristic_phishing_pattern": url_heuristic_score},
-        }
-    fetch = os.getenv("GNN_FETCH_PAGE", "1") != "0"
+    fetch_default = "0" if model.metadata.get("trained_on") == "real_url_no_fetch" else "1"
+    fetch = os.getenv("GNN_FETCH_PAGE", fetch_default) != "0"
     sample, graph = graph_sample_for_url(url, fetch=fetch)
     prob_mal = float(model.predict_proba_from_sample(sample))
     fmap_tmp = feature_map_from_graph(graph) if fetch else {}
@@ -1972,14 +2016,25 @@ def predict_gnn(
         and len(graph.nodes) <= 1
         and fmap_tmp.get("suspicious_tld", 0.0) <= 0
     )
-    if low_evidence_graph:
+    if low_evidence_graph and prob_mal < model.threshold:
         prob_mal = min(prob_mal, float(os.getenv("GNN_LOW_EVIDENCE_MAX_PROB", "0.20")))
-        label = 0
-    elif fmap_tmp.get("suspicious_tld", 0.0) > 0:
-        prob_mal = min(1.0, prob_mal + 0.40)
-        label = 1
-    else:
-        label = 1 if prob_mal >= model.threshold else 0
+    try:
+        url_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "url_ml")
+        if url_ml_dir not in os.sys.path:
+            os.sys.path.insert(0, url_ml_dir)
+        from url_ml_engine import established_news_article_cap
+
+        capped = established_news_article_cap(url, prob_mal, 0.0)
+    except Exception:
+        capped = None
+    if capped is not None:
+        prob_mal = float(capped)
+    # Near-zero scores only. RDAP must be a registration date, and lookup failure stays benign.
+    if prob_mal < float(os.getenv("GNN_YOUNG_MAX_PROB", "0.05")):
+        age_days = _registered_domain_age_days(url)
+        if age_days is not None and age_days <= float(os.getenv("GNN_YOUNG_MAX_DAYS", "30")):
+            prob_mal = max(prob_mal, 0.72)
+    label = 1 if prob_mal >= model.threshold else 0
     out = {
         "url": url,
         "probability": round(prob_mal, 6),

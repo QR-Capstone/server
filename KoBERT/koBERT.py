@@ -171,7 +171,6 @@ _RE_PHONE = re.compile(r"\b\d{2,3}[-\s]?\d{3,4}[-\s]?\d{4}\b")
 _RE_EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 
 def redact_pii(text: str) -> str:
-    # 🌟 '전화번호', '이메일' 단어가 룰베이스에 걸리지 않도록 우회 단어로 변경!
     text = _RE_PHONE.sub("[고객센터_연락처]", text)
     text = _RE_EMAIL.sub("[고객센터_Email]", text)
     text = re.sub(r"\b[\d\s]*\*{2,}[\d\s]*\b", "[카드번호_형태]", text)
@@ -187,12 +186,12 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     type_map = { "tel": "전화번호", "email": "이메일", "password": "비밀번호", "text": "텍스트", "number": "숫자", "checkbox": "체크박스" }
     sensitive_map = { "account": "계좌번호", "acc_no": "계좌번호", "bank": "계좌번호", "resident": "주민등록번호", "jumin": "주민등록번호", "rrn": "주민등록번호", "card_num": "카드번호", "card_no": "카드번호", "cc_num": "카드번호", "cvc": "카드보안코드", "cvv": "카드보안코드" }
     raw_inputs = []
-    # 🌟 1. input 태그뿐만 아니라 내용 입력용 textarea 태그도 함께 스캔!
+    # 1. input 태그뿐만 아니라 내용 입력용 textarea 태그도 함께 스캔!
     for input_tag in soup.find_all(["input", "textarea"]):
         i_type = (input_tag.get("type", "text") or "text").lower() if input_tag.name == "input" else "텍스트"
         if i_type in ["hidden", "submit", "button", "image"]: continue
         
-        # 🌟 2. 입력창 안의 희미한 글씨(placeholder)가 있으면 무식하게 '텍스트'라 하지 않고 그대로 수집!
+        # 2. 입력창 안의 희미한 글씨(placeholder)가 있으면 무식하게 '텍스트'라 하지 않고 그대로 수집!
         placeholder = input_tag.get('placeholder', '').strip()
         if placeholder and len(placeholder) <= 15:
             raw_inputs.append(placeholder)
@@ -228,21 +227,17 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     extracted_texts = []
     short_text_count = 0
     
-    # 🌟 [추가됨] 한국어 폼 관련 필수 수집 키워드
+    # 한국어 폼 관련 필수 수집 키워드
     vital_kws = [
-        # 1. [작성자님 오리지널] 기존 핵심 단어 (완벽한 기초 뼈대)
+        # 1.핵심 단어 
         "이름", "성함", "연락처", "전화", "핸드폰", "내용", "주소", "나이", "계좌", "비밀번호", "신청", "결제", "일반결제", 
         "재가입", "본인확인", "계정 정지", "비정상적인", "차단 해제", "안전한 사용", "유출",
-        
         # 2. 초민감 정보 & 금융
         "주민번호", "주민등록번호", "생년월일", "인증번호", "아이디", "ID", "카드번호", "CVC", "보안카드", "환급금",
-        
         # 3. 큐싱(QR 피싱) & 악성 앱 유도
         "앱 다운로드", "APK", "설치", "주차", "요금정산", "대여", "업데이트",
-        
         # 4. 택배/공공기관 사칭 미끼
         "택배", "송장", "송장번호", "통관", "과태료", "범칙금", "통지서", "조회",
-        
         # 5. 필수 행동 버튼
         "로그인", "login", "다운로드", "동의", "제출"
     ]
@@ -252,12 +247,12 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
         
         text_len = len(text)
         
-        # 🌟 [수정됨] 핵심 키워드가 포함되어 있으면 길이/개수 제한 무시하고 무조건 수집! (프리패스)
+        # 핵심 키워드가 포함되어 있으면 길이/개수 제한 무시하고 무조건 수집 (프리패스)
         if any(kw in text for kw in vital_kws):
             extracted_texts.append(text)
         # 일반 텍스트는 1글자 초과(2글자 이상)부터 수집하도록 완화
         elif 1 < text_len <= 25:
-            if short_text_count < 30: # 수집 한도도 15개 -> 30개로 넉넉하게 확장
+            if short_text_count < 30: # 수집 한도 30개
                 extracted_texts.append(text)
                 short_text_count += 1
         elif 25 < text_len <= 500:
@@ -417,6 +412,31 @@ def warmup_engine(include_pw=True):
     return {"model_loaded": True, "device": str(device)}
 
 
+def _established_site_probability_cap(raw_url: str, prob_percent: float) -> float | None:
+    """Cap KoBERT after keyword boosts. Returns a percent, or None to keep the score."""
+    if prob_percent <= 50.0:
+        return None
+    try:
+        url_ml_dir = os.path.join(PARENT_DIR, "url_ml")
+        if url_ml_dir not in os.sys.path:
+            os.sys.path.insert(0, url_ml_dir)
+        from url_ml_engine import established_front_page_cap, established_news_article_cap
+        from trusted_domains import url_heuristic_phishing_score
+    except Exception:
+        return None
+    proba = prob_percent / 100.0
+    capped = []
+    front = established_front_page_cap(raw_url, proba)
+    if front is not None:
+        capped.append(front)
+    article = established_news_article_cap(raw_url, proba, float(url_heuristic_phishing_score(raw_url)))
+    if article is not None:
+        capped.append(article)
+    if not capped:
+        return None
+    return min(capped) * 100.0
+
+
 def predict_phishing_result(target_url):
     global device, tokenizer, model, engine_initialized, async_pw_manager
 
@@ -447,6 +467,37 @@ def predict_phishing_result(target_url):
         }
 
     url_only_score = strong_url_phishing_score(target_url)
+    try:
+        xg_dir = os.path.join(PARENT_DIR, "xgboost")
+        if xg_dir not in os.sys.path:
+            os.sys.path.insert(0, xg_dir)
+        from XG_core import _url_ml_danger_probability
+
+        url_ml_probability = _url_ml_danger_probability(target_url)
+    except Exception:
+        url_ml_probability = None
+    if url_ml_probability is not None:
+        return {
+            "url": target_url,
+            "judgment": "unnormal",
+            "riskLevel": "HIGH",
+            "risklevel": "HIGH",
+            "detectedUrl": target_url,
+            "threat_score": round(url_ml_probability * 100.0, 1),
+            "threat_type": "URL 어휘/신규 도메인 기반 피싱",
+            "site_category": "악성 피싱",
+            "evidence": {
+                "heuristic_evidence": {
+                    "detected_actions": ["URL 어휘 모델 또는 신규 도메인"],
+                    "rule_trigger": "URL ML 악성 확인 후 KoBERT 로드 전에 차단"
+                },
+                "ai_semantic_evidence": {
+                    "suspect_sentence": target_url,
+                    "ai_inference_logic": "문자 모델 확률 또는 등록 220일 이하 도메인이 악성 기준을 넘겨, 페이지 분류 전에 차단했습니다."
+                }
+            }
+        }
+
     if url_only_score >= 0.66:
         return {
             "url": target_url,
@@ -543,22 +594,40 @@ def predict_phishing_result(target_url):
         pass
 
     use_pw = os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1"
-    max_len = int(os.getenv("KOBERT_MAX_LEN", "512"))
+    max_len = int(os.getenv("KOBERT_MAX_LEN", "128"))
     
     high_risk_keywords = [
         # 기존 대출/투자 관련
         "통신요금 담보", "신불자", "내구제", "폰테크", "신용등급 무관", "무직자 대출", "통신연체자", "비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "결제시스템 불안정화", "급등주", "무료 리딩", "VVIP 정보", "세력주", "손실 복구", "무료 체험", 
         
+        #리딩방
+        "전용 매니저", "담당 매니저", "마켓 시그널", "수익 인증", "투자리딩", "종목 추천", "정보방 입장", "VIP 체험", "무료 종목",
+        
         # 포털/보안 협박
         "재가입이 필요", "이용자 확인", "계정 정지", "비정상적인 접근", "차단 해제", "비밀번호 변경", "해외 IP 로그인", "계정 보호 조치", "비밀번호 오류", "안전보안설정", "계정 잠금", "장기 미접속",
         
+        # 결제 페이지 피싱
+        "수수료 포함 다시 입금", "입금 지연으로 인한", "결제해 주셔야 합니다", "재결제 요망", "다시 입금", "재입금", "재결제", 
+
         # 결제/공공/택배 위장
         "결제 승인", "자동이체 예정", "대출 승인", "신용카드 발급", "지원금 대상자", "소상공인 지원", "환불 처리", "미납 요금", "통장 압류", "과태료 부과", "건강보험료 미납", "도로교통법 위반", "택배 반송", "배송지 오류", "배송지 주소 오류", "통관 번호", "민원 접수 완료",
         
         # 가상화폐 위장
         "코인 상장", "무료 코인 지급", "에어드랍", "사전 판매", "지갑 연동"
     ]
-    action_keywords = ["비밀번호", "계좌", "로그인", "login", "주민번호", "주민등록번호", "인증번호"]
+    action_keywords = [
+        # 1. 기존 핵심 계정/로그인
+        "비밀번호", "계좌", "로그인", "login", "log in", "signin", "sign in", "주민번호", "주민등록번호", "password", "username", "id", "account",
+        
+        # 2. 💳 결제/카드 (작성자님 아이디어 + 확장)
+        "카드번호", "card number", "credit card", "cvc", "cvv", "보안카드", "유효기간", "pin번호",
+        
+        # 3. 🔐 인증/보안 (2FA 탈취)
+        "인증번호", "otp", "인증코드", "확인코드", "verification", "verify", "passcode",
+        
+        # 4. 🖱️ 치명적 행동 유도
+        "제출", "submit", "confirm", "결제하기", "인증하기"
+    ]
 
     # ----------------------------------------------------
     # 🌟 [1단계] 루트 URL 검사
@@ -620,6 +689,8 @@ def predict_phishing_result(target_url):
                 }
             }
         }
+
+        return final_json_report
         
         # 앱 UI 콘솔 출력
         print("\n" + "■"*60)
@@ -674,6 +745,7 @@ def predict_phishing_result(target_url):
                 }
             }
         }
+
         
         # 앱 UI 콘솔 출력
         print("\n" + "■"*60)
@@ -700,7 +772,15 @@ def predict_phishing_result(target_url):
         processed_text = f"{focus_sentence} {processed_text}"
         print(f"  🧠 [AI 시선 유도] 핵심 위협 문장을 최상단에 전진 배치합니다: {focus_sentence[:40]}...")
 
-    inputs = tokenizer(processed_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
+    visible = ""
+    if raw_html:
+        soup_vis = BeautifulSoup(raw_html, "html.parser")
+        for tag in soup_vis(["script", "style", "noscript"]):
+            tag.decompose()
+        title = soup_vis.title.get_text(" ", strip=True) if soup_vis.title else ""
+        visible = f"{title}\n{soup_vis.get_text(' ', strip=True)[:400]}"
+    model_text = f"{target_url}\n{visible or processed_text[:400]}"
+    inputs = tokenizer(model_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
     
     with torch.no_grad():
@@ -766,12 +846,12 @@ def predict_phishing_result(target_url):
     if found_sensitive: demand_parts.append(f"'{', '.join(found_sensitive)}'")
     demand_str = " 및 ".join(demand_parts) if demand_parts else "특정 정보"
     
-    high_risk_str = f"'{', '.join(found_high_risk)}'" if found_high_risk else ""
+    high_risk_str = f"{', '.join(found_high_risk)}" if found_high_risk else ""
 
     # 🔥 [2단계] 키워드 기반 '범죄 유형(Threat Type)' 세부 분류 로직
     scam_type = "기관/기업 사칭 피싱"
     loan_kws = ["통신요금 담보", "신불자", "내구제", "폰테크", "무직자 대출", "통신연체자"]
-    invest_kws = ["비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "급등주", "VVIP 정보", "세력주", "무료 리딩"]
+    invest_kws = ["비상장 주식", "공모주 청약", "원금 보장", "수익 보장", "투자 지원금", "리딩방", "급등주", "VVIP 정보", "세력주", "무료 리딩","전용 매니저", "담당 매니저", "마켓 시그널", "수익 인증", "투자리딩", "종목 추천", "정보방 입장", "VIP 체험", "무료 종목"]
     trans_kws = ["상륙 하 다", "상륙하 다", "서명 하 다", "지불 하 다", "제출 하 다", "얻 다", "이 긴 다", "청소 하 라", "계 좌", "비 밀 번 호", "제시 하 다", "갱 신 하 다"]
     gambling_kws = ["로또6/45", "동행복권", "연금복권", "파워볼", "프로토", "스포츠토토", "드림게임", "카지노"]
     adult_kws = ["성인용품", "출장안마", "조건만남", "비아그라", "밤알바", "19금", "리얼돌"] 
@@ -789,32 +869,56 @@ def predict_phishing_result(target_url):
 
     detected_gambling_kws = [kw for kw in gambling_kws if kw in processed_text]
     
+    # 기본값 설정
+    scam_tags = []
+
+    # 🌟 독립적인 if문으로 각각 검사해서 태그를 차곡차곡 모음!
     if detected_gambling_kws:
         legal_domains = ["dhlottery.co.kr", "betman.co.kr"]
         if not any(legal_domain in target_url for legal_domain in legal_domains):
-            scam_type = "불법 사설 도박 및 공식 복권 사칭"
+            scam_tags.append("사설도박") 
             is_fake_gambling = True
             found_high_risk = True 
             detected_gambling_str = ", ".join(detected_gambling_kws[:2]) 
             print(f"  🚨 [룰베이스 개입] 비인가 도메인({target_url})에서 사행성 키워드({detected_gambling_str}) 감지!")
-    elif any(kw in processed_text for kw in loan_kws):
-        scam_type = "불법 대출 및 금융 사기"
-    elif any(kw in processed_text for kw in invest_kws):
-        scam_type = "불법 투자 유도(리딩방) 사기"
-    elif is_translated:
-        scam_type = "해외 기계 번역(번역투) 피싱"
+            
+    if any(kw in processed_text for kw in loan_kws):
+        scam_tags.append("불법대출")
+        
+    if any(kw in processed_text for kw in invest_kws):
+        scam_tags.append("투자/리딩방")
+        
+    if is_translated:
+        scam_tags.append("해외양산형")
+
+    # 🌟 모인 태그들을 바탕으로 최종 scam_type 결정
+    if len(scam_tags) > 1:
+        # 2개 이상 걸리면 콤마로 이어붙임 (예: "불법대출, 투자/리딩방 복합 피싱")
+        scam_type = f"{', '.join(scam_tags)} 복합 피싱"
+    elif len(scam_tags) == 1:
+        # 1개만 걸리면 그대로 사용 (예: "불법대출 피싱")
+        scam_type = f"{scam_tags[0]} 피싱"
+    else:
+        scam_type = "일반 기관/기업 사칭 피싱" # 아무것도 안 걸렸을 때 기본값
 
     # 🔥 [3단계] 점수 보정 (문맥 및 도메인 인식형 스마트 가중치)
     boost_weight_1 = 0.0
     discount_weight = 0.0 # 🌟 [신규] 오탐 방지용 점수 할인 변수
     
-    # 🌟 [신규 로직] 정상 기업 사이트(사업자등록번호 등) 오탐 방지 (점수 대폭 할인)
-    # 회사 사이트 하단에 필수로 들어가는 키워드가 있고, 고위험 협박 키워드가 없다면 정상 기업으로 간주
-    is_corporate_site = any(kw in processed_text.replace(" ", "") for kw in ["사업자등록번호", "사업자번호", "대표이사", "대표:"])
+    # 1. 여기서 current_domain을 먼저 안전하게 선언해 줍니다!
+    current_domain = urlparse(target_url).netloc.lower()
     
-    if is_corporate_site and not found_high_risk:
-        discount_weight = 0.80 # 위협 점수를 80% 깎아버림 (1/5 토막)
-        print("  🛡️ [오탐 방지] 정상적인 기업 정보(사업자등록번호 등) 감지! (위협 점수 80% 할인)")
+    # 2. 기존 기업 키워드에 공공기관, 복지센터, 필수 약관 키워드 대거 추가
+    safe_org_kws = ["사업자등록번호", "사업자번호", "대표이사", "대표:", "개인정보처리방침", "이용약관", "지원센터", "복지관", "재단법인", "사단법인", "어린이집"]
+    is_corporate_site = any(kw in processed_text.replace(" ", "") for kw in safe_org_kws)
+    
+    # 3. 비영리기관(.or.kr), 학교(.hs.kr, .ms.kr, .es.kr) 도메인인지 확인
+    is_org_domain = any(current_domain.endswith(tld) for tld in [".or.kr", ".hs.kr", ".ms.kr", ".es.kr"])
+
+    # 4. 정상 기관 키워드가 있거나 비영리 도메인이면서, 고위험 협박 키워드가 없을 때만 할인!
+    if (is_corporate_site or is_org_domain) and not found_high_risk:
+        discount_weight = 0.80 
+        print("  🛡️ [오탐 방지] 정상 기관/기업 신뢰도 확인! (위협 점수 80% 할인)")
 
     # 🌟 [기존 로직] HTTP 취약점 보정
     if is_http_vulnerable:
@@ -838,6 +942,51 @@ def predict_phishing_result(target_url):
         boost_weight_1 += 0.60 # 가중치 60% 폭탄!
         scam_type = "클라우드 호스팅 악용 피싱"
         print(f"  🚨 [룰베이스 개입] 무료 클라우드 도메인({current_domain})에서 로그인/정보 요구 감지!")
+
+    # =========================================================
+    # 🌟 [신규 강력 무기] 대형 플랫폼/결제 사칭(Brand Spoofing) 완벽 차단!
+    # =========================================================
+    # 1. 도메인에 'naver', 'kakao' 등을 섞어 쓴 교묘한 사칭 감지 (예: naver.cafe-152.vip)
+    spoof_target_domains = {
+        "naver": ["naver.com", "navercorp.com", "pstatic.net", "line.me"],
+        "kakao": ["kakao.com", "kakaocorp.com", "daum.net"],
+        "yahoo": ["yahoo.com"],
+        "coupang": ["coupang.com"],
+        
+        # 택배, 금융, 일반 공공기관 핵심 타겟
+        "samsung": ["samsung.com", "samsung.co.kr", "samsungcard.com", "samsunglife.com", "samsungfire.com", "samsungpop.com"],
+        "toss": ["toss.im"],
+        "cj": ["cjlogistics.com", "cj.net"],
+        "hometax": ["hometax.go.kr"],
+        "police": ["efine.go.kr", "police.go.kr"],
+        "gov": ["gov.kr"],
+        
+        # 🌟 [신규 추가] 사법/수사기관 (가장 악질적인 협박성 피싱 타겟)
+        "scourt": ["scourt.go.kr"], # 대법원
+        "spo": ["spo.go.kr"],       # 검찰청
+        "kics": ["kics.go.kr"]      # 형사사법포털
+    }
+
+    is_domain_spoofed = False
+    spoofed_brand = "대형 플랫폼"
+
+    for brand, officials in spoof_target_domains.items():
+        if brand in current_domain and not any(current_domain.endswith(off) for off in officials):
+            is_domain_spoofed = True
+            spoofed_brand = brand.upper()
+            break
+
+    # 2. 텍스트 내 사칭 키워드 감지 (뉴스 기사 오탐을 막기 위해 구체적인 법인명/서비스명 사용)
+    brand_keywords = ["(주)네이버페이", "네이버㈜", "네이버파이낸셜", "카카오페이", "쿠팡(주)","토스뱅크", "비바리퍼블리카", "CJ대한통운", "국세청", "홈택스", "경찰청", "교통민원24", "정부24", "국민건강보험"
+                    , "대법원", "검찰청", "서울중앙지방검찰청", "형사사법포털", "전자소송"]
+    has_brand_text = any(kw in processed_text.replace(" ", "") for kw in brand_keywords)
+
+    # 3. 도메인을 사칭했거나, 텍스트로 네이버페이 등을 사칭하면서 정보/행동을 요구할 경우!
+    if (is_domain_spoofed or has_brand_text) and (found_actions or found_sensitive):
+        boost_weight_1 += 0.80  # 80% 가중치 핵폭탄 투하!
+        scam_type = f"{spoofed_brand} 사칭 피싱"
+        print(f"  🚨 [룰베이스 개입] {spoofed_brand} 사칭 의심! 비인가 도메인({current_domain})에서 브랜드 사칭 및 정보 요구 감지!")
+    # =========================================================
 
         
     safe_tlds_list = [".go.kr", ".ac.kr", ".edu", ".mil.kr", ".ms.kr"]
@@ -865,6 +1014,14 @@ def predict_phishing_result(target_url):
     if discount_weight > 0:
         prob_phishing = prob_phishing * (1.0 - discount_weight)
         print(f"  📉 [점수 할인] 기업 사이트 오탐 방지 발동! 최종 보정 후({prob_phishing:.1f}%)")
+
+    # 키워드 보정이 끝난 뒤에만 적용한다. 오래된 프론트페이지와 번호형 기사만 낮추고,
+    # RDAP 실패나 강한 URL 패턴은 모델 점수를 그대로 둔다.
+    established_cap = _established_site_probability_cap(target_url, prob_phishing)
+    established_capped = established_cap is not None
+    if established_capped:
+        prob_phishing = established_cap
+        print(f"  📉 [오래 운영된 공개 페이지] KoBERT 점수 상한 {prob_phishing:.1f}%")
         
     # 🔥 [4단계] AI 주도형(AI-Driven) 초정밀 판단 사유 생성 (정형화 템플릿 + 특수 케이스 유지)
     
@@ -881,15 +1038,15 @@ def predict_phishing_result(target_url):
     else:
         # 기존의 소중한 특수 사유들을 템플릿의 '결론' 부분으로 부활시킵니다!
         if is_fake_gambling:
-            conclusion = f"사행성 키워드('{detected_gambling_str}')가 발견되었으나 국가 공인 도메인이 아닌 불법 사설 도박장/사칭 사이트로 판별되어"
+            conclusion = f"사행성 키워드({detected_gambling_str})가 발견되었으나 국가 공인 도메인이 아닌 불법 사설 도박장/사칭 사이트로 판별되어"
         elif is_translated:
             conclusion = f"부자연스러운 기계 번역투 및 띄어쓰기 오류 등 해외 양산형 피싱 사이트의 특징이 감지되어"
         elif found_high_risk:
-            conclusion = f"고위험 범죄 키워드({high_risk_str})가 포함된 악의적인 '{scam_type}'(으)로 판단되어"
+            conclusion = f"고위험 피싱/사기 키워드가 포함된 악의적인 [{scam_type}](으)로 판단되어"
         elif demand_parts and base_prob_1 >= 60.0:
-            conclusion = f"불안감을 조성하여 {demand_str}를 빼내려는 전형적인 '{scam_type}' 기법으로 판별되어"
+            conclusion = f"불안감을 조성하여 {demand_str}를 빼내려는 전형적인 [{scam_type}] 기법으로 판별되어"
         else:
-            conclusion = f"사용자를 속여 정보를 탈취하려는 악의적인 '{scam_type}'(으)로 판단되어"
+            conclusion = f"사용자를 속여 정보를 탈취하려는 악의적인 [{scam_type}](으)로 판단되어"
             
         ai_reason = f"{report_intro} 딥러닝-룰베이스 교차 검증 결과, {conclusion} 최종 {prob_phishing:.1f}%의 확률로 접속을 차단하였습니다."
 
@@ -944,8 +1101,8 @@ def predict_phishing_result(target_url):
         
     print("■"*60 + "\n")
 
-    # 🔥 [1-Depth 악성 조기 리턴] 
-    if prob_phishing > 50.0:
+    # 오래 운영된 프론트페이지/기사 상한은 하위 링크 재검사로 되돌리지 않는다.
+    if established_capped or prob_phishing > 50.0:
         print(f"✅ 최종 결과 리포트 반환 (소요 시간: {time.time() - start_time:.2f}초)")
         return final_json_report
 
