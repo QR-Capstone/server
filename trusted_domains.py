@@ -1732,6 +1732,9 @@ def _strong_url_phishing_score_cached(raw_url: str) -> float:
         return 0.72
     if host.endswith(".duckdns.org") or "serveirc.com" in host or host.endswith(".kesug.com"):
         return 0.72
+    # eu.cc subdomains in the real URL sets are phishing hosts, same as dynamic DNS.
+    if host.endswith(".eu.cc"):
+        return 0.72
     if raw.startswith("http://") and host.endswith(".fwh.is"):
         return 0.72
     if (
