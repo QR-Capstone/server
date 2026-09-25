@@ -98,24 +98,55 @@ def claimed_identity_mismatch(url: str, html: str) -> dict[str, Any] | None:
     }
 
 
+def _read_head(response: Any, limit: int) -> str:
+    """Stop once the title is closed or the byte cap is reached."""
+    chunks: list[bytes] = []
+    size = 0
+    for chunk in response.iter_content(chunk_size=2048):
+        if not chunk:
+            continue
+        chunks.append(chunk)
+        size += len(chunk)
+        head = b"".join(chunks).lower()
+        if b"</title>" in head or size >= limit:
+            break
+    return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+
+
+def _fetch_head(url: str, timeout: float, limit: int) -> dict[str, Any] | None:
+    import requests
+
+    response = requests.get(
+        url if "://" in url else "https://" + url,
+        timeout=(min(0.3, timeout), timeout),
+        verify=False,
+        allow_redirects=True,
+        stream=True,
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    try:
+        if not (200 <= response.status_code < 400):
+            return None
+        return claimed_identity_mismatch(url, _read_head(response, limit))
+    finally:
+        response.close()
+
+
 def fetch_and_check(url: str, timeout: float | None = None) -> dict[str, Any] | None:
-    """Fetch the opened page once. Failure leaves the caller’s verdict unchanged."""
+    """Read only the page head. Failure leaves the caller’s verdict unchanged."""
     if timeout is None:
-        timeout = float(os.getenv("PAGE_IDENTITY_TIMEOUT", "1.0"))
+        timeout = float(os.getenv("PAGE_IDENTITY_TIMEOUT", "0.6"))
+    limit = int(os.getenv("PAGE_IDENTITY_MAX_BYTES", "8192"))
     try:
-        import requests
+        import requests  # noqa: F401
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import TimeoutError as FuturesTimeout
     except Exception:
         return None
+    pool = ThreadPoolExecutor(max_workers=1)
     try:
-        response = requests.get(
-            url if "://" in url else "https://" + url,
-            timeout=timeout,
-            verify=False,
-            allow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-    except Exception:
+        return pool.submit(_fetch_head, url, timeout, limit).result(timeout=timeout)
+    except (FuturesTimeout, Exception):
         return None
-    if not (200 <= response.status_code < 400):
-        return None
-    return claimed_identity_mismatch(url, response.text or "")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
