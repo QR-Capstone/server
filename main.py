@@ -789,6 +789,30 @@ def _apply_url_ml_hint_to_model(model: str, result: Any, url_ml_result: Any) -> 
 
 
 @functools.lru_cache(maxsize=URL_RULE_CACHE_SIZE)
+def _page_identity_detail(url: str) -> dict[str, Any] | None:
+    """Opened page claims a known service that this host does not operate."""
+    try:
+        from page_identity import fetch_and_check
+    except Exception:
+        return None
+    found = fetch_and_check(url)
+    if not found:
+        return None
+    reason = str(found.get("adjustment_reason") or "페이지가 표방한 서비스와 도메인이 다릅니다.")
+    return {
+        "model": "PageIdentity",
+        "available": True,
+        "riskLevel": "DANGEROUS",
+        "judgment": "unnormal",
+        "verdict": "malicious",
+        "probability": 0.9,
+        "summary": "PageIdentity: 악성",
+        "evidence_reasons": [reason],
+        "adjustment_reason": reason,
+        "claimed_service": found.get("claimed_service"),
+    }
+
+
 def _url_heuristic_result(url: str) -> dict[str, Any]:
     score = float(url_heuristic_phishing_score(url))
     ensemble_probability: float | None = score
@@ -984,6 +1008,12 @@ def _decide_final_risk(details: list[dict[str, Any]]) -> str:
     if official_override:
         return "SAFE"
 
+    if any(
+        detail.get("model") == "PageIdentity" and detail.get("riskLevel") == "DANGEROUS"
+        for detail in details
+    ):
+        return "DANGEROUS"
+
     strong_url_override = any(
         detail.get("adjusted_by_rule")
         and detail.get("riskLevel") == "DANGEROUS"
@@ -1087,6 +1117,7 @@ def _build_final_response(
     t_gnn: float,
     url_ml_result: object = None,
     t_url_ml: float = 0.0,
+    page_identity: dict[str, Any] | None = None,
 ) -> dict:
     rule_url = _url_cache_key(target_url)
     url_adjustment = _url_rule_adjustment(rule_url)
@@ -1105,6 +1136,8 @@ def _build_final_response(
         _model_detail("URLML", url_ml_result, url_ml_status),
         _url_heuristic_result(rule_url),
     ]
+    if page_identity:
+        details.append(page_identity)
     risk_level = _decide_final_risk(details)
     judgment = _judgment_from_risk(risk_level)
     malicious_count = sum(
@@ -1823,6 +1856,9 @@ async def _analyze_target_url(
             t_url_ml = time.perf_counter() - t_url_ml0
         elif t_url_ml is None:
             t_url_ml = 0.0
+        page_identity = None
+        if _extract_model_risk(url_ml_result) != "DANGEROUS" and os.getenv("PAGE_IDENTITY_CHECK", "1") == "1":
+            page_identity = await asyncio.to_thread(_page_identity_detail, target_url)
         if _should_fast_path_after_urlml(url_ml_result):
             dur_wall = time.perf_counter() - t_wall0
             if ANALYZE_VERBOSE_LOGS:
@@ -1843,6 +1879,7 @@ async def _analyze_target_url(
                 t_gnn=0.0,
                 url_ml_result=url_ml_result,
                 t_url_ml=t_url_ml,
+                page_identity=page_identity,
             )
 
         # Three branches in parallel (not sequential)
@@ -1905,6 +1942,7 @@ async def _analyze_target_url(
         t_gnn=t_gnn,
         url_ml_result=url_ml_result,
         t_url_ml=t_url_ml,
+        page_identity=page_identity,
     )
 
 
