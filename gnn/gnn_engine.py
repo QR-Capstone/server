@@ -1953,6 +1953,20 @@ def build_explanation(
     return _finalize(reasons, "위험")
 
 
+def _registered_domain_age_days(raw_url: str) -> Optional[float]:
+    try:
+        url_ml_dir = os.path.join(_PARENT_DIR, "url_ml")
+        if url_ml_dir not in os.sys.path:
+            os.sys.path.insert(0, url_ml_dir)
+        from url_ml_engine import _domain_age_days
+    except Exception:
+        return None
+    try:
+        return _domain_age_days(raw_url)
+    except Exception:
+        return None
+
+
 def predict_gnn(
     model: WebStructureGNNModel,
     column_order: List[str],
@@ -2015,6 +2029,11 @@ def predict_gnn(
         capped = None
     if capped is not None:
         prob_mal = float(capped)
+    # Near-zero scores only. RDAP must be a registration date, and lookup failure stays benign.
+    if prob_mal < float(os.getenv("GNN_YOUNG_MAX_PROB", "0.05")):
+        age_days = _registered_domain_age_days(url)
+        if age_days is not None and age_days <= float(os.getenv("GNN_YOUNG_MAX_DAYS", "30")):
+            prob_mal = max(prob_mal, 0.72)
     label = 1 if prob_mal >= model.threshold else 0
     out = {
         "url": url,

@@ -917,6 +917,7 @@ def _parse_rdap_datetime(value: str) -> Optional[datetime]:
     return None
 
 def _extract_rdap_creation_date(payload: Optional[Dict[str, Any]]) -> Optional[datetime]:
+    """Use a registration event only. last-changed is not a creation date."""
     if not isinstance(payload, dict):
         return None
 
@@ -928,14 +929,6 @@ def _extract_rdap_creation_date(payload: Optional[Dict[str, Any]]) -> Optional[d
             action = str(event.get("eventAction", "")).strip().lower()
             event_date = event.get("eventDate")
             if action in {"registration", "registered", "creation", "created"} and isinstance(event_date, str):
-                parsed = _parse_rdap_datetime(event_date)
-                if parsed is not None:
-                    return parsed
-        for event in events:
-            if not isinstance(event, dict):
-                continue
-            event_date = event.get("eventDate")
-            if isinstance(event_date, str):
                 parsed = _parse_rdap_datetime(event_date)
                 if parsed is not None:
                     return parsed
