@@ -1,6 +1,9 @@
 import torch
 import torch.nn.functional as F
-from transformers import BertForSequenceClassification, BertTokenizer
+if __package__:
+    from .model_runtime import load_runtime, prepare_text
+else:
+    from model_runtime import load_runtime, prepare_text
 import requests
 from curl_cffi import requests as curl_requests
 from bs4 import BeautifulSoup
@@ -260,9 +263,7 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
         components.append(" ".join(action_kws))
 
     final_text = ". ".join(components)
-    final_text = re.sub(r"\s+", " ", final_text).strip()[:1000]
-    
-    return redact_pii(final_text)
+    return prepare_text(final_text)
 
 def extract_with_requests_and_raw_html(url: str):
     html = ""
@@ -372,14 +373,7 @@ def warmup_engine(include_pw=True):
     
     print("\n  [시스템] AI 모델(KoBERT) 가중치 로딩 중...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = BertTokenizer.from_pretrained('monologg/kobert')
-    model = BertForSequenceClassification.from_pretrained('monologg/kobert', num_labels=2, attn_implementation="eager")
-    
-    if os.path.exists(WEIGHTS_FILE):
-        model.load_state_dict(torch.load(WEIGHTS_FILE, map_location=device, weights_only=False))
-        model.to(device)
-        model.eval()
-    else: raise FileNotFoundError(f"모델 가중치 파일을 찾을 수 없습니다: {WEIGHTS_FILE}")
+    tokenizer, model = load_runtime(WEIGHTS_FILE, device)
 
     dummy_inputs = tokenizer("예열 테스트", return_tensors="pt", max_length=128, padding='max_length', truncation=True)
     with torch.no_grad(): _ = model(dummy_inputs['input_ids'].to(device), attention_mask=dummy_inputs['attention_mask'].to(device))
@@ -656,17 +650,8 @@ def predict_phishing_result(target_url):
 
     print(f"  📝 [추출 텍스트]: {processed_text[:1000]}... (총 {len(processed_text)}자)")
 
-    # 🌟 [신규 추가] AI 어텐션(시선) 강제 유도 로직 (Pre-processing Guide)
-    focus_sentence = ""
-    for sentence in re.split(r'(?<=[.!?])\s+', processed_text):
-        if any(kw in sentence for kw in high_risk_keywords):
-            focus_sentence = sentence
-            break
-            
-    if focus_sentence:
-        # AI가 가장 먼저 읽도록 핵심 문장을 텍스트 맨 앞에 강제로 박아버림!
-        processed_text = f"{focus_sentence} {processed_text}"
-        print(f"  🧠 [AI 시선 유도] 핵심 위협 문장을 최상단에 전진 배치합니다: {focus_sentence[:40]}...")
+    # The candidate was trained without prefixing keyword sentences.
+    # Keep the same prepared input for prediction and attention evidence.
 
     inputs = tokenizer(processed_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)

@@ -1,0 +1,40 @@
+{
+  "status": "trained_not_tested",
+  "model_id": "monologg/kobert",
+  "model_revision": "38279184ba645e8c94d709fbe92eb5bcb47312c1",
+  "labels": {
+    "normal": 0,
+    "unnormal": 1
+  },
+  "max_length": 512,
+  "preprocessing": "redact-whitespace-cap1000-v1-no-focus",
+  "preprocessing_sha256": "393a1b8abd7ca92b8c99ad455f465c74c10d781785bac6009f9615192a2b0cab",
+  "focus_enabled": false,
+  "seed": 42,
+  "epochs_max": 5,
+  "batch_size": 16,
+  "learning_rate": 2e-05,
+  "device": "cuda",
+  "dynamic_padding": true,
+  "patience": 2,
+  "class_weights": [
+    0.9638554453849792,
+    1.0389610528945923
+  ],
+  "train_tokenizer_audit": {
+    "rows": 320,
+    "tokens": 20226,
+    "unknown_tokens": 8,
+    "unknown_fraction": 0.00039553050529022053,
+    "over_510_tokens_rows": 0
+  },
+  "selection": "validation macro-F1 at threshold 0.5; lower FPR breaks ties",
+  "versions": {
+    "torch": "2.11.0+cu130",
+    "transformers": "5.5.4",
+    "sentencepiece": "0.2.1",
+    "scikit-learn": "1.8.0"
+  },
+  "best_epoch": 1,
+  "weights_sha256": "f33f14a7940f78027247437fe38628287b96cfbb79e165924783ab5b67933b5d"
+}
