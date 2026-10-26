@@ -18,15 +18,15 @@
   "dynamic_padding": true,
   "patience": 2,
   "class_weights": [
-    0.9638554453849792,
-    1.0389610528945923
+    1.0,
+    1.0
   ],
   "train_tokenizer_audit": {
-    "rows": 320,
-    "tokens": 20226,
-    "unknown_tokens": 8,
-    "unknown_fraction": 0.00039553050529022053,
-    "over_510_tokens_rows": 0
+    "rows": 2580,
+    "tokens": 198421,
+    "unknown_tokens": 254,
+    "unknown_fraction": 0.001280106440346536,
+    "over_510_tokens_rows": 2
   },
   "selection": "validation macro-F1 at threshold 0.5; lower FPR breaks ties",
   "versions": {
@@ -35,6 +35,6 @@
     "sentencepiece": "0.2.1",
     "scikit-learn": "1.8.0"
   },
-  "best_epoch": 1,
-  "weights_sha256": "f33f14a7940f78027247437fe38628287b96cfbb79e165924783ab5b67933b5d"
+  "best_epoch": 5,
+  "weights_sha256": "d1a70360507d6ba752e8ec1a8937026cc5cd843eccef0f21d300a60b7bc3d096"
 }
