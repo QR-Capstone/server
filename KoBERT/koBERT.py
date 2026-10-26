@@ -32,6 +32,7 @@ tokenizer = None
 model = None
 async_pw_manager = None    
 engine_initialized = False
+_initialization_lock = threading.Lock()
 
 # ==========================================
 # 🔥 [엔진 대통합] 영구 대기형 비동기 병렬 브라우저 풀
@@ -368,25 +369,42 @@ def extract_deep_links(raw_html, base_url, max_links=2):
 # 🚀 본 서버 연동용 메인 판단 함수
 # ==========================================
 def warmup_engine(include_pw=True):
+    """Prepare the local model once per process before accepting inference work."""
     global device, tokenizer, model, async_pw_manager, engine_initialized
-    if engine_initialized: return {"status": "already_initialized"}
-    
-    print("\n  [시스템] AI 모델(KoBERT) 가중치 로딩 중...")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer, model = load_runtime(WEIGHTS_FILE, device)
+    with _initialization_lock:
+        if engine_initialized:
+            return {"status": "already_initialized"}
 
-    dummy_inputs = tokenizer("예열 테스트", return_tensors="pt", max_length=128, padding='max_length', truncation=True)
-    with torch.no_grad(): _ = model(dummy_inputs['input_ids'].to(device), attention_mask=dummy_inputs['attention_mask'].to(device))
+        print("\n  [시스템] KoBERT 가중치·토크나이저·설정 검증 및 로딩 중...")
+        next_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        next_tokenizer, next_model = load_runtime(WEIGHTS_FILE, next_device)
 
-    if include_pw:
-        try:
-            async_pw_manager = AsyncPlaywrightPool()
-            async_pw_manager.scrape_parallel(["about:blank"]) 
-        except Exception: pass
+        # Match the serving path: 512 tokens and eager attention outputs.
+        # Keep partial state private so a failed warmup can be retried cleanly.
+        dummy_inputs = next_tokenizer(
+            "예열 테스트", return_tensors="pt", max_length=512,
+            padding='max_length', truncation=True)
+        with torch.inference_mode():
+            outputs = next_model(
+                dummy_inputs['input_ids'].to(next_device),
+                attention_mask=dummy_inputs['attention_mask'].to(next_device),
+                output_attentions=True)
+        if outputs.logits.shape != (1, 2) or not torch.isfinite(outputs.logits).all().item():
+            raise RuntimeError("KoBERT 예열 출력이 올바르지 않습니다")
+        if next_device.type == "cuda":
+            torch.cuda.synchronize(next_device)
 
-    engine_initialized = True
-    print("  [시스템] [OK] 큐싱 디펜더 엔진 초기화 및 예열 완료!\n")
-    return {"model_loaded": True, "device": str(device)}
+        if include_pw:
+            try:
+                async_pw_manager = AsyncPlaywrightPool()
+                async_pw_manager.scrape_parallel(["about:blank"])
+            except Exception:
+                pass
+
+        device, tokenizer, model = next_device, next_tokenizer, next_model
+        engine_initialized = True
+        print("  [시스템] [OK] KoBERT 모델 준비 완료. 이후 요청에서 재사용합니다.\n")
+        return {"model_loaded": True, "device": str(device)}
 
 
 def predict_phishing_result(target_url):
