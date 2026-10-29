@@ -5,6 +5,7 @@ import time
 
 
 def main():
+    os.environ["KOBERT_NURILAB_ENABLED"] = "0"  # This command stays offline.
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     started = time.perf_counter()

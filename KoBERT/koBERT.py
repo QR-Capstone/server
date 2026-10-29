@@ -2,8 +2,10 @@ import torch
 import torch.nn.functional as F
 if __package__:
     from .model_runtime import load_runtime, prepare_text
+    from . import nurilab_feed
 else:
     from model_runtime import load_runtime, prepare_text
+    import nurilab_feed
 import requests
 from curl_cffi import requests as curl_requests
 from bs4 import BeautifulSoup
@@ -368,12 +370,28 @@ def extract_deep_links(raw_html, base_url, max_links=2):
 # ==========================================
 # 🚀 본 서버 연동용 메인 판단 함수
 # ==========================================
+def _start_nurilab_background():
+    try:
+        nurilab_feed.start_background_refresh()
+    except Exception as exc:
+        print(f"  [누리랩] 자동 갱신 시작 실패, 기존 분석 계속: {type(exc).__name__}")
+
+
+def _nurilab_precheck(url):
+    try:
+        return nurilab_feed.report_for(url)
+    except Exception as exc:
+        print(f"  [누리랩] 목록 대조 불가, 기존 분석 계속: {type(exc).__name__}")
+        return None
+
+
 def warmup_engine(include_pw=True):
     """Prepare the local model once per process before accepting inference work."""
     global device, tokenizer, model, async_pw_manager, engine_initialized
     with _initialization_lock:
         if engine_initialized:
             return {"status": "already_initialized"}
+        _start_nurilab_background()
 
         print("\n  [시스템] KoBERT 가중치·토크나이저·설정 검증 및 로딩 중...")
         next_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -401,6 +419,9 @@ def warmup_engine(include_pw=True):
             except Exception:
                 pass
 
+        # Only server warmup waits, bounded to 13 seconds if the source is slow.
+        if not nurilab_feed.wait_for_initial_refresh():
+            print("  [누리랩] 목록 미준비 또는 비활성화: 준비될 때까지 기존 분석을 사용합니다.")
         device, tokenizer, model = next_device, next_tokenizer, next_model
         engine_initialized = True
         print("  [시스템] [OK] KoBERT 모델 준비 완료. 이후 요청에서 재사용합니다.\n")
@@ -409,6 +430,9 @@ def warmup_engine(include_pw=True):
 
 def predict_phishing_result(target_url):
     global device, tokenizer, model, engine_initialized, async_pw_manager
+    known_report = _nurilab_precheck(target_url)
+    if known_report is not None:
+        return known_report
     
     if not engine_initialized:
         print("\n  [시스템] 엔진 초기 구동을 시작합니다. (첫 1회만 소요)")
@@ -993,6 +1017,10 @@ def predict_phishing_result(target_url):
     # 🌟 [2단계] 서브 링크 수집 및 병렬 스캔
     # ----------------------------------------------------
     deep_links = extract_deep_links(raw_html, target_url, max_links=2)
+    for link in deep_links:
+        known_report = _nurilab_precheck(link)
+        if known_report is not None:
+            return known_report
     fetched_data = []
 
     if deep_links:

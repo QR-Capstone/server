@@ -15,6 +15,9 @@ import koBERT as engine
 
 class StartupTests(unittest.TestCase):
     def setUp(self):
+        self.feed_env = patch.dict(engine.os.environ, {'KOBERT_NURILAB_ENABLED': '0'})
+        self.feed_env.start()
+        self.addCleanup(self.feed_env.stop)
         self.state = patch.multiple(engine, engine_initialized=False,
                                     device=None, tokenizer=None, model=None,
                                     async_pw_manager=None)
