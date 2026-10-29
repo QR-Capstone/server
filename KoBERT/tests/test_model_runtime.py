@@ -21,7 +21,7 @@ class RuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         torch.set_num_threads(4)
-        with patch.object(torch.cuda, 'is_available', return_value=False):
+        with patch.dict(os.environ, {'KOBERT_NURILAB_ENABLED': '0'}), patch.object(torch.cuda, 'is_available', return_value=False):
             with contextlib.redirect_stdout(io.StringIO()):
                 engine.warmup_engine(False)
         # Authored test inputs; no training/validation dataset excerpts are published.
