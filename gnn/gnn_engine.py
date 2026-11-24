@@ -655,7 +655,9 @@ def fetch_page(url: str, timeout: float = DEFAULT_TIMEOUT, max_bytes: int = DEFA
         except Exception:
             body = ""
         page = FetchedPage(normalized, e.geturl() or normalized, int(e.code), body, str(e), 0, "urlopen")
-    except (URLError, TimeoutError, socket.timeout, ssl.SSLError, OSError) as e:
+    except Exception as e:
+        # URLError/타임아웃/SSL 외에도, 리다이렉트 주소에 공백 같은 잘못된 문자가 있으면
+        # http.client.InvalidURL(ValueError) 가 나서 전체 판정이 실패하던 문제 → 다른 방법으로 재시도
         page = FetchedPage(normalized, normalized, 0, "", str(e), 0, "urlopen")
 
     for fallback in (
@@ -1087,7 +1089,115 @@ def _edge_pair(edges: List[Tuple[int, int]], a: int, b: int) -> None:
     edges.append((b, a))
 
 
-def graph_sample_from_feature_map(fmap: Dict[str, float]) -> GraphSample:
+# =====================================================
+# 도메인 나이 피처 (RDAP 조회)
+# -----------------------------------------------------
+# 피싱 도메인은 대부분 만든 지 얼마 안 된 신규 도메인이다.
+#  - domain_young : 등록 180일 미만이면 1
+#  - domain_old   : 등록 2년 이상이면 1
+#  - 조회 실패(알 수 없음)는 둘 다 0 = '중간'으로 취급
+#    → "정보 없으면 피싱" 같은 지름길을 배우지 않도록 별도 '모름' 신호를 두지 않음
+#  - 이 피처는 domain_age_features=True 로 학습된 모델에서만 사용
+#    (예전 모델은 영향 없음)
+#  - 끄려면 환경변수 GNN_DOMAIN_AGE=0
+# =====================================================
+DOMAIN_FEATURE_NAMES: List[str] = ["domain_young", "domain_old"]
+ALL_FEATURE_NAMES: List[str] = FEATURE_NAMES + DOMAIN_FEATURE_NAMES
+DOMAIN_AGE_ENABLED = os.getenv("GNN_DOMAIN_AGE", "1") != "0"
+DOMAIN_AGE_TIMEOUT = float(os.getenv("GNN_DOMAIN_AGE_TIMEOUT", "3.0"))
+YOUNG_DAYS = 180
+OLD_DAYS = 730
+
+_RDAP_BOOTSTRAP: Optional[Dict[str, str]] = None
+_DOMAIN_AGE_CACHE: Dict[str, Optional[float]] = {}
+
+
+def _rdap_bootstrap() -> Dict[str, str]:
+    """TLD → RDAP 서버 주소 (IANA 공식 목록). 실패하면 rdap.org 사용."""
+    global _RDAP_BOOTSTRAP
+    if _RDAP_BOOTSTRAP is not None:
+        return _RDAP_BOOTSTRAP
+    mapping: Dict[str, str] = {}
+    cache_file = os.path.join(_BASE_DIR, "rdap_bootstrap.json")
+    raw = None
+    try:
+        if os.path.isfile(cache_file):
+            with open(cache_file, encoding="utf-8") as f:
+                raw = f.read()
+        else:
+            req = Request("https://data.iana.org/rdap/dns.json", headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=10) as r:
+                raw = r.read().decode("utf-8", errors="replace")
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    f.write(raw)
+            except Exception:
+                pass
+        import json as _json
+        for tlds, urls in _json.loads(raw).get("services", []):
+            if urls:
+                base = urls[0].rstrip("/") + "/"
+                for t in tlds:
+                    mapping[t.lower()] = base
+    except Exception:
+        mapping = {}
+    _RDAP_BOOTSTRAP = mapping
+    return mapping
+
+
+def _parse_rdap_age_days(data: Dict[str, Any]) -> Optional[float]:
+    from datetime import datetime, timezone
+    for ev in data.get("events", []) or []:
+        if str(ev.get("eventAction", "")).lower() in ("registration", "registered"):
+            date = str(ev.get("eventDate", ""))
+            try:
+                dt = datetime.fromisoformat(date.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
+            except Exception:
+                continue
+    return None
+
+
+def domain_age_days(host_or_url: str, timeout: float = DOMAIN_AGE_TIMEOUT) -> Optional[float]:
+    """등록 후 지난 일수. 알 수 없으면 None."""
+    host = urlsplit(host_or_url).hostname if "://" in host_or_url else host_or_url
+    dom = _registered_domain(host or "")
+    if not dom or "." not in dom or re.match(r"^\d+\.\d+\.\d+\.\d+$", host or ""):
+        return None
+    if dom in _DOMAIN_AGE_CACHE:
+        return _DOMAIN_AGE_CACHE[dom]
+    tld = dom.rsplit(".", 1)[-1]
+    base = _rdap_bootstrap().get(tld, "https://rdap.org/")
+    age: Optional[float] = None
+    try:
+        import json as _json
+        req = Request(base + "domain/" + dom, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/rdap+json"})
+        with urlopen(req, timeout=timeout) as r:
+            age = _parse_rdap_age_days(_json.loads(r.read().decode("utf-8", errors="replace")))
+    except Exception:
+        age = None
+    _DOMAIN_AGE_CACHE[dom] = age
+    return age
+
+
+def domain_features_from_age(age: Optional[float]) -> Dict[str, float]:
+    if age is None:
+        return {"domain_young": 0.0, "domain_old": 0.0}
+    return {
+        "domain_young": 1.0 if age < YOUNG_DAYS else 0.0,
+        "domain_old": 1.0 if age >= OLD_DAYS else 0.0,
+    }
+
+
+def domain_feature_map(url: str) -> Dict[str, float]:
+    if not DOMAIN_AGE_ENABLED:
+        return domain_features_from_age(None)
+    return domain_features_from_age(domain_age_days(url))
+
+
+def graph_sample_from_feature_map(fmap: Dict[str, float], use_domain: bool = False) -> GraphSample:
     """Build a semantic phishing graph from URL/page-structure feature signals."""
     url_risk = min(
         1.0,
@@ -1253,8 +1363,8 @@ def graph_sample_from_feature_map(fmap: Dict[str, float]) -> GraphSample:
                 fmap.get("external_submission_risk", 0.0),
                 fmap.get("external_link_ratio", 0.0),
                 fmap.get("external_resource_ratio", 0.0),
-                0.0,
-                0.0,
+                fmap.get("domain_young", 0.0) if use_domain else 0.0,
+                fmap.get("domain_old", 0.0) if use_domain else 0.0,
             ],
         ),
         _node_features(
@@ -1285,9 +1395,39 @@ def graph_sample_from_feature_map(fmap: Dict[str, float]) -> GraphSample:
     return GraphSample(nodes, edges)
 
 
-def graph_sample_for_url(url: str, fetch: bool = True) -> Tuple[GraphSample, WebGraph]:
-    graph = build_web_graph(url, fetch=fetch)
-    return graph_sample_from_feature_map(feature_map_from_graph(graph)), graph
+def graph_sample_for_url(
+    url: str, fetch: bool = True, use_domain: bool = False
+) -> Tuple[GraphSample, WebGraph]:
+    sample, graph, _ = graph_sample_and_features_for_url(url, fetch=fetch, use_domain=use_domain)
+    return sample, graph
+
+
+def graph_sample_and_features_for_url(
+    url: str, fetch: bool = True, use_domain: bool = False
+) -> Tuple[GraphSample, WebGraph, Dict[str, float]]:
+    """페이지 수집과 도메인 나이 조회를 동시에 실행해서 시간을 아낀다."""
+    dom_future = None
+    executor = None
+    if use_domain and DOMAIN_AGE_ENABLED:
+        from concurrent.futures import ThreadPoolExecutor
+        executor = ThreadPoolExecutor(max_workers=1)
+        dom_future = executor.submit(domain_age_days, _normalize_url(url))
+    try:
+        graph = build_web_graph(url, fetch=fetch)
+        fmap = feature_map_from_graph(graph)
+        if use_domain:
+            age = None
+            if dom_future is not None:
+                try:
+                    age = dom_future.result(timeout=DOMAIN_AGE_TIMEOUT + 1.0)
+                except Exception:
+                    age = None
+            fmap.update(domain_features_from_age(age))
+            fmap["_domain_age_days"] = -1.0 if age is None else float(age)
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=False)
+    return graph_sample_from_feature_map(fmap, use_domain=use_domain), graph, fmap
 
 
 def _require_torch() -> None:
@@ -1357,15 +1497,22 @@ class WebStructureGNNModel:
         self.net.eval()
 
     @property
+    def uses_domain(self) -> bool:
+        """도메인 나이 피처로 학습된 모델인지 (예전 모델은 False)."""
+        return bool(self.metadata.get("domain_age_features", False))
+
+    @property
     def feature_names(self) -> List[str]:
-        return list(FEATURE_NAMES)
+        return list(ALL_FEATURE_NAMES if self.uses_domain else FEATURE_NAMES)
 
     def predict_proba_one(self, url: str, fetch: bool = True) -> float:
-        sample, _ = graph_sample_for_url(url, fetch=fetch)
+        sample, _ = graph_sample_for_url(url, fetch=fetch, use_domain=self.uses_domain)
         return self.predict_proba_from_sample(sample)
 
     def predict_proba_from_features(self, fmap: Dict[str, float]) -> float:
-        return self.predict_proba_from_sample(graph_sample_from_feature_map(fmap))
+        return self.predict_proba_from_sample(
+            graph_sample_from_feature_map(fmap, use_domain=self.uses_domain)
+        )
 
     def predict_proba_from_sample(self, sample: GraphSample) -> float:
         x, edge_index = _sample_to_tensors(sample, self.device)
@@ -1440,13 +1587,23 @@ def train_web_structure_gnn_model_from_vectors(
     if not vectors:
         raise ValueError("empty training data")
     raw_vectors = [[float(v) for v in row] for row in vectors]
-    if any(len(row) != len(FEATURE_NAMES) for row in raw_vectors):
-        raise ValueError(f"each vector must have {len(FEATURE_NAMES)} features")
+    # 44개(기존) 또는 46개(도메인 나이 포함) 피처를 받는다
+    lengths = {len(row) for row in raw_vectors}
+    if lengths == {len(FEATURE_NAMES)}:
+        names, use_domain = FEATURE_NAMES, False
+    elif lengths == {len(ALL_FEATURE_NAMES)}:
+        names, use_domain = ALL_FEATURE_NAMES, True
+    else:
+        raise ValueError(
+            f"each vector must have {len(FEATURE_NAMES)} or {len(ALL_FEATURE_NAMES)} features"
+        )
     samples = [
-        graph_sample_from_feature_map({name: value for name, value in zip(FEATURE_NAMES, row)})
+        graph_sample_from_feature_map(
+            {name: value for name, value in zip(names, row)}, use_domain=use_domain
+        )
         for row in raw_vectors
     ]
-    metadata = {"trained_from_stored_features": True}
+    metadata = {"trained_from_stored_features": True, "domain_age_features": use_domain}
     if metadata_extra:
         metadata.update(metadata_extra)
     return train_web_structure_gnn_model_from_samples(
@@ -1559,6 +1716,7 @@ def build_explanation(
     evidence: Dict[str, Any],
     features: Optional[Dict[str, float]] = None,
     prob: float = 0.0,
+    is_malicious: Optional[bool] = None,
 ) -> List[str]:
     """모델 threshold(0.5) 기준 정상/악성 근거.
 
@@ -1643,7 +1801,10 @@ def build_explanation(
     # =====================================================
     # ───── 정상 (prob < 0.5) ─────
     # =====================================================
-    if prob < 0.5:
+    # 판정(verdict)과 설명이 항상 같은 방향이 되도록, 최종 판정을 받으면 그것을 따른다
+    if is_malicious is None:
+        is_malicious = prob >= 0.5
+    if not is_malicious:
         # 후보를 모두 평가한 뒤 강한 2개 + '그 외 N건'으로 마무리
 
         # 1) 입력 폼 안전
@@ -1802,6 +1963,107 @@ def build_explanation(
     return _finalize(reasons, "위험")
 
 
+# =====================================================
+# 신뢰 도메인 보정 (Tranco 상위 사이트)
+# -----------------------------------------------------
+# 진짜 로그인/쇼핑 페이지는 구조상 피싱 페이지와 매우 비슷해서
+# 구조만 보는 GNN이 오탐하기 쉽다. 그래서 Tranco 상위 N개 도메인
+# (전 세계 트래픽 상위 사이트)이면 모델 확률을 낮춰 준다.
+#  - 누구나 페이지를 만들 수 있는 호스팅/폼/단축URL 서비스는 제외
+#    (구글폼·깃허브페이지 등을 악용한 피싱은 계속 탐지)
+#  - 처음 주소와 리다이렉트 후 최종 주소가 모두 신뢰 도메인일 때만 적용
+#  - 외부 도메인으로 비밀번호를 보내는 폼이 있으면 적용하지 않음
+#  - 끄려면 환경변수 GNN_TRUSTED_DOMAINS=0
+# =====================================================
+TRUSTED_ENABLED = os.getenv("GNN_TRUSTED_DOMAINS", "1") != "0"
+TRUSTED_TOP_N = int(os.getenv("GNN_TRUSTED_TOP_N", "20000"))
+TRUSTED_FACTOR = float(os.getenv("GNN_TRUSTED_FACTOR", "0.3"))
+
+# 누구나 콘텐츠를 올릴 수 있는 서비스 (host 가 이걸로 끝나면 신뢰 보정 제외)
+USER_CONTENT_HOSTS = (
+    "docs.google.com", "sites.google.com", "drive.google.com", "forms.gle",
+    "storage.googleapis.com", "googleusercontent.com", "firebaseapp.com", "web.app",
+    "appspot.com", "github.io", "githubusercontent.com", "gitlab.io", "blogspot.com",
+    "weebly.com", "wixsite.com", "wix.com", "netlify.app", "vercel.app", "pages.dev",
+    "workers.dev", "r2.dev", "herokuapp.com", "glitch.me", "000webhostapp.com",
+    "azurewebsites.net", "core.windows.net", "sharepoint.com", "forms.office.com",
+    "1drv.ms", "onedrive.live.com", "amazonaws.com", "cloudfront.net", "notion.site",
+    "carrd.co", "godaddysites.com", "square.site", "ipfs.io", "dweb.link",
+    "onrender.com", "replit.app", "repl.co", "typeform.com", "jotform.com",
+    "dropbox.com", "dropboxusercontent.com", "bit.ly", "tinyurl.com", "t.co",
+    "is.gd", "cutt.ly", "rebrand.ly", "naver.me", "me2.do", "han.gl", "url.kr",
+    "linktr.ee", "telegra.ph", "wordpress.com", "tistory.com", "blog.naver.com",
+    "cafe.naver.com", "form.naver.com", "modoo.at", "imweb.me",
+    # 2026-11 OpenPhish 실측 피싱에서 확인된 무료 호스팅/빌더 (신뢰 보정 제외)
+    "framer.app", "framer.website", "wasmer.app", "webflow.io", "weeblysite.com",
+    "edgeone.app", "cleverapps.io", "craftum.io", "tiiny.site", "surge.sh",
+    "trycloudflare.com", "backblazeb2.com", "oortstorages.com", "webcindario.com",
+    "freepage.cc", "mybluehost.me", "servepics.com", "gcore.lu", "cprapid.com",
+    "worksinc.app", "netlify.com", "lovable.app", "glide.page", "jimdosite.com",
+    "wixstudio.com", "mystrikingly.com", "site123.me", "yolasite.com", "webnode.page",
+    # 누구나 하위 주소를 등록할 수 있는 2단계 도메인
+    "my.id", "biz.id", "web.id", "or.id", "co.id", "eu.org", "dpdns.org",
+    "ccwu.cc", "us.kg", "pp.ua", "in.net",
+    # 단축 URL
+    "goo.su", "u.to", "s4w.in", "qrco.de", "surl.li", "rblx.asia", "t.ly",
+    "shorturl.at", "rb.gy", "ow.ly", "lnk.to", "tiny.cc", "v.gd", "shorturl.asia",
+)
+
+_TRUSTED_CACHE: Optional[Set[str]] = None
+
+
+def _load_trusted_domains() -> Set[str]:
+    global _TRUSTED_CACHE
+    if _TRUSTED_CACHE is not None:
+        return _TRUSTED_CACHE
+    domains: Set[str] = set()
+    tranco_dir = os.path.join(_BASE_DIR, "tranco")
+    try:
+        files = sorted(
+            os.path.join(tranco_dir, f) for f in os.listdir(tranco_dir) if f.lower().endswith(".csv")
+        )
+    except Exception:
+        files = []
+    if files:
+        try:
+            with open(files[-1], encoding="utf-8", errors="replace") as f:
+                for i, line in enumerate(f):
+                    if i >= TRUSTED_TOP_N:
+                        break
+                    parts = line.strip().split(",")
+                    dom = (parts[1] if len(parts) >= 2 else parts[0]).strip().lower()
+                    if dom:
+                        domains.add(_registered_domain(dom))
+        except Exception:
+            domains = set()
+    _TRUSTED_CACHE = domains
+    return domains
+
+
+def _is_user_content_host(host: str) -> bool:
+    host = (host or "").lower().rstrip(".")
+    return any(host == h or host.endswith("." + h) for h in USER_CONTENT_HOSTS)
+
+
+def trusted_domain_check(graph: WebGraph, fmap: Dict[str, float]) -> bool:
+    """신뢰 도메인 보정을 적용해도 되는지 판단."""
+    if not TRUSTED_ENABLED:
+        return False
+    trusted = _load_trusted_domains()
+    if not trusted:
+        return False
+    hosts = [urlsplit(graph.page_url).hostname or "", urlsplit(graph.final_url).hostname or ""]
+    for h in hosts:
+        if not h or _is_user_content_host(h):
+            return False
+        if _registered_domain(h) not in trusted:
+            return False
+    # 신뢰 사이트 안에 있어도, 외부로 비밀번호/개인정보를 보내는 폼이 있으면 보정 안 함
+    if fmap.get("external_submission_risk", 0.0) > 0.3 or fmap.get("brand_capture_mismatch", 0.0) > 0:
+        return False
+    return True
+
+
 def predict_gnn(
     model: WebStructureGNNModel,
     column_order: List[str],
@@ -1809,18 +2071,28 @@ def predict_gnn(
 ) -> Dict[str, Any]:
     url = _normalize_url(raw_url)
     fetch = os.getenv("GNN_FETCH_PAGE", "1") != "0"
-    sample, graph = graph_sample_for_url(url, fetch=fetch)
+    sample, graph, fmap_all = graph_sample_and_features_for_url(
+        url, fetch=fetch, use_domain=model.uses_domain
+    )
     prob_mal = float(model.predict_proba_from_sample(sample))
-    fmap_tmp = feature_map_from_graph(graph) if fetch else {}
-    
+    model_prob = prob_mal
+    fmap_tmp = fmap_all if fetch else {}
+    trusted = False
+
     if fmap_tmp.get("suspicious_tld", 0.0) > 0:
         prob_mal = min(1.0, prob_mal + 0.40)
         label = 1
     else:
+        trusted = trusted_domain_check(graph, fmap_tmp)
+        if trusted:
+            prob_mal = prob_mal * TRUSTED_FACTOR
         label = 1 if prob_mal >= model.threshold else 0
+
     out = {
         "url": url,
         "probability": round(prob_mal, 6),
+        "model_probability": round(model_prob, 6),
+        "trusted_domain": trusted,
         "label": label,
         "verdict": "malicious" if label == 1 else "benign",
         "model_type": MODEL_KIND,
@@ -1843,8 +2115,19 @@ def predict_gnn(
             ]
         }
 
-        fmap = feature_map_from_graph(graph)
-        out["explanation"] = build_explanation(evidence, fmap, prob_mal)
+        fmap = fmap_all
+        out["explanation"] = build_explanation(evidence, fmap, prob_mal, is_malicious=(label == 1))
+        if trusted and label == 0:
+            out["explanation"] = [
+                "전 세계 이용자가 많은 공식 사이트 도메인으로 확인되어 위험도를 낮게 평가했습니다."
+            ] + list(out["explanation"])[:2]
+        age = fmap_all.get("_domain_age_days")
+        if age is not None:
+            evidence["domain_age_days"] = None if age < 0 else int(age)
+            if label == 1 and 0 <= age < YOUNG_DAYS:
+                out["explanation"] = [
+                    f"이 주소의 도메인은 만들어진 지 약 {int(age)}일밖에 되지 않은 신규 도메인입니다."
+                ] + list(out["explanation"])[:2]
     return out
 
 
