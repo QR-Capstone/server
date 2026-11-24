@@ -165,22 +165,28 @@ class FeedTests(unittest.TestCase):
         start.assert_not_called()
         wait.assert_not_called()
 
-    def test_hit_skips_initialization_network_and_model(self):
+    def test_hit_keeps_verdict_when_model_initialization_fails(self):
         import koBERT as engine
         self.save('https://naver.com/listed-path')
+        text = '서비스 이용 방법을 안내합니다. ' * 40
         with patch.object(engine, 'engine_initialized', False), \
-                patch.object(engine, 'warmup_engine', side_effect=AssertionError('no warmup')), \
-                patch.object(engine, 'extract_with_requests_and_raw_html', side_effect=AssertionError('no HTTP')), \
+                patch.object(engine, 'warmup_engine', side_effect=RuntimeError('bad assets')) as warmup, \
+                patch.object(engine, 'extract_with_requests_and_raw_html', return_value=(text, '')) as fetch, \
                 patch.object(engine, 'model', side_effect=AssertionError('no inference')):
             result = engine.predict_phishing_result('https://naver.com/listed-path')
+        warmup.assert_called_once_with(include_pw=False)
+        fetch.assert_called_once_with('https://naver.com/listed-path')
         self.assertEqual(result['judgment'], 'unnormal')
         self.assertEqual(result['riskLevel'], 'HIGH')
+        self.assertEqual(result['threat_score'], 100.0)
         self.assertEqual(set(result), {'url', 'judgment', 'riskLevel', 'threat_score',
                                       'threat_type', 'site_category', 'evidence'})
         self.assertEqual(set(result['evidence']), {'heuristic_evidence', 'ai_semantic_evidence'})
-        self.assertEqual(result['evidence']['ai_semantic_evidence']['ai_inference_logic'], '해당 사이트는 이미 기록되어있는 피싱 사이트입니다. 접속을 삼가해주세요.')
+        reason = result['evidence']['ai_semantic_evidence']['ai_inference_logic']
+        self.assertTrue(reason.startswith('해당 사이트는 이미 기록되어있는 피싱 사이트입니다. 접속을 삼가해주세요.'))
+        self.assertIn('추가 분석 불가', reason)
 
-    def test_child_hit_precedes_child_fetch_and_miss_runs_original_path(self):
+    def test_child_hit_analyzes_matched_child_and_miss_runs_original_path(self):
         import contextlib, io
         from types import SimpleNamespace
         from unittest.mock import Mock
@@ -200,10 +206,13 @@ class FeedTests(unittest.TestCase):
                 patch.object(engine, 'extract_with_playwright_and_raw_html', side_effect=AssertionError('no browser')), \
                 contextlib.redirect_stdout(io.StringIO()):
             result = engine.predict_phishing_result('https://museum.example/')
-        fetch.assert_called_once_with('https://museum.example/')
-        fake_model.assert_called_once()
+        self.assertEqual([c.args[0] for c in fetch.call_args_list],
+                         ['https://museum.example/', 'https://phish.example/login'])
+        self.assertEqual(fake_model.call_count, 2)
         self.assertEqual(result['url'], 'https://phish.example/login')
         self.assertEqual(result['judgment'], 'unnormal')
+        self.assertEqual(result['threat_score'], 100.0)
+        self.assertIn('악성 클래스 점수는 0.0%', result['evidence']['ai_semantic_evidence']['ai_inference_logic'])
 
 
 class BackgroundTests(unittest.TestCase):

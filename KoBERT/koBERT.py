@@ -14,6 +14,7 @@ import os
 from urllib.parse import unquote
 import time
 import io
+from copy import deepcopy
 from contextlib import redirect_stdout
 import concurrent.futures
 
@@ -428,11 +429,88 @@ def warmup_engine(include_pw=True):
         return {"model_loaded": True, "device": str(device)}
 
 
+def _analyze_nurilab_match(target_url, known_report):
+    """Keep the list verdict, then append an independent, unadjusted model score.
+
+    This path deliberately bypasses whitelist/form/error-text early verdicts.
+    It inspects only the matched page, without recursively inspecting its links.
+    Collection/model failures must never erase a confirmed list match.
+    """
+    report = deepcopy(known_report)
+    report.update(judgment="unnormal", riskLevel="HIGH", threat_score=100.0)
+    semantic = report["evidence"]["ai_semantic_evidence"]
+    warning = "해당 사이트는 이미 기록되어있는 피싱 사이트입니다. 접속을 삼가해주세요."
+    policy_note = "최종 위험 점수 100점은 목록 일치 정책값이며 KoBERT의 예측 확률이 아닙니다."
+
+    def unavailable(reason):
+        semantic["suspect_sentence"] = "KoBERT 분석 문장 없음"
+        semantic["ai_inference_logic"] = (
+            f"{warning} KoBERT 추가 분석 불가: {reason}. "
+            f"목록 일치에 따른 악성 판정은 유지합니다. {policy_note}")
+        print(f"  [누리랩 + KoBERT] {reason}; 목록 악성 판정 유지")
+        return report
+
+    def usable(text):
+        return bool(text and text.strip()) and not text.startswith(("[오류]", "[판별 보류]"))
+
+    # Fetch the same normalized URL that matched the feed (e.g. hxxps/[.] input).
+    fetch_url = nurilab_feed.canonical_url(target_url)
+    if fetch_url is None:
+        return unavailable("검사 대상 URL을 정규화하지 못했습니다")
+    print("  [누리랩] 목록 일치: 악성 판정 유지, 해당 페이지 KoBERT 추가 분석 시작")
+    try:
+        text, _ = extract_with_requests_and_raw_html(fetch_url)
+    except Exception as exc:
+        print(f"  [누리랩 + KoBERT] HTTP 수집 실패: {type(exc).__name__}")
+        text = ""
+
+    if (not usable(text) or len(text) < 400 or text.count(" ") < 10):
+        if os.getenv("USE_PLAYWRIGHT_IN_ANALYZE", "1") == "1":
+            try:
+                rendered_text, _ = extract_with_playwright_and_raw_html(fetch_url, is_warmup=False)
+                # Do not discard usable HTTP text if rendering fails or returns empty text.
+                if usable(rendered_text):
+                    text = rendered_text
+            except Exception as exc:
+                print(f"  [누리랩 + KoBERT] 동적 수집 실패: {type(exc).__name__}")
+    if not usable(text):
+        return unavailable("페이지 본문을 확보하지 못했습니다")
+
+    try:
+        if not engine_initialized:
+            warmup_engine(include_pw=False)
+        text = prepare_text(text)
+        if not text:
+            return unavailable("전처리 후 분석할 텍스트가 없습니다")
+        max_len = min(512, max(2, int(os.getenv("KOBERT_MAX_LEN", "512"))))
+        inputs = tokenizer(text, max_length=max_len, padding='max_length',
+                           truncation=True, return_tensors="pt")
+        with torch.inference_mode():
+            outputs = model(inputs['input_ids'].to(device),
+                            attention_mask=inputs['attention_mask'].to(device),
+                            output_attentions=False)
+            if outputs.logits.shape != (1, 2) or not torch.isfinite(outputs.logits).all().item():
+                raise ValueError("invalid binary classification logits")
+            model_score = F.softmax(outputs.logits, dim=-1)[0, 1].item() * 100
+    except Exception as exc:
+        return unavailable(f"모델 초기화 또는 추론 실패 ({type(exc).__name__})")
+
+    # A source excerpt is context, not an attention-based causal explanation.
+    excerpt = text[:160] + ("…" if len(text) > 160 else "")
+    semantic["suspect_sentence"] = f"수집 본문 발췌: {excerpt}"
+    semantic["ai_inference_logic"] = (
+        f"{warning} KoBERT 독립 문맥 분석의 악성 클래스 점수는 {model_score:.1f}%입니다 "
+        f"(룰 보정 전). 수집 본문 발췌: ‘{excerpt}’. "
+        f"모델 점수와 관계없이 목록 일치에 따른 악성 판정을 유지합니다. {policy_note}")
+    print(f"  [누리랩 + KoBERT] 모델 점수 {model_score:.1f}%, 목록 판정 점수 100점")
+    return report
+
+
 def predict_phishing_result(target_url):
     global device, tokenizer, model, engine_initialized, async_pw_manager
     known_report = _nurilab_precheck(target_url)
     if known_report is not None:
-        return known_report
+        return _analyze_nurilab_match(target_url, known_report)
     
     if not engine_initialized:
         print("\n  [시스템] 엔진 초기 구동을 시작합니다. (첫 1회만 소요)")
@@ -1020,7 +1098,7 @@ def predict_phishing_result(target_url):
     for link in deep_links:
         known_report = _nurilab_precheck(link)
         if known_report is not None:
-            return known_report
+            return _analyze_nurilab_match(link, known_report)
     fetched_data = []
 
     if deep_links:

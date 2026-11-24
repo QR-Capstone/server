@@ -101,6 +101,27 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result['judgment'], 'unknown')
         self.assertEqual(result['riskLevel'], 'UNKNOWN')
 
+    def test_list_match_includes_real_model_score_without_overriding_policy(self):
+        for sample in self.samples:
+            text = model_runtime.prepare_text(sample['text'])
+            inputs = engine.tokenizer(text, padding='max_length', max_length=512,
+                                      truncation=True, return_tensors='pt')
+            with torch.inference_mode():
+                outputs = engine.model(inputs['input_ids'], attention_mask=inputs['attention_mask'],
+                                       output_attentions=False)
+                score = torch.softmax(outputs.logits, dim=-1)[0, 1].item() * 100
+            with patch.dict(os.environ, {'USE_PLAYWRIGHT_IN_ANALYZE': '0', 'KOBERT_MAX_LEN': '512'}), \
+                    patch.object(engine.nurilab_feed, 'lookup', return_value={
+                        'title': '테스트용 목록 항목', 'published_date': '2026. 11. 24'}), \
+                    patch.object(engine, 'extract_with_requests_and_raw_html', return_value=(text, '<html/>')), \
+                    patch.object(engine, 'extract_deep_links', side_effect=AssertionError('No child traversal')), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                result = engine.predict_phishing_result('https://runtime-check.test/')
+            self.assertEqual(result['judgment'], 'unnormal')
+            self.assertEqual(result['threat_score'], 100.0)
+            self.assertIn(f'악성 클래스 점수는 {score:.1f}%',
+                          result['evidence']['ai_semantic_evidence']['ai_inference_logic'])
+
     def test_wrong_weights_rejected_before_deserialization(self):
         real_sha = model_runtime._sha256
         def sha(path):
