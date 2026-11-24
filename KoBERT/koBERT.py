@@ -474,7 +474,7 @@ def _analyze_nurilab_match(target_url, known_report):
             except Exception as exc:
                 print(f"  [누리랩 + KoBERT] 동적 수집 실패: {type(exc).__name__}")
     if not usable(text):
-        return unavailable("페이지 본문을 확보하지 못했습니다")
+        return unavailable("사이트가 이미 폐쇄되었거나, 일시적인 접속 장애 또는 접근 제한으로 본문을 가져올 수 없습니다")
 
     try:
         if not engine_initialized:
