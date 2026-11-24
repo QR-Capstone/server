@@ -109,6 +109,15 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(result['judgment'], 'unnormal')
         self.assertEqual(self.infer.call_count, 2)
 
+    def test_listing_type_change_replaces_cached_warning(self):
+        self.listings[self.url] = report(self.url, 'unnormal', '피싱 등록 안내')
+        engine.predict_phishing_result(self.url)
+        self.listings[self.url] = report(self.url, 'unnormal', '사기 사이트로 등록된 이력이 있는 사이트입니다.')
+        result = engine.predict_phishing_result(self.url)
+        self.assertEqual(result['evidence']['ai_semantic_evidence']['ai_inference_logic'],
+                         '사기 사이트로 등록된 이력이 있는 사이트입니다.')
+        self.assertEqual(self.infer.call_count, 2)
+
     def test_changed_or_removed_child_listing_invalidates_parent(self):
         self.children = [self.child]
         self.listings[self.child] = report(self.child, 'unnormal', '이전 게시일')

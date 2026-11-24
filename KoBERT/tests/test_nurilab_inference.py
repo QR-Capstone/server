@@ -31,7 +31,7 @@ class ListedInferenceTests(unittest.TestCase):
                 'heuristic_evidence': {'detected_actions': ['요구 정보 없음'],
                                       'rule_trigger': '누리랩 URL 일치, 게시일 및 출처'},
                 'ai_semantic_evidence': {'suspect_sentence': '게시물 제목',
-                                        'ai_inference_logic': '기록 안내'}}}
+                                        'ai_inference_logic': '해당 사이트는 이미 기록되어있는 피싱 사이트입니다. 접속을 삼가해주세요.'}}}
         self.original = deepcopy(self.known)
         self.tok = Mock(return_value={
             'input_ids': torch.zeros((1, 8), dtype=torch.long),

@@ -443,7 +443,7 @@ def _analyze_nurilab_match(target_url, known_report):
     report = deepcopy(known_report)
     report.update(judgment="unnormal", riskLevel="HIGH", threat_score=100.0)
     semantic = report["evidence"]["ai_semantic_evidence"]
-    warning = "해당 사이트는 이미 기록되어있는 피싱 사이트입니다. 접속을 삼가해주세요."
+    warning = semantic.get("ai_inference_logic") or "해당 사이트는 이미 기록되어있는 피싱 사이트입니다. 접속을 삼가해주세요."
     policy_note = "최종 위험 점수 100점은 목록 일치 정책값이며 KoBERT의 예측 확률이 아닙니다."
 
     def unavailable(reason):

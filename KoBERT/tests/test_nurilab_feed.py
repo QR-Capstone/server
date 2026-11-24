@@ -32,8 +32,8 @@ class FeedTests(unittest.TestCase):
         self.today_patch.stop()
         feed._index, feed._loaded_days, feed._expires_at, feed._next_retry = {}, None, 0, 0
 
-    def save(self, url='https://phish.example/login', age=0):
-        entry = {'url': url, 'kind': '피싱', 'title': '기관 사칭 주의', 'published_date': '2026. 10. 06'}
+    def save(self, url='https://phish.example/login', age=0, kind='피싱'):
+        entry = {'url': url, 'kind': kind, 'title': '기관 사칭 주의', 'published_date': '2026. 10. 06'}
         feed._index = {url: entry}
         feed._loaded_days = feed.window_days()
         feed._expires_at = time.monotonic() + feed.REFRESH_SECONDS - age
@@ -43,8 +43,59 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(result[0]['url'], 'https://phish.example/login?a=1&b=2')
         self.assertEqual(result[0]['title'], '기관 사칭 피싱 주의')
 
-    def test_only_phishing_not_fraud(self):
-        self.assertEqual(len(feed.parse_alerts(row('https://a[.]example/') + row('https://b[.]example/', '사기'))), 1)
+    def test_includes_phishing_and_fraud_but_not_unrecognized_categories(self):
+        entries = feed.parse_alerts(row('https://a[.]example/') + row('https://b[.]example/', '사기')
+                                    + row('https://c[.]example/', '기타'))
+        self.assertEqual([item['kind'] for item in entries], ['피싱', '사기'])
+
+    def test_request_selects_both_categories(self):
+        from unittest.mock import MagicMock
+        from urllib.parse import parse_qs, urlsplit
+        opener = MagicMock()
+        opener.open.return_value.__enter__.return_value.read.return_value = json.dumps({
+            'items': [], 'current_page': 1, 'total_pages': 1, 'total_items': 0}).encode()
+        with patch.object(feed, 'build_opener', return_value=opener):
+            feed.fetch_page(1, time.monotonic() + 10)
+        request = opener.open.call_args.args[0]
+        self.assertEqual(parse_qs(urlsplit(request.full_url).query)['detects'], ['피싱,사기'])
+
+    def test_fraud_date_window_and_warning(self):
+        self.save(kind='사기')
+        result = feed.report_for('https://phish.example/login')
+        self.assertEqual(result['threat_type'], '사기 사이트')
+        self.assertEqual(result['evidence']['ai_semantic_evidence']['ai_inference_logic'],
+                         '사기 사이트로 등록된 이력이 있는 사이트입니다.')
+        feed._index['https://phish.example/login']['published_date'] = '2026. 09. 29'
+        self.assertIsNone(feed.report_for('https://phish.example/login'))
+
+    def test_fraud_hit_runs_inference_keeps_100_and_handles_failure(self):
+        import contextlib, io
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import torch
+        import koBERT as engine
+        self.save(kind='사기')
+        text = '박물관 전시 일정과 관람 시간을 안내합니다. ' * 30
+        tok = Mock(return_value={'input_ids': torch.zeros((1, 4), dtype=torch.long),
+                                 'attention_mask': torch.ones((1, 4), dtype=torch.long)})
+        model = Mock(return_value=SimpleNamespace(logits=torch.tensor([[20., -20.]])))
+        with patch.multiple(engine, engine_initialized=True, device=torch.device('cpu'), tokenizer=tok, model=model), \
+                patch.dict(engine.os.environ, {'USE_PLAYWRIGHT_IN_ANALYZE': '0'}), \
+                patch.object(engine, 'extract_with_requests_and_raw_html', return_value=(text, '')) as fetch, \
+                contextlib.redirect_stdout(io.StringIO()):
+            result = engine.predict_phishing_result('https://phish.example/login')
+            model.assert_called_once()
+            self.assertEqual(result['threat_score'], 100.0)
+            self.assertEqual(result['judgment'], 'unnormal')
+            reason = result['evidence']['ai_semantic_evidence']['ai_inference_logic']
+            self.assertTrue(reason.startswith('사기 사이트로 등록된 이력이 있는 사이트입니다.'))
+            self.assertIn('악성 클래스 점수는 0.0%', reason)
+            fetch.return_value = ('[오류] Timeout', '')
+            failed = engine.predict_phishing_result('https://phish.example/login')
+            self.assertEqual(failed['threat_score'], 100.0)
+            self.assertIn('추가 분석 불가', failed['evidence']['ai_semantic_evidence']['ai_inference_logic'])
+            self.assertTrue(failed['evidence']['ai_semantic_evidence']['ai_inference_logic'].startswith(
+                '사기 사이트로 등록된 이력이 있는 사이트입니다.'))
 
     def test_bad_shape_and_incomplete_url(self):
         with self.assertRaises(ValueError):

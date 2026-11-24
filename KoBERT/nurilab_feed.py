@@ -19,6 +19,7 @@ ENDPOINT = 'https://www.nurilab.com/kr/alert/paginate_alerts'
 KST = timezone(timedelta(hours=9))
 REFRESH_SECONDS = 3600
 FETCH_BUDGET = 12.0
+DETECTION_KINDS = ('피싱', '사기')
 _lock = threading.Lock()
 _refresh_lock = threading.Lock()
 _index = {}
@@ -103,12 +104,13 @@ def parse_alerts(html):
         raise ValueError('누리랩 목록 구조를 확인할 수 없습니다')
     entries = []
     for row in parser.rows:
-        if row['kind'].strip() != '피싱':
+        kind = row['kind'].strip()
+        if kind not in DETECTION_KINDS:
             continue
         key = canonical_url(row['url'])
         if key:
             entries.append({'url': key, 'title': ' '.join(row['title'].split()),
-                            'published_date': ' '.join(row['date'].split()), 'kind': '피싱'})
+                            'published_date': ' '.join(row['date'].split()), 'kind': kind})
     return entries
 
 
@@ -145,7 +147,7 @@ def _recent(item, days, today):
 
 
 def fetch_page(page, deadline):
-    params = urlencode({'page': page, 'per_page': 100, 'year': 'all', 'detects': '피싱'})
+    params = urlencode({'page': page, 'per_page': 100, 'year': 'all', 'detects': ','.join(DETECTION_KINDS)})
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise TimeoutError('누리랩 목록 조회 시간 초과')
@@ -178,7 +180,7 @@ def collect_recent(days, today):
             return records
         items = parse_alerts(''.join(result['items']))
         if not items:
-            raise ValueError('유효한 피싱 항목을 찾지 못했습니다')
+            raise ValueError('유효한 피싱/사기 항목을 찾지 못했습니다')
         dates = [published_date(item['published_date']) for item in items]
         if any(day is None for day in dates):
             raise ValueError('누리랩 게시일 형식 변경')
@@ -291,18 +293,21 @@ def report_for(url):
     item = lookup(url)
     if item is None:
         return None
+    is_fraud = item.get('kind') == '사기'
+    warning = ('사기 사이트로 등록된 이력이 있는 사이트입니다.' if is_fraud else
+               '해당 사이트는 이미 기록되어있는 피싱 사이트입니다. 접속을 삼가해주세요.')
     # Same fields, nesting and judgment vocabulary as the existing main report.
     return {
         'url': url, 'judgment': 'unnormal', 'riskLevel': 'HIGH', 'threat_score': 99.0,
-        'threat_type': '일반 기관/기업 사칭 피싱', 'site_category': '일반',
+        'threat_type': '사기 사이트' if is_fraud else '일반 기관/기업 사칭 피싱', 'site_category': '일반',
         'evidence': {
             'heuristic_evidence': {
                 'detected_actions': ['요구 정보 없음'],
-                'rule_trigger': f"누리랩 피싱주의보 URL 일치 (게시일: {item['published_date']}, 출처: {SOURCE})"
+                'rule_trigger': f"누리랩 피싱주의보{' 사기' if is_fraud else ''} URL 일치 (게시일: {item['published_date']}, 출처: {SOURCE})"
             },
             'ai_semantic_evidence': {
                 'suspect_sentence': item['title'],
-                'ai_inference_logic': '해당 사이트는 이미 기록되어있는 피싱 사이트입니다. 접속을 삼가해주세요.'
+                'ai_inference_logic': warning
             }
         }
     }
@@ -312,4 +317,4 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--refresh', action='store_true', required=True)
     parser.parse_args()
-    print(f'최근 {window_days()}일 피싱 URL {refresh_cache()}개 조회 (메모리 전용, 파일 저장 없음)')
+    print(f'최근 {window_days()}일 피싱/사기 URL {refresh_cache()}개 조회 (메모리 전용, 파일 저장 없음)')
