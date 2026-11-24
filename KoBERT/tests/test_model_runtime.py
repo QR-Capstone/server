@@ -20,6 +20,9 @@ import model_runtime
 class RuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cache_env = patch.dict(os.environ, {'KOBERT_RESULT_CACHE_ENABLED': '0'})
+        cache_env.start()
+        cls.addClassCleanup(cache_env.stop)
         torch.set_num_threads(4)
         with patch.dict(os.environ, {'KOBERT_NURILAB_ENABLED': '0'}), patch.object(torch.cuda, 'is_available', return_value=False):
             with contextlib.redirect_stdout(io.StringIO()):
@@ -100,6 +103,22 @@ class RuntimeTests(unittest.TestCase):
             result = engine.predict_phishing_result('https://runtime-check.test/')
         self.assertEqual(result['judgment'], 'unknown')
         self.assertEqual(result['riskLevel'], 'UNKNOWN')
+
+    def test_result_cache_reuses_real_inference(self):
+        engine.clear_result_cache()
+        self.addCleanup(engine.clear_result_cache)
+        text = model_runtime.prepare_text(self.samples[0]['text'])
+        with patch.dict(os.environ, {'KOBERT_RESULT_CACHE_ENABLED': '1', 'USE_PLAYWRIGHT_IN_ANALYZE': '0'}), \
+                patch.object(engine, '_nurilab_precheck', return_value=None), \
+                patch.object(engine, 'extract_with_requests_and_raw_html', return_value=(text, '<html/>')) as fetch, \
+                patch.object(engine, 'extract_deep_links', return_value=[]), \
+                patch.object(engine.model, 'forward', wraps=engine.model.forward) as forward, \
+                contextlib.redirect_stdout(io.StringIO()):
+            first = engine.predict_phishing_result('https://cache-runtime.test/')
+            second = engine.predict_phishing_result('https://cache-runtime.test/')
+        self.assertEqual(first, second)
+        fetch.assert_called_once()
+        forward.assert_called_once()
 
     def test_list_match_includes_real_model_score_without_overriding_policy(self):
         for sample in self.samples:

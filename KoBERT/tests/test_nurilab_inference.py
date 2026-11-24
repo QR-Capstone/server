@@ -20,7 +20,8 @@ class ListedInferenceTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(redirect_stdout(io.StringIO()))
         self.stack.enter_context(patch.dict(engine.os.environ, {
-            'USE_PLAYWRIGHT_IN_ANALYZE': '0', 'KOBERT_MAX_LEN': '512'}))
+            'USE_PLAYWRIGHT_IN_ANALYZE': '0', 'KOBERT_MAX_LEN': '512',
+            'KOBERT_RESULT_CACHE_ENABLED': '0'}))
         self.url = 'https://naver.com/listed-path'
         self.text = '이용자 확인을 위해 계좌번호와 인증번호를 제출해주세요. ' * 20
         self.known = {

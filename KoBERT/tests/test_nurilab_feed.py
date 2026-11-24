@@ -22,7 +22,7 @@ class FeedTests(unittest.TestCase):
         self.today_patch.start()
         self.background_patch = patch.object(feed, 'start_background_refresh', return_value=False)
         self.background_patch.start()
-        self.env = patch.dict(feed.os.environ, {'KOBERT_NURILAB_ENABLED': '1', 'KOBERT_NURILAB_DAYS': '7'})
+        self.env = patch.dict(feed.os.environ, {'KOBERT_NURILAB_ENABLED': '1', 'KOBERT_NURILAB_DAYS': '7', 'KOBERT_RESULT_CACHE_ENABLED': '0'})
         self.env.start()
         feed._index, feed._loaded_days, feed._expires_at, feed._next_retry = {}, None, 0, float('inf')
 

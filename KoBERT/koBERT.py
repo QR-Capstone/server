@@ -15,6 +15,7 @@ from urllib.parse import unquote
 import time
 import io
 from copy import deepcopy
+from collections import OrderedDict
 from contextlib import redirect_stdout
 import concurrent.futures
 
@@ -36,6 +37,9 @@ model = None
 async_pw_manager = None    
 engine_initialized = False
 _initialization_lock = threading.Lock()
+_result_cache = OrderedDict()
+_result_cache_lock = threading.Lock()
+_RESULT_CACHE_LIMIT = 256
 
 # ==========================================
 # 🔥 [엔진 대통합] 영구 대기형 비동기 병렬 브라우저 풀
@@ -506,9 +510,104 @@ def _analyze_nurilab_match(target_url, known_report):
     return report
 
 
+def clear_result_cache():
+    """Forget URL results without unloading the model or changing the feed."""
+    with _result_cache_lock:
+        _result_cache.clear()
+
+
+def _result_cache_ttl():
+    if os.getenv("KOBERT_RESULT_CACHE_ENABLED", "1") != "1":
+        return 0.0
+    try:
+        hours = float(os.getenv("KOBERT_RESULT_CACHE_HOURS", "2"))
+    except ValueError:
+        hours = 2.0
+    if not 1.0 <= hours <= 3.0:  # Also rejects NaN and infinity.
+        hours = 2.0
+    return hours * 3600.0
+
+
+def _result_cache_key(target_url):
+    # Cache only HTTP(S), and preserve the exact request URL and JSON URL fields.
+    # Paths, query strings, fragments, scheme and different spellings stay separate.
+    if nurilab_feed.canonical_url(target_url) is None:
+        return None
+    if str(target_url).lower().startswith('file:') or ':\\' in str(target_url):
+        return None
+    settings = tuple(os.getenv(name, default) for name, default in (
+        ('USE_PLAYWRIGHT_IN_ANALYZE', '1'), ('KOBERT_MAX_LEN', '512'),
+        ('KOBERT_HTTP_TIMEOUT', '1.2'), ('KOBERT_NURILAB_ENABLED', '1'),
+        ('KOBERT_NURILAB_DAYS', '7')))
+    return (target_url, WEIGHTS_FILE, id(model), id(tokenizer), settings)
+
+
+def _cached_result(key, known_report, ttl):
+    if key is None or not ttl:
+        return None
+    now = time.monotonic()
+    with _result_cache_lock:
+        entry = _result_cache.get(key)
+        if entry is None:
+            return None
+        if now >= min(entry['expires'], entry['created'] + ttl):
+            del _result_cache[key]
+            return None
+    # No network I/O: check current feed for root AND previously selected children.
+    # Invalidate on new listings, removals, expiry or changed listing metadata.
+    valid = entry['known_report'] == known_report
+    if valid:
+        valid = all(_nurilab_precheck(url) == previous for url, previous in entry['matches'])
+    with _result_cache_lock:
+        if _result_cache.get(key) is not entry:
+            return None
+        if not valid:
+            del _result_cache[key]
+            return None
+        _result_cache.move_to_end(key)
+        result = deepcopy(entry['report'])
+    print(f"  [KoBERT 캐시] URL 결과 재사용 (저장 후 {now - entry['created']:.0f}초)")
+    return result
+
+
+def _store_result(key, report, known_report, context, ttl):
+    if key is None or not ttl or not context['cacheable']:
+        return
+    if report.get('judgment') not in ('normal', 'unnormal') or report.get('error'):
+        return
+    reason = report.get('evidence', {}).get('ai_semantic_evidence', {}).get('ai_inference_logic', '')
+    if 'KoBERT 추가 분석 불가' in reason:
+        return  # Retry collection/inference on the next request, retaining list verdict meanwhile.
+    now = time.monotonic()
+    entry = {'created': now, 'expires': now + ttl, 'report': deepcopy(report),
+             'known_report': deepcopy(known_report), 'matches': deepcopy(context['matches'])}
+    with _result_cache_lock:
+        for stale in [k for k, value in _result_cache.items() if now >= value['expires']]:
+            del _result_cache[stale]
+        _result_cache[key] = entry
+        _result_cache.move_to_end(key)
+        while len(_result_cache) > _RESULT_CACHE_LIMIT:
+            _result_cache.popitem(last=False)
+
+
 def predict_phishing_result(target_url):
-    global device, tokenizer, model, engine_initialized, async_pw_manager
+    # Feed checks precede cache reuse; TTL is measured from completion, not last access.
     known_report = _nurilab_precheck(target_url)
+    ttl = _result_cache_ttl()
+    key = _result_cache_key(target_url) if ttl else None
+    cached = _cached_result(key, known_report, ttl)
+    if cached is not None:
+        return cached
+    context = {'matches': [], 'cacheable': True}
+    result = _predict_phishing_result_uncached(target_url, known_report, context)
+    # Cold-start requests may have loaded the model; store under its new identity.
+    key = _result_cache_key(target_url) if ttl else None
+    _store_result(key, result, known_report, context, ttl)
+    return result
+
+
+def _predict_phishing_result_uncached(target_url, known_report, cache_context):
+    global device, tokenizer, model, engine_initialized, async_pw_manager
     if known_report is not None:
         return _analyze_nurilab_match(target_url, known_report)
     
@@ -1097,6 +1196,7 @@ def predict_phishing_result(target_url):
     deep_links = extract_deep_links(raw_html, target_url, max_links=2)
     for link in deep_links:
         known_report = _nurilab_precheck(link)
+        cache_context['matches'].append((link, deepcopy(known_report)))
         if known_report is not None:
             return _analyze_nurilab_match(link, known_report)
     fetched_data = []
@@ -1147,6 +1247,10 @@ def predict_phishing_result(target_url):
                         valid_urls.append(p_url); valid_texts.append(p_text)
             print(f"  ⚡ [병렬 스캔 완료] 소요 시간: {time.time() - pw_start:.2f}초")
         except Exception as e: print(f"  ❌ [병렬 스캔 에러] {e}")
+
+    if len(valid_urls) != len(deep_links):
+        # Do not keep a normal result for hours if selected children failed collection.
+        cache_context['cacheable'] = False
 
     if valid_texts:
         print(f"\n🧠 [AI 2-Depth 정밀 분석] 확보된 텍스트 {len(valid_texts)}개 일괄 검사 중...")
