@@ -3,9 +3,11 @@ import torch.nn.functional as F
 if __package__:
     from .model_runtime import load_runtime, prepare_text
     from . import nurilab_feed
+    from .focus_selection import has_focus_keyword, select_keyword_context
 else:
     from model_runtime import load_runtime, prepare_text
     import nurilab_feed
+    from focus_selection import has_focus_keyword, select_keyword_context
 import requests
 from curl_cffi import requests as curl_requests
 from bs4 import BeautifulSoup
@@ -40,6 +42,43 @@ _initialization_lock = threading.Lock()
 _result_cache = OrderedDict()
 _result_cache_lock = threading.Lock()
 _RESULT_CACHE_LIMIT = 256
+
+ACCESS_UNAVAILABLE_MESSAGE = (
+    "접근 제한 안내가 표시되어 실제 본문을 확보하지 못했습니다. "
+    "KoBERT 문맥 분석을 수행할 수 없습니다. 접근에 유의해주시길 바랍니다."
+)
+_ACCESS_NOTICE_RE = re.compile(
+    r"(?:(?:(?:this\s+)?page\s+(?:is\s+)?not\s+available|"
+    r"page\s+unavailable|access\s+denied|"
+    r"접근이\s*제한되었습니다|접근이\s*제한된\s*페이지입니다)[\s.!。]*)+",
+    re.IGNORECASE,
+)
+
+
+def _is_access_notice(text):
+    """Match a short notice-only response, never a phrase quoted in real body text."""
+    normalized = re.sub(r"\s+", " ", text or "").strip()
+    return bool(normalized and len(normalized) <= 240
+                and _ACCESS_NOTICE_RE.fullmatch(normalized))
+
+
+def _access_unavailable_report(target_url, notice):
+    print("  ⚠️ [분석 불가] " + ACCESS_UNAVAILABLE_MESSAGE)
+    # Reuse the existing unknown verdict and evidence fields; do not invent a score.
+    return {
+        "judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN",
+        "detectedUrl": target_url,
+        "evidence": {
+            "heuristic_evidence": {
+                "detected_actions": ["접근 제한 안내 감지"],
+                "rule_trigger": "실제 본문 없이 접근 제한 안내만 수집됨",
+            },
+            "ai_semantic_evidence": {
+                "suspect_sentence": notice,
+                "ai_inference_logic": ACCESS_UNAVAILABLE_MESSAGE,
+            },
+        },
+    }
 
 # ==========================================
 # 🔥 [엔진 대통합] 영구 대기형 비동기 병렬 브라우저 풀
@@ -172,6 +211,11 @@ def redact_pii(text: str) -> str:
     text = re.sub(r"http[s]?://(?:bit\.ly|vo\.la|t\.ly|cutt\.ly|url\.kr|ko\.gl|han\.gl|buly\.kr)/[a-zA-Z0-9]+", "[링크]", text)
     return text
 
+
+def prepare_focus_text(text: str) -> str:
+    """Text-only input selection with the same masking/1000-char final preparation."""
+    return prepare_text(select_keyword_context([text], limit=1000, masker=redact_pii))
+
 def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     soup = BeautifulSoup(html, "html.parser")
     for noise in soup(["script", "style", "noscript", "iframe","header", "footer", "nav"]):
@@ -242,7 +286,7 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
         text_len = len(text)
         
         # 핵심 키워드가 포함되어 있으면 길이/개수 제한 무시하고 무조건 수집 (프리패스)
-        if any(kw in text for kw in vital_kws):
+        if any(kw in text for kw in vital_kws) or has_focus_keyword(text):
             extracted_texts.append(text)
         # 일반 텍스트는 1글자 초과(2글자 이상)부터 수집하도록 완화
         elif 1 < text_len <= 25:
@@ -255,7 +299,7 @@ def extract_with_html_ultimate_clean(html: str, popup_text: str = "") -> str:
     seen = set()
     for t in extracted_texts:
         if t not in seen: seen.add(t); unique_texts.append(t)
-    main_text = " ".join(unique_texts)[:500]
+    main_text = select_keyword_context(unique_texts, limit=500, masker=redact_pii)
 
     # 🌟 [수정] 무의미한 문법적 틀(Boilerplate) 완벽 제거. 순수 텍스트만 결합!
     components = []
@@ -424,7 +468,7 @@ def warmup_engine(include_pw=True):
             except Exception:
                 pass
 
-        # Only server warmup waits, bounded to 13 seconds if the source is slow.
+        # Only startup waits for the bounded feed + ASK URL preparation; URL lookup never waits.
         if not nurilab_feed.wait_for_initial_refresh():
             print("  [누리랩] 목록 미준비 또는 비활성화: 준비될 때까지 기존 분석을 사용합니다.")
         device, tokenizer, model = next_device, next_tokenizer, next_model
@@ -449,13 +493,15 @@ def _analyze_nurilab_match(target_url, known_report):
     def unavailable(reason):
         semantic["suspect_sentence"] = "KoBERT 분석 문장 없음"
         semantic["ai_inference_logic"] = (
-            f"{warning} KoBERT 추가 분석 불가: {reason}. "
+            f"{warning} KoBERT 추가 분석 불가: {reason.rstrip('.')}. "
             f"목록 일치에 따른 악성 판정은 유지합니다. {policy_note}")
         print(f"  [누리랩 + KoBERT] {reason}; 목록 악성 판정 유지")
         return report
 
     def usable(text):
-        return bool(text and text.strip()) and not text.startswith(("[오류]", "[판별 보류]"))
+        return (bool(text and text.strip())
+                and not text.startswith(("[오류]", "[판별 보류]"))
+                and not _is_access_notice(text))
 
     # Fetch the same normalized URL that matched the feed (e.g. hxxps/[.] input).
     fetch_url = nurilab_feed.canonical_url(target_url)
@@ -473,10 +519,12 @@ def _analyze_nurilab_match(target_url, known_report):
             try:
                 rendered_text, _ = extract_with_playwright_and_raw_html(fetch_url, is_warmup=False)
                 # Do not discard usable HTTP text if rendering fails or returns empty text.
-                if usable(rendered_text):
+                if usable(rendered_text) or (not usable(text) and _is_access_notice(rendered_text)):
                     text = rendered_text
             except Exception as exc:
                 print(f"  [누리랩 + KoBERT] 동적 수집 실패: {type(exc).__name__}")
+    if _is_access_notice(text):
+        return unavailable(ACCESS_UNAVAILABLE_MESSAGE)
     if not usable(text):
         return unavailable("사이트가 이미 폐쇄되었거나, 일시적인 접속 장애 또는 접근 제한으로 본문을 가져올 수 없습니다")
 
@@ -538,7 +586,7 @@ def _result_cache_key(target_url):
     settings = tuple(os.getenv(name, default) for name, default in (
         ('USE_PLAYWRIGHT_IN_ANALYZE', '1'), ('KOBERT_MAX_LEN', '512'),
         ('KOBERT_HTTP_TIMEOUT', '1.2'), ('KOBERT_NURILAB_ENABLED', '1'),
-        ('KOBERT_NURILAB_DAYS', '7')))
+        ('KOBERT_NURILAB_DAYS', '7'), ('KOBERT_FOCUS_ENABLED', '1')))
     return (target_url, WEIGHTS_FILE, id(model), id(tokenizer), settings)
 
 
@@ -761,6 +809,9 @@ def _predict_phishing_result_uncached(target_url, known_report, cache_context):
             except Exception: 
                 pass
 
+    if _is_access_notice(processed_text):
+        return _access_unavailable_report(target_url, processed_text)
+
     if processed_text.startswith("[오류]") or processed_text.startswith("[판별 보류]"):
         print("  ❌ [오류] 사이트 접속 불가 (Timeout 등)")
         return {"judgment": "unknown", "riskLevel": "UNKNOWN", "risklevel": "UNKNOWN", "detectedUrl": target_url}
@@ -869,8 +920,9 @@ def _predict_phishing_result_uncached(target_url, known_report, cache_context):
 
     print(f"  📝 [추출 텍스트]: {processed_text[:1000]}... (총 {len(processed_text)}자)")
 
-    # The candidate was trained without prefixing keyword sentences.
-    # Keep the same prepared input for prediction and attention evidence.
+    # HTML extraction selects keyword/context windows before truncation.
+    # The checkpoint is unchanged; selection accuracy still requires evaluation.
+    # Prediction and attention evidence both use the same selected input text.
 
     inputs = tokenizer(processed_text, max_length=max_len, padding='max_length', truncation=True, return_tensors="pt")
     input_ids, attention_mask = inputs['input_ids'].to(device), inputs['attention_mask'].to(device)
@@ -1222,10 +1274,15 @@ def _predict_phishing_result_uncached(target_url, known_report, cache_context):
                 print("  ⚠️ [경고] 2-Depth 일반 수집 타임아웃 발생")
 
     valid_urls, valid_texts, urls_to_pw_scan = [], [], []
+    access_unavailable_children = {}
     whitelist_domains = ["naver.com", "youtube.com", "daum.net"]
 
     for idx, (url, current_text) in enumerate(fetched_data, 1):
         if any(safe_domain in url.lower() for safe_domain in whitelist_domains): continue 
+        if _is_access_notice(current_text):
+            access_unavailable_children[url] = current_text
+            if use_pw: urls_to_pw_scan.append(url)
+            continue
         if len(current_text) < 150 or current_text.startswith("[오류]") or current_text.startswith("[판별 보류]"):
             if use_pw: urls_to_pw_scan.append(url) 
             continue
@@ -1241,10 +1298,14 @@ def _predict_phishing_result_uncached(target_url, known_report, cache_context):
             if not async_pw_manager: async_pw_manager = AsyncPlaywrightPool()
             pw_results = async_pw_manager.scrape_parallel(urls_to_pw_scan)
             for p_url, p_text, _ in pw_results:
+                if _is_access_notice(p_text):
+                    access_unavailable_children[p_url] = p_text
+                    continue
                 has_risk = any(kw in p_text for kw in high_risk_keywords + action_keywords)
-                if not p_text.startswith("[오류]"):
+                if not p_text.startswith(("[오류]", "[판별 보류]")):
                     if len(p_text) >= 80 or has_risk:
                         valid_urls.append(p_url); valid_texts.append(p_text)
+                        access_unavailable_children.pop(p_url, None)
             print(f"  ⚡ [병렬 스캔 완료] 소요 시간: {time.time() - pw_start:.2f}초")
         except Exception as e: print(f"  ❌ [병렬 스캔 에러] {e}")
 
@@ -1377,6 +1438,11 @@ def _predict_phishing_result_uncached(target_url, known_report, cache_context):
                     final_json_report["evidence"]["ai_semantic_evidence"]["ai_inference_logic"] = f"메인 페이지 뒤에 은닉된 하위 링크에서 정보 탈취용 악성 패턴이 감지되어 최종 악성('{scam_type_2}')으로 차단합니다."
                 
                 return final_json_report
+
+    if access_unavailable_children:
+        blocked_url, notice = next(iter(access_unavailable_children.items()))
+        print(f"  [하위 링크 분석 불가] {blocked_url}")
+        return _access_unavailable_report(blocked_url, notice)
 
     print(f"\n✅ 모든 스캔 완료. 특이사항 없음! (총 소요 시간: {time.time() - start_time:.2f}초)")
     return final_json_report
